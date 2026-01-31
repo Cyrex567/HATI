@@ -6,7 +6,7 @@
 
 ## Overview
 
-**HATI is an autonomous landing hazard detection system designed to solve the "Hardware-Data Deadlock" for future lunar missions.
+HATI is an autonomous landing hazard detection system designed to solve the "Hardware-Data Deadlock" for future lunar missions.
 
 Traditional monolithic architectures struggle to run high-resolution hazard detection on radiation-hardened flight computers. HATI v1.5 solves this by decoupling the workload:
 
