@@ -1,0 +1,10 @@
+ultralytics>=8.0.0
+opencv-python-headless
+rasterio
+numpy
+pandas
+matplotlib
+seaborn
+tqdm
+scipy
+psutil
