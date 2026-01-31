@@ -1,20 +1,42 @@
+import os
 from huggingface_hub import hf_hub_download
 import shutil
-import os
 
+# --- CONFIGURATION ---
 REPO_ID = "Cyrex567/HATI-Lunar-Models"
+DIRS = ["data", "models", "ground_segment_data", "flight_segment_logs"]
 
-files = [
-    "scout_yolov8_nano.pt",
-    "titan_yolov8_large.pt",
-    "APOLLO17_DTM_150CM.tiff"
-]
+# Define the mapping: (HuggingFace Filename) -> (Local Folder)
+FILES_TO_FETCH = {
+    "APOLLO17_DTM_150CM.tiff": "data",
+    "titan_yolov8_large.pt": "models",
+    "scout_yolov8_nano.pt": "models"
+}
 
-print(f"Downloading assets from {REPO_ID}...")
+def setup_environment():
+    print(f" Initializing HATI v1.5 Environment...")
+    
+    # 1. Create Directory Structure
+    for d in DIRS:
+        os.makedirs(d, exist_ok=True)
+        print(f"   [OK] Created directory: {d}/")
 
-for file in files:
-    print(f" -> Fetching {file}...")
-    path = hf_hub_download(repo_id=REPO_ID, filename=file, local_dir=".")
-    print(f"    Saved to {path}")
+    # 2. Download Assets
+    print(f"\n Connecting to Hugging Face Hub: {REPO_ID}")
+    for filename, folder in FILES_TO_FETCH.items():
+        print(f"   -> Downloading {filename}...")
+        try:
+            # Download to cache first
+            cached_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
+            
+            # Move to the correct local folder
+            destination = os.path.join(folder, filename)
+            shutil.copy(cached_path, destination)
+            print(f"       Placed in {destination}")
+        except Exception as e:
+            print(f"       ERROR: Could not download {filename}. {e}")
 
-print("Done. You can now run the notebook.")
+    print("\n Setup Complete. You can now run 'hati_code.ipynb'.")
+
+if __name__ == "__main__":
+    setup_environment()
