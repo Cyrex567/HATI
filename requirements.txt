@@ -8,3 +8,4 @@ seaborn
 tqdm
 scipy
 psutil
+huggingface_hub
