@@ -27,7 +27,7 @@ Validated on **Apollo 17 Landing Site** data (LRO 1.5m/px resolution).
 
 ## Repository Structure
 
-* `hati_code.ipynb`: The primary research notebook containing the descent physics engine, guidance logic, and detection pipeline.
+* `HATI_V1_5.ipynb`: The primary research notebook containing the descent physics engine, guidance logic, and detection pipeline.
 * `download_assets.py`: Automation script to fetch large weights and maps from the Hugging Face hub.
 * `requirements.txt`: Python dependencies.
 * `CITATION.cff`: Citation metadata for research use.
