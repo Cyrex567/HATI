@@ -21,7 +21,7 @@ Validated on **Apollo 17 Landing Site** data (LRO 1.5m/px resolution).
 
 | Metric | Result | Note |
 | :--- | :--- | :--- |
-| **Combined Safety Score** | **91.7%** | Success rate in Monte Carlo blind descent |
+| **Combined Safety Score** | **85%** | Success rate in Monte Carlo blind descent |
 | **Boulder Precision** | **99.5%** | Via Ground-based Titan model |
 | **Ghost Class** | Detected | Successfully identified eroded craters missed by human labelers |
 
