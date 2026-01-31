@@ -1,0 +1,27 @@
+# --- Python & Jupyter Hygiene ---
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.virtual_documents
+.env
+venv/
+
+# --- HATI v1.5 Large Assets (Hosted on Hugging Face) ---
+# We ignore these so they don't get pushed to GitHub.
+# Users will fetch them using download_assets.py
+*.tiff
+*.tif
+*.pt
+*.pth
+*.onnx
+
+# --- Generated Data & Logs ---
+# Ignore the output folders so we don't spam the repo with test runs
+flight_segment_logs/
+ground_segment_data/
+
+# Keep the folder structure, but ignore files inside (Optional)
+# data/*
+# !data/.gitkeep
+# models/*
+# !models/.gitkeep
