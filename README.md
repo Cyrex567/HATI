@@ -36,5 +36,5 @@ Validated on **Apollo 17 Landing Site** data (LRO 1.5m/px resolution).
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/Cyrex567/YOUR-REPO-NAME.git](https://github.com/Cyrex567/YOUR-REPO-NAME.git)
-cd YOUR-REPO-NAME
+git clone [https://github.com/Cyrex567/HATI.git](https://github.com/Cyrex567/HATI.git)
+cd HATI
