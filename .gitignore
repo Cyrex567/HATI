@@ -6,6 +6,10 @@ __pycache__/
 .env
 venv/
 
+# --- Notebook backups produced by patch scripts ---
+*.ipynb.bak
+*.bak
+
 # --- HATI v1.5 Large Assets (Hosted on Hugging Face) ---
 # We ignore these so they don't get pushed to GitHub.
 # Users will fetch them using download_assets.py

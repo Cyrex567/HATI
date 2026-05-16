@@ -1,3 +1,17 @@
+# NOTE: torch + torchvision are NOT pinned here because the right wheel
+# depends on your hardware:
+#
+#   CPU-only:
+#       pip install torch torchvision
+#
+#   NVIDIA RTX 30 / 40 series (Ampere, Ada — CUDA 12.4):
+#       pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#
+#   NVIDIA RTX 50 series, e.g. 5070 Ti (Blackwell, sm_120 — CUDA 12.8):
+#       pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# After installing torch, install the rest with:
+#       pip install -r requirements.txt
 ultralytics>=8.0.0
 opencv-python-headless
 rasterio

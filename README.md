@@ -10,8 +10,9 @@ HATI is an autonomous landing hazard detection system designed to solve the "Har
 
 Traditional monolithic architectures struggle to run high-resolution hazard detection on radiation-hardened flight computers. HATI v1.5 solves this by decoupling the workload:
 
-* **TITAN (Ground Segment):** Uses `YOLOv8-Large` with "Deep Scan" (3.0x bicubic upsampling) to generate high-fidelity hazard maps from Earth-based servers.
+* **TITAN (Ground Segment):** Uses `YOLOv8-Large` with "Deep Scan" — a deterministic Test-Time Augmentation loop over scales `[4.0x, 3.0x, 2.0x, 1.5x, 1.0x]` (bicubic) — to generate high-fidelity hazard maps from Earth-based servers.
 * **SCOUT (Space Segment):** Uses `YOLOv8-Nano` for real-time, low-latency (1.64ms) inference and homing logic onboard the lander.
+* **CHALLENGER (Validation):** Apollo 17 LM-7 6-DoF physics simulator with rigid-body inertia, PD attitude control, DPS throttling-gap modeling, and injected hardware latency.
 
 This repository contains the **Monte Carlo Landing Simulation** and the complete pipeline code.
 
@@ -36,5 +37,41 @@ Validated on **Apollo 17 Landing Site** data (LRO 1.5m/px resolution).
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/Cyrex567/HATI.git](https://github.com/Cyrex567/HATI.git)
+git clone https://github.com/Cyrex567/HATI.git
 cd HATI
+```
+
+### 2. Install PyTorch for your hardware
+PyTorch is *not* pinned in `requirements.txt` because the right wheel
+depends on your GPU. Install it first:
+
+| Hardware | Command |
+|---|---|
+| CPU-only | `pip install torch torchvision` |
+| RTX 30 / 40 series (Ampere/Ada) | `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124` |
+| RTX 50 series, e.g. 5070 Ti (Blackwell) | `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128` |
+
+Then install the rest:
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Download model weights and the LRO DEM
+```bash
+python src/download_assets.py
+```
+Pulls `APOLLO17_DTM_150CM.tiff` (288 MB), `titan_yolov8_large.pt` (89.5 MB),
+and `scout_yolov8_nano.pt` (6.5 MB) from
+[Cyrex567/HATI-Lunar-Models](https://huggingface.co/Cyrex567/HATI-Lunar-Models)
+into `data/` and `models/`.
+
+### 4. Run the notebook
+Open `src/HATI_V1_5.ipynb` in VS Code / Jupyter and run cells top-to-bottom.
+The notebook auto-detects CUDA and uses FP16 + Tensor Cores when a GPU is
+present; on CPU it still runs but expect ~30–60 min for the Titan survey.
+
+### 5. (Optional) Run the smoke test
+The last cell synthesizes a hazard map and runs a 5-mission LM-7 campaign
+in a few seconds. Use it to confirm your environment without the multi-GB
+DEM.
+
