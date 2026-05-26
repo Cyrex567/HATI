@@ -24,6 +24,10 @@ venv/
 flight_segment_logs/
 ground_segment_data/
 
+# --- Heatmap cache files (regenerate via scripts/run_heatmap_apollo17.py) ---
+*.npz
+*.log
+
 # Keep the folder structure, but ignore files inside (Optional)
 # data/*
 # !data/.gitkeep

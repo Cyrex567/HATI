@@ -1,0 +1,34 @@
+HATI v2.0 Tier-1 heatmap statistics
+============================================================
+DEM region:      x0=3620, y0=2900, shape=2000 x 2000 px, scale=1.5 m/px
+Elapsed:         18.7 s
+Heatmap range:   [0.0688, 0.9526]
+Heatmap mean:    0.3589
+Heatmap std:     0.1919
+Percentiles:     p01=0.125, p05=0.161, p25=0.221, p50=0.290, p75=0.442, p95=0.796, p99=0.895
+High-hazard:     20.03% of pixels above 0.5
+                 4.82% of pixels above 0.8
+
+Channel mean |w * z| contributions (relative importance):
+  iqr_curvature       w=1.00  mean|wz|=1.339
+  iqr_slope           w=1.00  mean|wz|=1.041
+  mds_L3              w=1.00  mean|wz|=0.974
+  rms_slope           w=1.00  mean|wz|=0.860
+  mds_L5              w=0.90  mean|wz|=0.847
+  mds_L10             w=0.80  mean|wz|=0.716
+  rms_planar_dev      w=0.70  mean|wz|=0.648
+  tri                 w=0.70  mean|wz|=0.601
+  tpi_abs             w=0.70  mean|wz|=0.591
+  mds_L20             w=0.60  mean|wz|=0.517
+
+Channel raw ranges:
+  iqr_curvature       min=0.0000e+00  max=1.7795e-01
+  iqr_slope           min=0.0000e+00  max=4.2071e-01
+  mds_L10             min=5.4620e-04  max=1.4980e-01
+  mds_L20             min=2.9451e-04  max=2.0358e-01
+  mds_L3              min=8.8239e-04  max=8.0882e-02
+  mds_L5              min=7.5234e-04  max=1.0117e-01
+  rms_planar_dev      min=2.2464e-02  max=9.6216e-01
+  rms_slope           min=8.5597e-03  max=5.8314e-01
+  tpi_abs             min=0.0000e+00  max=1.7439e+00
+  tri                 min=0.0000e+00  max=9.3753e-01

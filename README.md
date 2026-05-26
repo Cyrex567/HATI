@@ -16,6 +16,51 @@ Traditional monolithic architectures struggle to run high-resolution hazard dete
 
 This repository contains the **Monte Carlo Landing Simulation** and the complete pipeline code.
 
+## HATI v2.0 (in development)
+
+v2.0 extends HATI with a sub-resolution hazard heatmap that fills the gap
+between v1.5's hazard map (features ≥ 3 m) and the operational class of
+hazards that kills landers (0.5 to 3 m).
+
+The heatmap fuses ten DEM-derived channels into a per-pixel hazard
+probability:
+
+- MDS (Median Differential Slope) at L = 3, 5, 10, 20 pixels — feature-size-
+  resolved curvature signatures (Kreslavsky & Head 2000, Rosenburg 2011).
+- RMS slope and IQR slope — first-derivative roughness (Rosenburg 2011,
+  Cai & Fa 2020).
+- IQR of profile curvature — crater bowl signature (Kreslavsky 2013).
+- RMS deviation from planar fit — high-frequency residual (Wang 2024).
+- |TPI| and TRI — standard GIS hazard metrics (Wang 2024).
+
+Channels are robust-z-scored with `log1p` pre-transform and clipping,
+linearly combined with literature-anchored weights, normalised, and
+passed through a logistic sigmoid to produce a [0, 1] hazard probability.
+Implementation is in `src/heatmap/` and runs in ~2 minutes on a 2000 × 2000
+DEM tile on a CPU laptop (no GPU required).
+
+NAC multi-illumination shadow channels and a terrain-relative navigation
+(TRN) layer using the shared Titan/Scout detection vocabulary are next.
+
+```bash
+# Run the Tier-1 heatmap on the Apollo 17 DEM
+python scripts/run_heatmap_apollo17.py            # full DEM (~30 min CPU)
+python scripts/run_heatmap_apollo17.py --subset   # 2000 x 2000 centre crop (~2 min)
+
+# Sanity check: channel correlation + heatmap distribution
+python scripts/validate_channels.py
+```
+
+Outputs land in `output/heatmap/`:
+
+- `apollo17_heatmap_main.png` — single-panel hillshade overlay (the deliverable figure).
+- `apollo17_heatmap_overview.png` — multi-panel composite with all channels.
+- `apollo17_heatmap_stats.txt` — summary statistics.
+- `apollo17_heatmap_channels.npz` — raw channel arrays for re-fusion.
+
+Companion documentation: [`heatmap_explained.md`](../HATI%20Website/HATI/heatmap_explained.md)
+(on the project website) walks through every channel in plain language.
+
 ## Performance Validation
 
 Validated on **Apollo 17 Landing Site** data (LRO 1.5m/px resolution).
