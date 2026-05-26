@@ -31,13 +31,36 @@ Runner scripts in `scripts/`:
 
 ### Internal sanity (passes)
 
-| Check | Result | What it tells us |
-|---|---|---|
-| Heatmap range | [0.07, 0.95] | No saturation, proper continuous probability surface |
-| Heatmap mean | 0.36 | Consistent with mare-like terrain |
-| High-hazard fraction | 20% above 0.5, 5% above 0.8 | Reasonable for Apollo 17 (crater-bearing mare) |
-| Distribution shape | Unimodal, log-tailed | Proper probability distribution, not bimodal |
-| Mean inter-channel correlation | +0.43 | Healthy range; channels agree but aren't redundant |
+Both the 2000 × 2000 centre crop and the full 9240 × 7800 DEM produce
+consistent, well-behaved heatmap distributions.
+
+| Check | 2000 x 2000 subset | Full DEM | What it tells us |
+|---|---|---|---|
+| Heatmap range | [0.07, 0.95] | [0.07, 0.95] | No saturation, proper continuous probability surface |
+| Heatmap mean | 0.36 | 0.34 | Consistent with mare-like terrain |
+| Median | 0.29 | 0.30 | Most pixels are well below the hazard threshold |
+| p95 | 0.80 | 0.66 | Strong-hazard tail |
+| p99 | 0.89 | 0.83 | Extreme-hazard tail |
+| Above 0.5 | 20.0% | 12.8% | Subset is centred on crater-rich area; full DEM includes more safe terrain |
+| Above 0.8 | 4.8% | 1.5% | Strong hazards are rare globally |
+| Mean inter-channel correlation | +0.43 | (similar) | Healthy: channels agree but aren't redundant |
+
+### Visual validation (full DEM)
+
+The full-DEM heatmap correctly identifies:
+
+- **South Massif and North Massif** as high-hazard (steep terrain).
+- **Camelot crater and surrounding small craters** as bright rim-rings.
+- **The Apollo 17 landing valley** (the flat mare floor between the
+  massifs) as low-hazard purple. This is where Apollo 17 actually
+  landed in 1972, and modern lunar landing planning would target the
+  same valley.
+- **The Lee-Lincoln scarp** running through the valley as a high-hazard
+  linear feature. Whether this is a "real" lander hazard or just a
+  geological curiosity, the fact that the heatmap flags it shows the
+  pipeline is sensitive to subtle topographic structure (the scarp is
+  only ~80 m of vertical relief and is easy to miss in standard hazard
+  maps).
 
 ### Per-channel observations
 
