@@ -1,0 +1,74 @@
+PDS_VERSION_ID                  = PDS3
+RECORD_TYPE                     = FIXED_LENGTH
+RECORD_BYTES                    = 4688
+FILE_RECORDS                    = 1473
+DATA_SET_ID                     = "LRO-L-LROC-5-RDR-V1.0"
+DATA_SET_NAME                   = "LRO MOON LROC 5 RDR V1.0"
+VOLUME_ID                       = "LROLRC_2001"
+PRODUCER_INSTITUTE_NAME         = "ARIZONA STATE UNIVERSITY"
+PRODUCER_ID                     = LRO_LROC_TEAM
+PRODUCER_FULL_NAME              = "MARK ROBINSON, PH.D"
+PRODUCT_ID                      = "NAC_DTM_NOBILE03"
+PRODUCT_VERSION_ID              = "v1.9"
+PRODUCT_TYPE                    = RDR
+INSTRUMENT_HOST_NAME            = "LUNAR RECONNAISSANCE ORBITER"
+INSTRUMENT_HOST_ID              = "LRO"
+INSTRUMENT_NAME                 = "LUNAR RECONNAISSANCE ORBITER CAMERA"
+INSTRUMENT_ID                   = "LROC"
+TARGET_NAME                     = "MOON"
+MISSION_PHASE_NAME              = "SCIENCE MISSION"
+RATIONALE_DESC                  = "Created to enable lunar science and
+                                  exploration activities"
+SOFTWARE_NAME                   = "ISIS 3.10.2_LROC, 3.10.2 with SER
+  enhancements | SOCET SET v5.6 (c) BAE Systems | GDAL"
+START_TIME                      = 2012-08-31T18:08:08
+STOP_TIME                       = 2012-09-01T06:02:55
+SPACECRAFT_CLOCK_START_COUNT    = "N/A"
+SPACECRAFT_CLOCK_STOP_COUNT     = "N/A"
+PRODUCT_CREATION_TIME           = 2024-11-26T02:17:00
+^IMAGE                          = ("NAC_DTM_NOBILE03.TIF", 6510027 <BYTES>)
+
+OBJECT                          = IMAGE_MAP_PROJECTION
+  ^DATA_SET_MAP_PROJECTION      = "DSMAP.CAT"
+  MAP_PROJECTION_TYPE           = "POLARSTEREOGRAPHIC"
+  PROJECTION_LATITUDE_TYPE      = PLANETOCENTRIC
+  A_AXIS_RADIUS                 = 1737.4 <KM>
+  B_AXIS_RADIUS                 = 1737.4 <KM>
+  C_AXIS_RADIUS                 = 1737.4 <KM>
+  COORDINATE_SYSTEM_NAME        = PLANETOCENTRIC
+  POSITIVE_LONGITUDE_DIRECTION  = EAST
+  KEYWORD_LATITUDE_TYPE         = PLANETOCENTRIC
+  CENTER_LATITUDE               = -90
+  CENTER_LONGITUDE              = 0 <DEG>
+  LINE_FIRST_PIXEL              = 1
+  LINE_LAST_PIXEL               = 1473
+  SAMPLE_FIRST_PIXEL            = 1
+  SAMPLE_LAST_PIXEL             = 1172
+  MAP_PROJECTION_ROTATION       = 0.0 <DEG>
+  MAP_RESOLUTION                = 7580.8376060374 <PIX/DEG>
+  MAP_SCALE                     = 4.0 <METERS/PIXEL>
+  MAXIMUM_LATITUDE              = -84.6044877 <DEG>
+  MINIMUM_LATITUDE              = -84.8489574 <DEG>
+  EASTERNMOST_LONGITUDE         = 30.39086 <DEG>
+  WESTERNMOST_LONGITUDE         = 27.8977137 <DEG>
+  LINE_PROJECTION_OFFSET        = 35678.0
+  SAMPLE_PROJECTION_OFFSET      = -18891.0
+END_OBJECT                      = IMAGE_MAP_PROJECTION
+
+OBJECT                          = IMAGE
+  DESCRIPTION                   = "Terrain near Nobile crater rim and Mons
+    Mouton high-resolution NAC digital terrain model in GeoTIFF format. DEM is
+    IEEE floating point GeoTIFF, 32 bits/sample, 1 samples/pixel in single
+    image plane configuration. The NoDATA value is -3.40282266e+038. For more
+    info, see [HENRIKSENETAL2017]."
+  INTERCHANGE_FORMAT            = BINARY
+  LINES                         = 1473
+  LINE_SAMPLES                  = 1172
+  SAMPLE_TYPE                   = PC_REAL
+  SAMPLE_BITS                   = 32
+  BAND_STORAGE_TYPE             = SAMPLE_INTERLEAVED
+  BANDS                         = 1
+  FILTER_NAME                   = "N/A"
+END_OBJECT                      = IMAGE
+
+END
