@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HATI · Mission Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#0a111c; --panel:#0e1826; --panel2:#101d2e; --line:#22334a;
+  --ink:#e8eef7; --mut:#8b97a5; --sil:#c9d3de;
+  --cy:#27e1d6; --cy-dim:#1b9a92;
+  --red:#e5484d; --red-deep:#c1121f;
+  --ok:#3fb970; --warn:#d9a13b;
+  --mono:Consolas,'Cascadia Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);
+  font:15px/1.5 'Segoe UI',Inter,system-ui,sans-serif}
+#stars{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.55}
+.wrap{position:relative;z-index:1;max-width:1440px;margin:0 auto;padding:18px 22px 40px}
+
+/* ---------- header ---------- */
+header{display:flex;align-items:center;gap:18px;padding:10px 4px 16px;border-bottom:1px solid var(--line)}
+/* The logo PNG is a full lockup (emblem + its own wordmark) on off-white. We crop to
+   the wolf-and-crescent emblem (the header carries the wordmark already) and invert+
+   screen to lift it to light line-art on navy; hue-rotate keeps the red accent red.
+   The PNG file itself is untouched. */
+.logowrap{width:78px;height:78px;flex:none;overflow:hidden;position:relative;background:var(--bg)}
+#logo{position:absolute;width:126px;height:126px;left:-29px;top:-8px;mix-blend-mode:screen;
+  filter:invert(1) hue-rotate(180deg) contrast(1.08) drop-shadow(0 0 10px rgba(39,225,214,.2))}
+/* letters are flex items spread edge-to-edge, so the wordmark always spans exactly
+   the tagline's width (the widest line) -- the lockup proportions of the logo */
+.brand .wm{display:flex;justify-content:space-between;font-size:34px;font-weight:600;
+  line-height:1;color:var(--ink);padding-right:2px}
+.brand .wm .ri{color:var(--red);}
+/* the tagline is the widest element in the lockup; keeping it on one line lets the
+   brand block size to it, and the rule (flex:1 each side) stretches the full width */
+.brand{flex:none}
+.brand .rule{display:flex;align-items:center;gap:8px;margin:6px 0 4px}
+.brand .rule i{flex:1;height:1px;background:var(--sil);opacity:.55}
+.brand .rule b{color:var(--red-deep);font-size:10px;line-height:1;transform:translateY(-1px)}
+.brand .tag{font-size:10.5px;letter-spacing:.24em;color:var(--mut);white-space:nowrap}
+.hspace{flex:1}
+.pills{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.pill{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;font-size:11.5px;letter-spacing:.08em;color:var(--sil)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px rgba(63,185,112,.7)}
+.dot.bad{background:var(--red);box-shadow:0 0 8px rgba(229,72,77,.6)}
+.dot.run{background:var(--cy);box-shadow:0 0 9px rgba(39,225,214,.8);animation:pulse 1.1s infinite}
+@keyframes pulse{50%{opacity:.35}}
+#clock{font-family:var(--mono);font-size:12px;color:var(--sil)}
+
+/* ---------- layout ---------- */
+main{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin-top:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.panel h2{font-size:11.5px;font-weight:600;letter-spacing:.22em;color:var(--mut);margin-bottom:10px;
+  display:flex;align-items:center;gap:8px}
+.panel h2 .live{color:var(--cy);font-size:10px;letter-spacing:.1em}
+.s7{grid-column:span 7}.s5{grid-column:span 5}.s12{grid-column:span 12}
+@media(max-width:1080px){.s7,.s5{grid-column:span 12}}
+
+/* ---------- canvases ---------- */
+.cv{width:100%;display:block;border-radius:6px;background:radial-gradient(ellipse at center,#0c1523 0%,#0a111c 78%)}
+.cap{font-size:11px;color:var(--mut);margin-top:8px;line-height:1.45}
+.leg{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:10.5px;color:var(--mut)}
+.leg .bar{height:8px;width:130px;border-radius:4px;background:linear-gradient(90deg,#3d5c80,#dfe9f5)}
+.leg .sw{display:inline-block;width:10px;height:10px;border-radius:50%}
+#tip{position:fixed;display:none;z-index:50;background:#0c1523;border:1px solid var(--cy-dim);
+  border-radius:6px;padding:7px 10px;font:11.5px/1.5 var(--mono);color:var(--ink);pointer-events:none;
+  box-shadow:0 4px 18px rgba(0,0,0,.5)}
+
+/* ---------- metric tiles ---------- */
+.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+@media(max-width:1080px){.tiles{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:640px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.tile .k{font-size:10px;letter-spacing:.18em;color:var(--mut)}
+.tile .v{font-size:26px;font-weight:600;margin:3px 0 1px;color:var(--ink);font-variant-numeric:tabular-nums}
+.tile .v small{font-size:13px;color:var(--sil);font-weight:400}
+.tile .u{font-size:11px;color:var(--mut)}
+.chip{display:inline-block;font-size:9px;letter-spacing:.12em;border-radius:3px;padding:1.5px 6px;margin-left:6px;vertical-align:2px}
+.chip.real{background:rgba(63,185,112,.14);color:var(--ok);border:1px solid rgba(63,185,112,.4)}
+.chip.synth{background:rgba(217,161,59,.12);color:var(--warn);border:1px solid rgba(217,161,59,.4)}
+.chip.plan{background:rgba(139,151,165,.12);color:var(--mut);border:1px solid var(--line)}
+
+/* ---------- stepper ---------- */
+.steps{display:flex;gap:0;overflow-x:auto;padding:4px 0}
+.step{flex:1;min-width:104px;text-align:center;position:relative;padding:10px 6px 6px}
+.step:not(:last-child)::after{content:"";position:absolute;top:19px;left:calc(50% + 14px);
+  width:calc(100% - 28px);height:2px;background:var(--line)}
+.step .n{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);background:var(--panel);
+  margin:0 auto;position:relative;z-index:1}
+.step.done .n{border-color:var(--ok);background:var(--ok)}
+.step.run .n{border-color:var(--cy);background:var(--cy);animation:pulse 1.1s infinite}
+.step.fail .n{border-color:var(--red);background:var(--red)}
+.step .t{font-size:10px;letter-spacing:.12em;color:var(--mut);margin-top:7px}
+.step.done .t{color:var(--ok)}.step.run .t{color:var(--cy)}.step.fail .t{color:var(--red)}
+
+/* ---------- jobs + console ---------- */
+.btns{display:flex;flex-direction:column;gap:9px}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+  border-radius:7px;padding:10px 13px;font:13px 'Segoe UI',sans-serif;text-align:left;
+  display:flex;justify-content:space-between;align-items:center;gap:8px;transition:border-color .15s}
+button:hover{border-color:var(--cy-dim)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button .h{font-size:9.5px;letter-spacing:.1em;color:var(--warn)}
+button.stop{border-color:rgba(229,72,77,.5);color:var(--red)}
+#console{background:#070d16;border:1px solid var(--line);border-radius:7px;height:320px;overflow-y:auto;
+  padding:10px 12px;font:12px/1.55 var(--mono);color:#b9c7d8;white-space:pre-wrap;word-break:break-all}
+#console .hl{color:var(--cy)}#console .er{color:var(--red)}#console .okl{color:var(--ok)}
+
+/* ---------- gallery / ledger ---------- */
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.gal figure{background:var(--panel2);border:1px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer}
+.gal img{width:100%;height:110px;object-fit:cover;display:block;background:#fff}
+.gal figcaption{font:10px var(--mono);color:var(--mut);padding:6px 8px;word-break:break-all}
+#lb{position:fixed;inset:0;background:rgba(4,8,14,.92);z-index:90;display:none;align-items:center;
+  justify-content:center;padding:30px;cursor:zoom-out}
+#lb img{max-width:96%;max-height:94%;border-radius:8px;background:#fff}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{font-size:10px;letter-spacing:.16em;color:var(--mut)}
+td.m{font-family:var(--mono);color:var(--sil);white-space:nowrap}
+footer{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);display:flex;gap:14px;
+  font-size:11px;color:var(--mut);letter-spacing:.06em;flex-wrap:wrap}
+footer b{color:var(--sil)}
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div id="tip"></div>
+<div id="lb" onclick="this.style.display='none'"><img id="lbimg" alt=""></div>
+
+<div class="wrap">
+<header>
+  <div class="logowrap"><img id="logo" src="/assets/hati_logo.png" alt=""
+       onerror="this.parentNode.style.display='none'"></div>
+  <div class="brand">
+    <div class="wm"><span>H</span><span>A</span><span>T</span><span class="ri">I</span></div>
+    <div class="rule"><i></i><b>&#9660;</b><i></i></div>
+    <div class="tag">HAZARD ASSESSMENT AND TERRAIN INTELLIGENCE</div>
+  </div>
+  <div class="hspace"></div>
+  <div style="text-align:right">
+    <div class="pills">
+      <span class="pill"><span class="dot ok" id="d-srv"></span>SERVER</span>
+      <span class="pill"><span class="dot" id="d-data"></span>DATA</span>
+      <span class="pill"><span class="dot" id="d-isis"></span>ISIS</span>
+      <span class="pill"><span class="dot" id="d-job"></span><span id="jobtxt">JOB · IDLE</span></span>
+    </div>
+    <div id="clock" style="margin-top:7px">–</div>
+  </div>
+</header>
+
+<main>
+  <!-- solar sweep radar -->
+  <section class="panel s7">
+    <h2>SOLAR SWEEP RADAR · MONS MOUTON &nbsp;<span class="live" id="radar-live">● LIVE</span></h2>
+    <canvas id="radar" class="cv" width="900" height="640"></canvas>
+    <div class="leg">
+      <span>acquisition year</span><span class="bar"></span><span id="yr-min">2010</span>–<span id="yr-max">2024</span>
+      <span style="margin-left:14px"><span class="sw" style="background:var(--cy)"></span> lit (sun above horizon)</span>
+      <span><span class="sw" style="background:#3a4a5e"></span> unlit</span>
+    </div>
+    <div class="cap">Every LROC NAC frame over the Athena site from the ODE archive query, placed by sun azimuth
+      (angle) and sun elevation (radius; grazing light at the rim, high sun at the centre). The beam sweeps the
+      azimuths a real solar day covers; frames ping as the beam passes their illumination. Hover any frame for its ID.</div>
+  </section>
+
+  <!-- kinematics live -->
+  <section class="panel s5">
+    <h2>SHADOW KINEMATICS · LIVE PHYSICS &nbsp;<span class="live">● COMPUTING</span></h2>
+    <canvas id="kin" class="cv" width="640" height="500"></canvas>
+    <div class="cap">The estimator's principle computed in real time with the real shadow law
+      <span style="font-family:var(--mono);color:var(--sil)">L&nbsp;=&nbsp;h·cot(e)</span> at e&nbsp;=&nbsp;5°:
+      as the sun sweeps, a true obstacle's shadow pivots about a fixed base and its votes
+      <span style="color:var(--cy)">converge</span> into a bright point; an albedo decoy's votes
+      <span style="color:var(--red)">smear</span> into a faint ring and never converge.</div>
+  </section>
+
+  <!-- metrics -->
+  <section class="s12">
+    <div class="tiles">
+      <div class="tile"><div class="k">SWEEP FRAMES</div><div class="v" id="m-frames">–</div><div class="u"><span id="m-lit">–</span> lit<span class="chip real">REAL</span></div></div>
+      <div class="tile"><div class="k">AZIMUTH SECTORS</div><div class="v" id="m-sect">–<small>/12</small></div><div class="u">30° sectors filled<span class="chip real">REAL</span></div></div>
+      <div class="tile"><div class="k">GATE FALSE ALARM</div><div class="v">5.26<small>%</small></div><div class="u">mare @ 8° limit<span class="chip real">REAL</span></div></div>
+      <div class="tile"><div class="k">CHANNELS KEPT</div><div class="v">2<small>/10</small></div><div class="u">RMS slope · TRI<span class="chip real">REAL</span></div></div>
+      <div class="tile"><div class="k">HEIGHT RMSE</div><div class="v">0.24<small> m</small></div><div class="u">kinematics<span class="chip synth">SYNTH</span></div></div>
+      <div class="tile"><div class="k">OBSTACLE DENSITY</div><div class="v">~1400<small>/km²</small></div><div class="u">shadow census<span class="chip real">REAL</span></div></div>
+    </div>
+  </section>
+
+  <!-- ingestion stepper -->
+  <section class="panel s12">
+    <h2>INGESTION PIPELINE · EDR → CO-REGISTERED SWEEP</h2>
+    <div class="steps" id="steps"></div>
+  </section>
+
+  <!-- jobs -->
+  <section class="panel s5">
+    <h2>MISSION CONTROL · JOBS</h2>
+    <div class="btns">
+      <button data-job="sweep">Query solar sweep (ODE)<span class="h">NET</span></button>
+      <button data-job="mare-v3">Mare control v3 · why texture failed<span class="h">HEAVY</span></button>
+      <button data-job="consensus">Consensus shadow census (3 orthos)<span class="h">HEAVY</span></button>
+      <button data-job="kinematics">Kinematics synthetic benchmark<span class="h">HEAVY</span></button>
+      <button data-job="ingest-dry">Ingest sweep · DRY RUN (plan only)<span class="h">SAFE</span></button>
+      <button data-job="ingest">Ingest sweep · EXECUTE (needs ISIS)<span class="h">HEAVY · GB</span></button>
+      <button class="stop" id="btn-stop">■ Stop running job</button>
+    </div>
+    <div class="cap" id="jobnote">One job at a time. Output streams live to the console. HEAVY jobs are meant
+      for the GPU box; the full ingest downloads several GB of NAC EDR frames.</div>
+  </section>
+
+  <!-- console -->
+  <section class="panel s7">
+    <h2>TELEMETRY CONSOLE &nbsp;<span class="live" id="con-live">● STREAM</span></h2>
+    <div id="console"></div>
+  </section>
+
+  <!-- figures -->
+  <section class="panel s12">
+    <h2>RESULT FIGURES · output/athena</h2>
+    <div class="gal" id="gal"></div>
+  </section>
+
+  <!-- ledger -->
+  <section class="panel s12">
+    <h2>EVIDENCE LEDGER · WHAT IS PROVEN, AND HOW</h2>
+    <table>
+      <tr><th>CLAIM / CAPABILITY</th><th>EVIDENCE</th><th>METRIC</th></tr>
+      <tr><td>Heatmap ranks the Athena touchdown high within its scene</td><td><span class="chip real">REAL</span></td><td class="m">z = 3.22 · worst few %</td></tr>
+      <tr><td>Heatmap is a relative ranker, not a calibrated P(loss)</td><td><span class="chip real">REAL (control)</span></td><td class="m">–</td></tr>
+      <tr><td>Shadow census finds sub-resolution obstacles at the site</td><td><span class="chip real">REAL</span></td><td class="m">~1400 / km²</td></tr>
+      <tr><td>Resolution-ladder recovery (shadow / heatmap)</td><td><span class="chip real">REAL</span></td><td class="m">AUC 0.83–0.99 / 0.86–0.93</td></tr>
+      <tr><td>8 of 10 texture channels score BELOW CHANCE and were removed</td><td><span class="chip real">REAL (negative)</span></td><td class="m">AUC 0.342–0.432</td></tr>
+      <tr><td>Surviving channels: RMS slope + TRI (physical units)</td><td><span class="chip real">REAL</span></td><td class="m">AUC 0.826 / 0.808</td></tr>
+      <tr><td>Absolute slope gate is conservative and specific</td><td><span class="chip real">REAL</span></td><td class="m">mare FA 5.3% @ 8°</td></tr>
+      <tr><td>Athena passes the gross-terrain gate (hazard is sub-resolution)</td><td><span class="chip real">REAL</span></td><td class="m">3.0° slope</td></tr>
+      <tr><td>Shadow kinematics separates obstacles from albedo</td><td><span class="chip synth">SYNTH</span></td><td class="m">decoy conf → 0</td></tr>
+      <tr><td>Shadow kinematics measures obstacle height</td><td><span class="chip synth">SYNTH</span></td><td class="m">RMSE 0.24 m</td></tr>
+      <tr><td>An azimuth-diverse sweep exists over the site</td><td><span class="chip real">REAL (archive)</span></td><td class="m">525 lit · 12/12 sectors</td></tr>
+      <tr><td>Real-data shadow-kinematics obstacle map</td><td><span class="chip plan">PLANNED</span></td><td class="m">–</td></tr>
+      <tr><td>Fused, calibrated absolute hazard map</td><td><span class="chip plan">PLANNED</span></td><td class="m">–</td></tr>
+      <tr><td>Site-held-out validation with frozen gates</td><td><span class="chip plan">PLANNED</span></td><td class="m">–</td></tr>
+    </table>
+  </section>
+</main>
+
+<footer>
+  <span><b>HATI</b> · Máni Mission terrain-hazard pipeline</span>
+  <span>Gergő Csaba Morvai</span>
+  <span id="ftinfo">–</span>
+  <span style="margin-left:auto">local server · 127.0.0.1</span>
+</footer>
+</div>
+
+<script>
+"use strict";
+/* ---------------- shared clock: one solar day sweep ---------------- */
+const T0 = performance.now();
+const SWEEP_MS = 26000;                       // full 360° azimuth sweep
+const beamAz = () => ((performance.now() - T0) / SWEEP_MS * 360) % 360;
+const rad = d => (d - 90) * Math.PI / 180;    // az 0 = up (north), clockwise
+
+/* ---------------- starfield ---------------- */
+(() => {
+  const c = document.getElementById("stars"), x = c.getContext("2d");
+  let stars = [];
+  function size() {
+    c.width = innerWidth; c.height = innerHeight;
+    stars = Array.from({length: 150}, () => ({
+      x: Math.random() * c.width, y: Math.random() * c.height,
+      r: Math.random() * 1.3 + .3, p: Math.random() * Math.PI * 2, s: .4 + Math.random() * .8
+    }));
+  }
+  addEventListener("resize", size); size();
+  (function tick(t) {
+    x.clearRect(0, 0, c.width, c.height);
+    for (const s of stars) {
+      x.globalAlpha = .25 + .55 * Math.abs(Math.sin(t / 1600 * s.s + s.p));
+      x.fillStyle = "#c9d3de";
+      x.beginPath(); x.arc(s.x, s.y, s.r, 0, 7); x.fill();
+    }
+    x.globalAlpha = 1; requestAnimationFrame(tick);
+  })(0);
+})();
+
+/* ---------------- state ---------------- */
+let S = {sweep: [], figures: [], checks: {}, job: {}};
+const $ = id => document.getElementById(id);
+
+async function loadState() {
+  try {
+    S = await (await fetch("/api/state")).json();
+  } catch (e) { return; }
+  const lit = S.sweep.filter(r => r.elev != null && r.elev > 0);
+  $("m-frames").textContent = S.sweep.length || "–";
+  $("m-lit").textContent = lit.length;
+  const sect = new Set(lit.filter(r => r.az != null).map(r => Math.floor(((r.az % 360) + 360) % 360 / 30)));
+  $("m-sect").innerHTML = sect.size + "<small>/12</small>";
+  const yrs = S.sweep.map(r => r.year).filter(Boolean);
+  if (yrs.length) { $("yr-min").textContent = Math.min(...yrs); $("yr-max").textContent = Math.max(...yrs); }
+  $("d-data").className = "dot " + (S.checks.dtm && S.checks.orthos >= 3 ? "ok" : "bad");
+  $("d-isis").className = "dot " + (S.checks.isis ? "ok" : "bad");
+  $("ftinfo").textContent = `python ${S.checks.python} · ${S.checks.platform} · orthos ${S.checks.orthos}/3 · ISIS ${S.checks.isis ? "found" : "not found"}`;
+  setJob(S.job.running ? "running" : "idle", S.job.name);
+  buildRadarDots(); buildGallery();
+}
+
+/* ---------------- radar ---------------- */
+const rc = $("radar"), rx = rc.getContext("2d");
+const RC = {cx: 450, cy: 320, R: 285, dots: [], pings: []};
+function yearColor(y) {
+  const t = Math.max(0, Math.min(1, (y - 2010) / 14));
+  const a = [61, 92, 128], b = [223, 233, 245];
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function buildRadarDots() {
+  RC.dots = S.sweep.filter(r => r.az != null).map(r => {
+    const e = r.elev == null ? -1 : r.elev;
+    const rr = e <= 0 ? RC.R : RC.R * (1 - Math.min(e, 8) / 9);
+    return {az: ((r.az % 360) + 360) % 360, r: rr,
+      x: RC.cx + rr * Math.cos(rad(r.az)), y: RC.cy + rr * Math.sin(rad(r.az)),
+      lit: e > 0, col: r.year ? yearColor(r.year) : "#5a6f88", d: r};
+  });
+}
+function drawRadar() {
+  rx.clearRect(0, 0, rc.width, rc.height);
+  rx.save();
+  // rings + labels
+  rx.strokeStyle = "#1c2a3e"; rx.fillStyle = "#5c6c80"; rx.font = "11px Consolas";
+  [[0, "0°"], [2, "2°"], [4, "4°"], [6, "6°"], [8, "8°"]].forEach(([e, t]) => {
+    const rr = RC.R * (1 - e / 9);
+    rx.beginPath(); rx.arc(RC.cx, RC.cy, rr, 0, 7); rx.stroke();
+    rx.fillText(t, RC.cx + 4, RC.cy - rr - 4);
+  });
+  // sector spokes
+  for (let a = 0; a < 360; a += 30) {
+    rx.beginPath(); rx.moveTo(RC.cx, RC.cy);
+    rx.lineTo(RC.cx + RC.R * Math.cos(rad(a)), RC.cy + RC.R * Math.sin(rad(a)));
+    rx.strokeStyle = "#16233a"; rx.stroke();
+  }
+  ["N 0°", "E 90°", "S 180°", "W 270°"].forEach((t, i) => {
+    const a = i * 90;
+    rx.fillStyle = "#7c8ea5"; rx.font = "12px Consolas";
+    rx.fillText(t, RC.cx + (RC.R + 14) * Math.cos(rad(a)) - 14, RC.cy + (RC.R + 16) * Math.sin(rad(a)) + 4);
+  });
+  // beam
+  const bA = beamAz(), g = rx.createLinearGradient(
+    RC.cx, RC.cy, RC.cx + RC.R * Math.cos(rad(bA)), RC.cy + RC.R * Math.sin(rad(bA)));
+  g.addColorStop(0, "rgba(39,225,214,.55)"); g.addColorStop(1, "rgba(39,225,214,0)");
+  rx.strokeStyle = g; rx.lineWidth = 2.4;
+  rx.beginPath(); rx.moveTo(RC.cx, RC.cy);
+  rx.lineTo(RC.cx + RC.R * Math.cos(rad(bA)), RC.cy + RC.R * Math.sin(rad(bA))); rx.stroke();
+  // trailing fade wedge
+  for (let k = 1; k <= 26; k++) {
+    const a = bA - k * 1.6;
+    rx.strokeStyle = `rgba(39,225,214,${.10 * (1 - k / 26)})`; rx.lineWidth = 3;
+    rx.beginPath(); rx.moveTo(RC.cx, RC.cy);
+    rx.lineTo(RC.cx + RC.R * Math.cos(rad(a)), RC.cy + RC.R * Math.sin(rad(a))); rx.stroke();
+  }
+  // dots (+ ping when beam passes)
+  for (const d of RC.dots) {
+    let dd = Math.abs(d.az - bA); dd = Math.min(dd, 360 - dd);
+    const hot = d.lit && dd < 2.5;
+    rx.globalAlpha = d.lit ? .95 : .35;
+    rx.fillStyle = hot ? "#27e1d6" : d.col;
+    rx.beginPath(); rx.arc(d.x, d.y, hot ? 3.6 : 2.1, 0, 7); rx.fill();
+    if (hot && Math.random() < .12) RC.pings.push({x: d.x, y: d.y, r: 3, a: .8});
+  }
+  rx.globalAlpha = 1;
+  // sonar rings
+  RC.pings = RC.pings.filter(p => p.a > .02);
+  for (const p of RC.pings) {
+    p.r += 1.15; p.a *= .93;
+    rx.strokeStyle = `rgba(39,225,214,${p.a})`; rx.lineWidth = 1.2;
+    rx.beginPath(); rx.arc(p.x, p.y, p.r, 0, 7); rx.stroke();
+  }
+  // centre
+  rx.fillStyle = "#e5484d";
+  rx.beginPath(); rx.arc(RC.cx, RC.cy, 3.4, 0, 7); rx.fill();
+  rx.fillStyle = "#8b97a5"; rx.font = "10px Consolas";
+  rx.fillText("ATHENA SITE", RC.cx - 33, RC.cy + 18);
+  rx.restore();
+}
+// hover tooltip
+rc.addEventListener("mousemove", ev => {
+  const b = rc.getBoundingClientRect();
+  const mx = (ev.clientX - b.left) * rc.width / b.width, my = (ev.clientY - b.top) * rc.height / b.height;
+  let best = null, bd = 144;
+  for (const d of RC.dots) {
+    const dx = d.x - mx, dy = d.y - my, dist = dx * dx + dy * dy;
+    if (dist < bd) { bd = dist; best = d; }
+  }
+  const tip = $("tip");
+  if (best) {
+    tip.style.display = "block";
+    tip.style.left = (ev.clientX + 14) + "px"; tip.style.top = (ev.clientY + 12) + "px";
+    tip.innerHTML = `${best.d.pid}<br>az ${best.az.toFixed(1)}° · elev ${best.d.elev == null ? "?" : best.d.elev.toFixed(1) + "°"} · ${best.d.year || ""}`;
+  } else tip.style.display = "none";
+});
+rc.addEventListener("mouseleave", () => $("tip").style.display = "none");
+
+/* ---------------- kinematics live physics ---------------- */
+const kc = $("kin"), kx = kc.getContext("2d");
+const heat = document.createElement("canvas"); heat.width = kc.width; heat.height = kc.height;
+const hx = heat.getContext("2d");
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rng = mulberry32(7);
+const COT_E = 1 / Math.tan(5 * Math.PI / 180);          // cot(5°) ≈ 11.43
+const PXM = 1.35;                                        // px per metre
+const obstacles = Array.from({length: 24}, () => ({
+  x: 40 + rng() * (kc.width - 80), y: 40 + rng() * (kc.height - 80), h: .3 + rng() * 2.7}));
+const decoys = Array.from({length: 4}, () => ({
+  x: 60 + rng() * (kc.width - 120), y: 60 + rng() * (kc.height - 120), r: 7 + rng() * 6}));
+function drawKin() {
+  const az = beamAz(), dirX = Math.cos(rad(az + 180)), dirY = Math.sin(rad(az + 180));
+  // votes into the heat layer (real formula: base = up-sun end, fixed for real obstacles)
+  hx.globalCompositeOperation = "lighter";
+  for (const o of obstacles) {
+    hx.fillStyle = "rgba(23,140,132,0.020)";
+    hx.beginPath(); hx.arc(o.x, o.y, 3.2, 0, 7); hx.fill();
+  }
+  for (const d of decoys) {                              // decoy "base" orbits its rim -> smear
+    const bx = d.x + d.r * Math.cos(rad(az)), by = d.y + d.r * Math.sin(rad(az));
+    hx.fillStyle = "rgba(160,40,46,0.016)";
+    hx.beginPath(); hx.arc(bx, by, 2.6, 0, 7); hx.fill();
+  }
+  hx.globalCompositeOperation = "source-over";
+  hx.fillStyle = "rgba(10,17,28,0.006)"; hx.fillRect(0, 0, heat.width, heat.height); // slow decay
+  // frame
+  kx.clearRect(0, 0, kc.width, kc.height);
+  kx.fillStyle = "rgba(158,176,204,0.075)";              // lifted regolith ground
+  kx.fillRect(0, 0, kc.width, kc.height);
+  kx.drawImage(heat, 0, 0);
+  // sun direction indicator
+  kx.strokeStyle = "rgba(39,225,214,.5)"; kx.lineWidth = 1.4;
+  const sx = kc.width - 46, sy = 40;
+  kx.beginPath(); kx.arc(sx, sy, 13, 0, 7); kx.stroke();
+  kx.beginPath(); kx.moveTo(sx, sy);
+  kx.lineTo(sx + 20 * Math.cos(rad(az)), sy + 20 * Math.sin(rad(az))); kx.stroke();
+  kx.fillStyle = "#8b97a5"; kx.font = "10px Consolas";
+  kx.fillText("SUN az " + az.toFixed(0).padStart(3, "0") + "°", sx - 34, sy + 30);
+  // decoys: static dark albedo blobs
+  for (const d of decoys) {
+    kx.fillStyle = "rgba(16,24,36,.92)";
+    kx.beginPath(); kx.arc(d.x, d.y, d.r, 0, 7); kx.fill();
+    kx.strokeStyle = "rgba(229,72,77,.35)"; kx.lineWidth = 1;
+    kx.beginPath(); kx.arc(d.x, d.y, d.r, 0, 7); kx.stroke();
+  }
+  // obstacles + pivoting shadows (L = h·cot e)
+  for (const o of obstacles) {
+    const L = o.h * COT_E * PXM;
+    kx.strokeStyle = "rgba(3,6,11,.92)"; kx.lineWidth = 3.2; kx.lineCap = "round";
+    kx.beginPath(); kx.moveTo(o.x, o.y); kx.lineTo(o.x + L * dirX, o.y + L * dirY); kx.stroke();
+    kx.fillStyle = "#dfe9f5";
+    kx.beginPath(); kx.arc(o.x, o.y, 2.2, 0, 7); kx.fill();
+  }
+  // labels
+  kx.fillStyle = "#27e1d6"; kx.font = "10px Consolas";
+  kx.fillText("● converged vote = real obstacle", 12, kc.height - 26);
+  kx.fillStyle = "#e5484d";
+  kx.fillText("● smeared ring = albedo decoy (rejected)", 12, kc.height - 12);
+}
+
+/* ---------------- animation loop ---------------- */
+(function loop() { drawRadar(); drawKin(); requestAnimationFrame(loop); })();
+
+/* ---------------- gallery ---------------- */
+function buildGallery() {
+  const g = $("gal"); g.innerHTML = "";
+  for (const f of S.figures) {
+    const fig = document.createElement("figure");
+    fig.innerHTML = `<img loading="lazy" src="/figs/${f}"><figcaption>${f}</figcaption>`;
+    fig.onclick = () => { $("lbimg").src = "/figs/" + f; $("lb").style.display = "flex"; };
+    g.appendChild(fig);
+  }
+}
+
+/* ---------------- stepper ---------------- */
+const STAGES = ["SELECT", "DOWNLOAD", "LRONAC2ISIS", "SPICEINIT", "LRONACCAL", "CAM2MAP", "COREGISTER", "MANIFEST"];
+function buildSteps() {
+  $("steps").innerHTML = STAGES.map(s =>
+    `<div class="step" id="st-${s}"><div class="n"></div><div class="t">${s}</div></div>`).join("");
+}
+function setStage(name, state) {
+  const el = $("st-" + name); if (!el) return;
+  el.className = "step " + (state === "ok" ? "done" : state === "run" ? "run" : state === "fail" ? "fail" : "");
+}
+buildSteps();
+
+/* ---------------- console + SSE ---------------- */
+const con = $("console");
+function logLine(s) {
+  const div = document.createElement("div");
+  let cls = "";
+  if (/error|fail|traceback/i.test(s)) cls = "er";
+  else if (/##STAGE|\[hati\]/.test(s)) cls = "hl";
+  else if (/ ok |PASS|USABLE|done/i.test(s)) cls = "okl";
+  if (cls) div.className = cls;
+  div.textContent = s;
+  const pin = con.scrollTop + con.clientHeight > con.scrollHeight - 40;
+  con.appendChild(div);
+  while (con.childNodes.length > 1600) con.removeChild(con.firstChild);
+  if (pin) con.scrollTop = con.scrollHeight;
+  const m = s.match(/##STAGE\s+(\w+)\s+(\w+)/);
+  if (m) setStage(m[1].toUpperCase(), m[2].toLowerCase());
+}
+function setJob(state, name) {
+  const d = $("d-job"), t = $("jobtxt");
+  if (state === "running") { d.className = "dot run"; t.textContent = "JOB · " + (name || "").toUpperCase(); }
+  else if (state === "fail") { d.className = "dot bad"; t.textContent = "JOB · FAILED"; }
+  else { d.className = "dot"; t.textContent = "JOB · IDLE"; }
+  document.querySelectorAll("button[data-job]").forEach(b => b.disabled = state === "running");
+}
+const es = new EventSource("/api/events");
+es.onmessage = ev => {
+  const d = JSON.parse(ev.data);
+  if (d.t === "log") logLine(d.line);
+  else if (d.t === "status") {
+    setJob(d.state === "running" ? "running" : d.state, d.job);
+    if (d.state === "done" || d.state === "fail") setTimeout(loadState, 800);
+  }
+};
+es.onerror = () => { $("d-srv").className = "dot bad"; };
+es.onopen = () => { $("d-srv").className = "dot ok"; };
+
+/* ---------------- job buttons ---------------- */
+document.querySelectorAll("button[data-job]").forEach(b => b.onclick = async () => {
+  const j = b.dataset.job;
+  const heavy = (S.heavy || []).includes(j);
+  if (heavy && !confirm(`'${j}' is a HEAVY job (meant for the GPU box). Run it on this machine?`)) return;
+  const r = await (await fetch("/api/run?job=" + j, {method: "POST"})).json();
+  if (!r.ok) logLine("[hati] " + r.msg);
+});
+$("btn-stop").onclick = async () => {
+  const r = await (await fetch("/api/stop", {method: "POST"})).json();
+  logLine("[hati] " + r.msg);
+};
+
+/* ---------------- clock ---------------- */
+setInterval(() => {
+  const n = new Date();
+  $("clock").textContent = n.toISOString().slice(0, 19).replace("T", " ") + " UTC · session " +
+    Math.floor((performance.now() - T0) / 60000) + "m";
+}, 1000);
+
+loadState();
+logLine("[hati] dashboard ready — awaiting telemetry");
+</script>
+</body>
+</html>
