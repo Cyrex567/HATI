@@ -4,34 +4,39 @@
   "utc": "2025-03-08T10:41:14+00:00",
   "elev": 4.0,
   "az": 105.72360635931221,
-  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025067/NAC/M1496069741LE.IMG"
+  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025067/NAC/M1496069741LE.IMG",
+  "margin": 3149.0
  },
  {
-  "pid": "nac.m1136493468re",
-  "utc": "2013-10-15T16:23:21+00:00",
-  "elev": 5.019999999999996,
-  "az": 130.72206977030297,
-  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0017/DATA/ESM/2013288/NAC/M1136493468RE.IMG"
+  "pid": "nac.m1496181900le",
+  "utc": "2025-03-09T17:50:33+00:00",
+  "elev": 4.769999999999996,
+  "az": 121.54886365414852,
+  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025068/NAC/M1496181900LE.IMG",
+  "margin": 2371.0
  },
  {
-  "pid": "nac.m1116179304le",
-  "utc": "2013-02-22T13:33:57+00:00",
-  "elev": 4.920000000000002,
-  "az": 144.46192096865718,
-  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0014/DATA/ESM/2013053/NAC/M1116179304LE.IMG"
+  "pid": "nac.m1496434319le",
+  "utc": "2025-03-12T15:57:31+00:00",
+  "elev": 5.359999999999999,
+  "az": 157.16419363966725,
+  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025071/NAC/M1496434319LE.IMG",
+  "margin": 1327.0
  },
  {
-  "pid": "nac.m1162428192le",
-  "utc": "2014-08-11T20:28:45+00:00",
-  "elev": 5.060000000000002,
-  "az": 190.0243118595983,
-  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0020/DATA/ESM/2014223/NAC/M1162428192LE.IMG"
+  "pid": "nac.m1496630688le",
+  "utc": "2025-03-14T22:30:21+00:00",
+  "elev": 4.409999999999997,
+  "az": 184.87133952173582,
+  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025073/NAC/M1496630688LE.IMG",
+  "margin": 2345.0
  },
  {
-  "pid": "nac.m1160078961re",
-  "utc": "2014-07-15T15:54:54+00:00",
-  "elev": 3.5,
-  "az": 218.55572690431885,
-  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0020/DATA/ESM/2014196/NAC/M1160078961RE.IMG"
+  "pid": "nac.m1433078591re",
+  "utc": "2023-03-10T09:08:44+00:00",
+  "elev": 3.569999999999993,
+  "az": 217.8844133614203,
+  "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0054C/DATA/ESM5/2023069/NAC/M1433078591RE.IMG",
+  "margin": 1665.0
  }
 ]

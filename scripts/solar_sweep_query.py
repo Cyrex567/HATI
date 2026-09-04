@@ -104,23 +104,71 @@ def _contains(pt: tuple[float, float], poly: list[tuple[float, float]]) -> bool:
     return inside
 
 
-def covers_site(p: dict, lat: float, lon: float) -> bool | None:
-    """Does this frame's footprint actually contain the point?
+def _project(lon: float, lat: float, ref_lat: float) -> tuple[float, float]:
+    """Longitude/latitude to metres, in a frame where a NAC strip is a strip.
+
+    Above 60 degrees this is polar stereographic about the nearer pole -- the
+    same family of projection cam2map writes, so a distance computed here is
+    directly comparable to the co-registration window size in metres. Below it,
+    a local equirectangular scaling, where the distortion is mild.
+    """
+    lam, phi = math.radians(lon), math.radians(lat)
+    if abs(ref_lat) >= 60.0:
+        south = ref_lat < 0
+        # rho: distance from the pole on the projection plane
+        t = math.tan(math.pi / 4 + (phi if south else -phi) / 2)
+        rho = 2 * R_MOON_KM * 1000.0 * t
+        return rho * math.sin(lam), rho * math.cos(lam)
+    k = R_MOON_KM * 1000.0
+    return k * lam * math.cos(math.radians(ref_lat)), k * phi
+
+
+def _edge_distance(pt: tuple[float, float], poly: list[tuple[float, float]]) -> float:
+    """Distance from a point to the nearest polygon edge."""
+    px, py = pt
+    best = float("inf")
+    for i in range(len(poly)):
+        ax, ay = poly[i - 1]
+        bx, by = poly[i]
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+        best = min(best, math.hypot(px - (ax + t * dx), py - (ay + t * dy)))
+    return best
+
+
+def site_margin_m(p: dict, lat: float, lon: float) -> float | None:
+    """How far inside this frame's footprint the site sits, in metres.
+
+    Positive means inside; negative means the strip misses the site by that far.
+    None when the footprint is missing.
 
     ODE's spatial query filters on the footprint's BOUNDING BOX. A NAC strip is
     long and narrow, so near the pole a diagonal strip has a bounding box vastly
     larger than the strip, and the query returns frames that image nothing near
-    the site. On the first real ingest that cost three of four downloads. Test the
-    polygon itself. Returns None when the footprint is unusable (missing, or
-    wrapping in longitude, where a planar test is not valid).
+    the site.
+
+    Testing the polygon itself is necessary but not sufficient: the test has to
+    be done in a projected frame. Ray-casting in raw lon/lat degrees treats each
+    edge as a straight line in a space that is wildly stretched near the pole, so
+    a footprint spanning tens of degrees of longitude balloons into a shape that
+    swallows the whole region. That is why the first polygon test passed almost
+    every frame, including four that turned out to miss the touchdown by 0.4 to
+    3.0 km. Projecting the vertices first separates them cleanly.
+
+    Containment alone is still not enough, which is why this returns a distance
+    rather than a boolean: co-registration reads a window hundreds of metres
+    wide, so the site has to be that far clear of the strip edge, not merely
+    inside it.
     """
-    poly = _polygon(get_any(p, "Footprint_geometry", "Footprint_GL_geometry"))
+    poly = _polygon(get_any(p, "Footprint_geometry", "Footprint_C0_geometry",
+                            "Footprint_GL_geometry"))
     if not poly:
         return None
-    lons = [q[0] for q in poly]
-    if max(lons) - min(lons) > 180:
-        return None
-    return _contains((lon % 360, lat), poly)
+    prj = [_project(a, b, lat) for a, b in poly]
+    pt = _project(lon, lat, lat)
+    d = _edge_distance(pt, prj)
+    return d if _contains(pt, prj) else -d
 
 
 def best_url(p: dict) -> str:
@@ -150,10 +198,17 @@ def main():
     ap.add_argument("--halfwidth-km", type=float, default=3.0)
     ap.add_argument("--pt", default="EDRNAC4", help="ODE product type (EDRNAC4 / CDRNAC4)")
     ap.add_argument("--probe", action="store_true", help="print raw keys of first product and exit")
-    ap.add_argument("--max-frames", type=int, default=600)
+    ap.add_argument("--max-frames", type=int, default=2000,
+                    help="ODE result cap. Most returned frames are bounding-box false "
+                         "positives, so the cap has to be well above the number of "
+                         "frames actually wanted.")
     ap.add_argument("--all-frames", action="store_true",
                     help="keep frames whose footprint does NOT contain the site "
                          "(the old, over-permissive behaviour)")
+    ap.add_argument("--min-margin-m", type=float, default=600.0,
+                    help="how far inside the strip the site must sit. The "
+                         "co-registration window is 400 m across at NAC scale, so a "
+                         "frame that only clips the site is useless. Default 600 m.")
     args = ap.parse_args()
 
     dlat = args.halfwidth_km / (math.pi / 180 * R_MOON_KM)
@@ -206,20 +261,26 @@ def main():
             az_real = True
         az = azf if azf is not None else (synodic_angle(t) if t else None)
         elev = (90.0 - inc) if inc is not None else None
-        cov = covers_site(p, args.lat, args.lon)
+        mar = site_margin_m(p, args.lat, args.lon)
         rows.append(dict(pid=pid, utc=(t.isoformat() if t else ""), inc=inc, elev=elev,
                          emi=emi, pha=pha, az=az, az_src=("ODE" if azf is not None else "proxy"),
                          clat=clat, clon=clon, url=best_url(p),
-                         cov=("yes" if cov else ("unknown" if cov is None else "no"))))
+                         margin=(None if mar is None else round(mar)),
+                         cov=("unknown" if mar is None else
+                              ("yes" if mar >= args.min_margin_m else "no"))))
 
     n_all = len(rows)
     n_yes = sum(1 for r in rows if r["cov"] == "yes")
     n_unk = sum(1 for r in rows if r["cov"] == "unknown")
-    print(f"\nfootprint containment: {n_yes}/{n_all} frames actually cover the site "
-          f"({n_unk} undetermined).")
+    n_out = sum(1 for r in rows if r["margin"] is not None and r["margin"] < 0)
+    print(f"\nfootprint containment: {n_yes}/{n_all} frames put the site at least "
+          f"{args.min_margin_m:.0f} m inside the strip ({n_unk} undetermined).")
+    print(f"  {n_out} of the {n_all} miss the site entirely, and "
+          f"{n_all - n_yes - n_unk - n_out} only clip its edge.")
     print("  ODE filters on the footprint BOUNDING BOX. Near the pole a long diagonal NAC")
     print("  strip has a bounding box far larger than the strip, so the query returns many")
-    print("  frames that image nothing at the site. The polygon test removes them.")
+    print("  frames that image nothing at the site. The polygon test, done in a PROJECTED")
+    print("  frame rather than in raw degrees, removes them.")
     if not args.all_frames:
         rows = [r for r in rows if r["cov"] == "yes"]
         print(f"keeping the {len(rows)} that contain it (pass --all-frames to keep the rest)")
@@ -228,11 +289,11 @@ def main():
     csv = OUT / f"solar_sweep_{args.lat:+.3f}_{args.lon:+.3f}_{args.pt}.csv"
     with open(csv, "w", encoding="utf-8") as f:
         f.write("product,utc,incidence_deg,sun_elev_deg,emission_deg,phase_deg,sun_az_deg,"
-                "az_source,center_lat,center_lon,download_url,covers_site\n")
+                "az_source,center_lat,center_lon,download_url,covers_site,margin_m\n")
         for r in rows:
             f.write(",".join(str(r[k]) if r[k] is not None else ""
                     for k in ("pid", "utc", "inc", "elev", "emi", "pha", "az", "az_src",
-                              "clat", "clon", "url", "cov")) + "\n")
+                              "clat", "clon", "url", "cov", "margin")) + "\n")
 
     # coverage summary
     azs = [r["az"] for r in rows if r["az"] is not None]

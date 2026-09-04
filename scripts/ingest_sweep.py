@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -61,49 +62,102 @@ def stage(name: str, state: str, detail: str = "") -> None:
     print(f"##STAGE {name} {state} {detail}".rstrip(), flush=True)
 
 
-def load_csv() -> list[dict]:
-    """Read the sweep CSV, keeping only frames whose footprint contains the site.
+def load_csv(min_margin_m: float = 600.0) -> list[dict]:
+    """Read the sweep CSV, keeping only frames that really image the touchdown.
 
     ODE's spatial query filters on the footprint BOUNDING BOX, which for a long
     diagonal polar strip is far larger than the strip. The first real ingest
     downloaded four frames on that basis and three of them imaged nothing at the
-    touchdown. solar_sweep_query.py now writes a covers_site column; honour it.
+    touchdown.
+
+    The obvious fix -- test the footprint polygon instead of its box -- is only
+    right if the test runs in a projected frame. Done in raw degrees it passed
+    every one of the five frames of the second ingest, all of which then came back
+    0% covered; measured properly they miss the site by 0.4 to 3.0 km.
+    solar_sweep_query.py now writes a signed margin_m column, the distance from
+    the site to the nearest strip edge. Require real clearance, not containment:
+    co-registration reads a window 400 m across, so a frame that merely clips the
+    site is still useless.
     """
     import csv as _csv
     csvs = sorted(OUT.glob("solar_sweep_*.csv"))
     if not csvs:
         sys.exit("no solar_sweep CSV in output/athena -- run solar_sweep_query.py first")
-    rows, skipped = [], 0
+    rows, missed, clipped, legacy = [], 0, 0, False
     with open(csvs[-1], encoding="utf-8", errors="replace") as fh:
         for d in _csv.DictReader(fh):
-            if (d.get("covers_site") or "yes").strip() != "yes":
-                skipped += 1
-                continue
+            raw = (d.get("margin_m") or "").strip()
+            if raw == "":
+                # a CSV written before margins existed; fall back to the boolean
+                legacy = True
+                if (d.get("covers_site") or "yes").strip() != "yes":
+                    missed += 1
+                    continue
+                margin = float("nan")
+            else:
+                try:
+                    margin = float(raw)
+                except ValueError:
+                    continue
+                if margin < 0:
+                    missed += 1
+                    continue
+                if margin < min_margin_m:
+                    clipped += 1
+                    continue
             try:
                 rows.append({"pid": d["product"], "utc": d["utc"],
                              "elev": float(d["sun_elev_deg"]), "az": float(d["sun_az_deg"]),
-                             "url": d["download_url"]})
+                             "url": d["download_url"], "margin": margin})
             except (KeyError, ValueError):
                 continue
-    note = f", {skipped} skipped (footprint does not cover the site)" if skipped else ""
-    print(f"sweep CSV: {csvs[-1].name}  ({len(rows)} usable frames{note})")
+    print(f"sweep CSV: {csvs[-1].name}  ({len(rows)} usable frames; "
+          f"{missed} miss the site, {clipped} clip it by under {min_margin_m:.0f} m)")
+    if legacy:
+        print("  NOTE: this CSV has no margin_m column, so frames were filtered by the old\n"
+              "        boolean containment test, which is known to be over-permissive near\n"
+              "        the pole. Re-run solar_sweep_query.py to regenerate it.")
     if not rows:
-        sys.exit("no frames cover the site; re-run solar_sweep_query.py to refresh the CSV")
+        sys.exit("no frames cover the site with enough clearance; re-run "
+                 "solar_sweep_query.py, or lower --min-margin-m")
     return rows
 
 
-def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: float) -> list[dict]:
+def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: float,
+                  force: list[str] | None = None) -> list[dict]:
     stage("SELECT", "run")
+    if force:
+        want = {f.strip().lower().lstrip("nac.") for f in force if f.strip()}
+        picked = [r for r in rows
+                  if r["pid"].lower().split(".")[-1] in want or r["pid"].lower() in want]
+        found = {r["pid"].lower().split(".")[-1] for r in picked}
+        for w in sorted(want - found):
+            print(f"  requested frame not in the CSV: {w}")
+        print(f"forced frame list: {len(picked)} of {len(want)} requested frames found")
+        for r in picked:
+            print(f"{r['pid']:<22}{r['az']:>10.1f}{r['elev']:>7.2f}"
+                  f"{r['margin']:>9.0f} m   {r['url'][-48:]}")
+        stage("SELECT", "ok" if picked else "fail",
+              f"{len(picked)} frames, forced by --frames (gates bypassed)")
+        if not picked:
+            sys.exit("none of the requested frames are in the sweep CSV")
+        return picked
+
     lit = [r for r in rows if emin <= r["elev"] <= emax and r["url"].lower().endswith(".img")]
     picked = []
     for b in range(n):
         lo, hi = b * 360.0 / n, (b + 1) * 360.0 / n
         cand = [r for r in lit if lo <= (r["az"] % 360) < hi]
         if cand:
-            picked.append(min(cand, key=lambda r: abs(r["elev"] - target)))
-    print(f"{'pid':<22}{'az(proxy)':>10}{'elev':>7}   url")
+            # Within a bin, elevation near the target is what we want, but a frame
+            # that barely clips the site is worth nothing however good its sun angle
+            # is. Break ties toward clearance: prefer anything comfortably inside.
+            picked.append(min(cand, key=lambda r: (abs(r["elev"] - target)
+                                                   - 0.5 * min(r["margin"], 2000.0) / 1000.0)))
+    print(f"{'pid':<22}{'az(proxy)':>10}{'elev':>7}{'margin':>11}   url")
     for r in picked:
-        print(f"{r['pid']:<22}{r['az']:>10.1f}{r['elev']:>7.2f}   {r['url'][-48:]}")
+        print(f"{r['pid']:<22}{r['az']:>10.1f}{r['elev']:>7.2f}"
+              f"{r['margin']:>9.0f} m   {r['url'][-48:]}")
     # What kinematics needs is azimuth SPREAD, not a full set of bins. Four frames
     # across 150 degrees is workable; ten frames inside 15 degrees is not. Gate on
     # the spread and the count, and say which one failed.
@@ -157,7 +211,53 @@ def isis(cmd: list[str]) -> tuple[bool, str]:
         return False, str(e)
 
 
-def process_frame(fr: dict, workdir: Path, mapfile: Path) -> bool:
+def campt_covers(cub: Path, lat: float, lon: float, base: str) -> bool | None:
+    """Ask the camera model whether the site falls on this frame's detector.
+
+    The ODE footprint is an index product: a coarse polygon, good enough to
+    reject a strip that misses by kilometres, but it is not the camera. After
+    spiceinit the real geometry is available, so ask it directly -- campt in
+    ground mode reports the sample and line a lat/lon lands on, and fails when
+    the point is off the image. That check costs seconds and sits before
+    lronaccal and cam2map, which cost minutes and gigabytes each.
+
+    Returns True/False, or None when campt is unavailable and the caller should
+    fall back to the footprint decision rather than reject a good frame.
+    """
+    if not shutil.which("campt"):
+        return None
+    out = cub.with_suffix(".campt.txt")
+    ok, tail = isis(["campt", f"from={cub}", "type=ground",
+                     f"latitude={lat}", f"longitude={lon}",
+                     f"to={out}", "format=pvl", "append=false"])
+    txt = ""
+    if out.exists():
+        txt = out.read_text(errors="replace")
+        out.unlink(missing_ok=True)
+    if not ok:
+        low = (tail or "").lower()
+        if "outside" in low or "not visible" in low or "off the image" in low \
+                or "does not intersect" in low or "no intersection" in low:
+            stage("CAMPT", "fail", f"{base}: the site is not on this frame's detector")
+            return False
+        stage("CAMPT", "skip", f"{base}: campt errored ({tail[:120]}); "
+                               f"falling back to the footprint decision")
+        return None
+    m = re.search(r"^\s*Sample\s*=\s*([-\d.]+)", txt, re.M)
+    n = re.search(r"^\s*Line\s*=\s*([-\d.]+)", txt, re.M)
+    if not (m and n):
+        stage("CAMPT", "skip", f"{base}: campt gave no Sample/Line; using the footprint")
+        return None
+    s, l = float(m.group(1)), float(n.group(1))
+    inside = s > 0 and l > 0
+    stage("CAMPT", "ok" if inside else "fail",
+          f"{base}: site at sample {s:.0f}, line {l:.0f}"
+          + ("" if inside else "  -- off the detector"))
+    return inside
+
+
+def process_frame(fr: dict, workdir: Path, mapfile: Path,
+                  skip_campt: bool = False) -> bool:
     base = fr["img"].stem
     cub, cal, prj = (workdir / f"{base}.cub", workdir / f"{base}.cal.cub",
                      workdir / f"{base}.lev2.cub")
@@ -166,14 +266,30 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path) -> bool:
         for s in ("LRONAC2ISIS", "SPICEINIT", "LRONACCAL", "CAM2MAP"):
             stage(s, "ok", f"{base} cached")
         return True
-    steps = [
+    early = [
         ("LRONAC2ISIS", ["lronac2isis", f"from={fr['img']}", f"to={cub}"]),
         ("SPICEINIT",   ["spiceinit", f"from={cub}", "web=yes"]),
+    ]
+    late = [
         ("LRONACCAL",   ["lronaccal", f"from={cub}", f"to={cal}"]),
         ("CAM2MAP",     ["cam2map", f"from={cal}", f"map={mapfile}", f"to={prj}",
                          "pixres=map", "defaultrange=map"]),
     ]
-    for name, cmd in steps:
+    for name, cmd in early:
+        stage(name, "run", base)
+        ok, tail = isis(cmd)
+        stage(name, "ok" if ok else "fail", base if ok else f"{base}: {tail}")
+        if not ok:
+            return False
+
+    if not skip_campt:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import athena_counterfactual as ac
+        if campt_covers(cub, ac.TD_LAT, ac.TD_LON, base) is False:
+            cub.unlink(missing_ok=True)
+            return False
+
+    for name, cmd in late:
         stage(name, "run", base)
         ok, tail = isis(cmd)
         stage(name, "ok" if ok else "fail", base if ok else f"{base}: {tail}")
@@ -181,6 +297,54 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path) -> bool:
             return False
     cub.unlink(missing_ok=True); cal.unlink(missing_ok=True)   # keep only lev2
     return True
+
+
+def where_is_the_data(fr: dict, np, rasterio, ac) -> str:
+    """When a window comes back empty, say WHY in one line.
+
+    An empty window has three quite different causes and they need opposite
+    fixes, so guessing between them wastes a whole run. Read the cube decimated,
+    find every valid pixel, and report how far the nearest one is from the
+    touchdown:
+
+      cube entirely empty      -> cam2map produced nothing; a projection problem
+      data present, far away   -> the frame really does miss the site; selection
+      data present, close by   -> the window is being placed wrong; a CRS problem
+
+    Decimated to about 2000 pixels on the long axis, so this costs a second even
+    on a full NAC strip.
+    """
+    try:
+        from rasterio.warp import transform as warp_transform
+        with rasterio.open(fr["lev2"]) as src:
+            step = max(1, max(src.width, src.height) // 2000)
+            a = src.read(1, out_shape=(1, max(1, src.height // step),
+                                       max(1, src.width // step)))[0].astype("float64")
+            if src.nodata is not None:
+                a[a == src.nodata] = np.nan
+            a[a <= ac.NODATA_BELOW] = np.nan
+            good = np.isfinite(a)
+            fill = 100.0 * good.mean()
+            if not good.any():
+                return (f"the whole cube is empty ({fill:.1f}% valid) -- cam2map wrote no "
+                        f"image data, so this is a projection/extent problem, not selection")
+            xs, ys = warp_transform("+proj=longlat +R=1737400 +no_defs", src.crs,
+                                    [ac.TD_LON], [ac.TD_LAT])
+            gr, gc = np.nonzero(good)
+            # decimated pixel centres back to map coordinates
+            px, py = rasterio.transform.xy(src.transform, gr * step, gc * step)
+            d = np.hypot(np.asarray(px) - xs[0], np.asarray(py) - ys[0])
+            near = float(d.min())
+            cx, cy = float(np.mean(px)), float(np.mean(py))
+            verdict = ("the window is mislocated -- data sits essentially at the touchdown"
+                       if near < 500 else
+                       "the frame genuinely misses the site" if near > 2000 else
+                       "the site is on the strip edge")
+            return (f"cube {fill:.1f}% valid; nearest real pixel {near/1000:.2f} km from the "
+                    f"touchdown; valid centroid {(cx-xs[0])/1000:+.1f},{(cy-ys[0])/1000:+.1f} km "
+                    f"away -> {verdict}")
+    except Exception as e:  # noqa: BLE001
+        return f"(could not diagnose: {e})"
 
 
 def coregister(frames: list[dict]) -> None:
@@ -269,8 +433,11 @@ def coregister(frames: list[dict]) -> None:
                       f"{fr['pid']} shift=({sh[0]:+.2f},{sh[1]:+.2f}) px err={err:.3f} [{how}]")
             except Exception as e:  # noqa: BLE001
                 fr["shift"] = None
-                rows.append(f"{fr['pid']},,,,{e}")
+                diag = where_is_the_data(fr, np, rasterio, ac)
+                rows.append(f"{fr['pid']},,,,{e}{'; ' + diag if diag else ''}")
                 stage("COREGISTER", "fail", f"{fr['pid']}: {e}")
+                if diag:
+                    print(f"   {diag}", flush=True)
         (SWEEP_DIR / "coreg_report.csv").write_text("\n".join(rows), encoding="utf-8")
         print(f"co-registration budget -> {SWEEP_DIR/'coreg_report.csv'}")
     except ImportError as e:
@@ -283,12 +450,24 @@ def main() -> None:
     ap.add_argument("--min-elev", type=float, default=1.5)
     ap.add_argument("--max-elev", type=float, default=7.5)
     ap.add_argument("--target-elev", type=float, default=5.0)
+    ap.add_argument("--min-margin-m", type=float, default=600.0,
+                    help="how far inside the strip the site must sit, in metres. "
+                         "The co-registration window is 400 m across, so a frame that "
+                         "only clips the site cannot be correlated. Default 600.")
+    ap.add_argument("--frames", default="",
+                    help="comma-separated product ids to ingest instead of selecting "
+                         "by azimuth, e.g. M1101075756LE. Bypasses the elevation and "
+                         "spread gates; for diagnosing the pipeline on known-good frames.")
+    ap.add_argument("--no-campt", action="store_true",
+                    help="skip the campt ground-point check after spiceinit")
     ap.add_argument("--execute", action="store_true",
                     help="actually download + run ISIS (default: dry-run plan only)")
     args = ap.parse_args()
 
     SWEEP_DIR.mkdir(parents=True, exist_ok=True)
-    frames = select_frames(load_csv(), args.n, args.min_elev, args.max_elev, args.target_elev)
+    forced = [s for s in args.frames.split(",") if s.strip()]
+    frames = select_frames(load_csv(args.min_margin_m), args.n, args.min_elev,
+                           args.max_elev, args.target_elev, force=forced)
 
     have_isis = all(shutil.which(b) for b in ISIS_BIN)
     isis_msg = "YES" if have_isis else \
@@ -314,8 +493,11 @@ def main() -> None:
 
     done = []
     for fr in frames:
-        if download(fr, SWEEP_DIR) and process_frame(fr, SWEEP_DIR, mapfile):
+        if download(fr, SWEEP_DIR) and process_frame(fr, SWEEP_DIR, mapfile,
+                                                     skip_campt=args.no_campt):
             done.append(fr)
+    if not done:
+        sys.exit("no frame survived the ISIS chain; nothing to co-register")
     coregister(done)
 
     stage("MANIFEST", "run")
