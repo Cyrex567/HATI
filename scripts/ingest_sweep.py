@@ -165,9 +165,39 @@ def coregister(frames: list[dict]) -> None:
     try:
         import numpy as np
         import rasterio
+        from rasterio.warp import transform as warp_transform
         from skimage.registration import phase_cross_correlation
         sys.path.insert(0, str(ROOT / "scripts"))
         import athena_counterfactual as ac
+
+        MOON_GEOG = "+proj=longlat +R=1737400 +no_defs"
+
+        def touchdown_rowcol(src):
+            """Locate the touchdown in this raster.
+
+            Prefer the raster's OWN crs and let proj do the transform, instead of
+            hand-rolling the polar-stereographic formula and hoping its x sign
+            matches what cam2map wrote. The sign convention differs between the
+            NOBILE03 PDS4 label and ISIS output, which is what produced empty
+            windows on the first real ingest.
+            """
+            if src.crs:
+                try:
+                    xs, ys = warp_transform(MOON_GEOG, src.crs, [ac.TD_LON], [ac.TD_LAT])
+                    r, c = src.index(xs[0], ys[0])
+                    if 0 <= r < src.height and 0 <= c < src.width:
+                        return r, c, "cube crs"
+                except Exception:  # noqa: BLE001
+                    pass
+            x, y = ac.touchdown_xy()          # fallback: try both x conventions
+            b = src.bounds
+            for sx in (1, -1):
+                if b.left <= sx * x <= b.right and b.bottom <= y <= b.top:
+                    r, c = src.index(sx * x, y)
+                    return r, c, f"formula x{sx:+d}"
+            raise ValueError("touchdown is outside this cube under either x sign; "
+                             "widen the extent in sweep_polar.map and re-run cam2map")
+
         ref = ac.load_ortho().astype("float32")
         rr, rc_ = ac.ortho_pixel()
         h = 400
@@ -176,16 +206,30 @@ def coregister(frames: list[dict]) -> None:
         for fr in frames:
             try:
                 with rasterio.open(fr["lev2"]) as src:        # GDAL reads ISIS3 cubes
-                    x, y = ac.touchdown_xy()
-                    r0, c0 = src.index(x, y)
+                    r0, c0, how = touchdown_rowcol(src)
                     win = rasterio.windows.Window(c0 - h, r0 - h, 2 * h, 2 * h)
-                    mov = src.read(1, window=win).astype("float32")
-                if mov.shape != refc.shape or not np.isfinite(mov).any():
-                    raise ValueError("no overlap at touchdown window")
+                    mov = src.read(1, window=win, boundless=True,
+                                   fill_value=float("nan")).astype("float32")
+                # A window of nodata is finite and uniform, so an .any() check passes
+                # it and phase_cross_correlation then returns exactly (0,0) with a nan
+                # error. That reads as a perfect alignment and sails through the gate.
+                # Refuse anything that cannot carry a real measurement.
+                if mov.shape != refc.shape:
+                    raise ValueError(f"window shape {mov.shape} != reference {refc.shape}")
+                finite = np.isfinite(mov)
+                if finite.sum() < 0.5 * mov.size:
+                    raise ValueError(f"window is {100*(1-finite.mean()):.0f}% nodata")
+                if float(np.nanstd(mov)) < 1e-6:
+                    raise ValueError("window has zero variance (no image data here): "
+                                     "the touchdown does not fall inside this cube's "
+                                     "valid extent, check projection and sign convention")
                 sh, err, _ = phase_cross_correlation(refc, np.nan_to_num(mov), upsample_factor=10)
+                if not np.isfinite(err):
+                    raise ValueError("correlation degenerate (nan error), not a measurement")
                 fr["shift"] = [float(sh[0]), float(sh[1])]
-                rows.append(f"{fr['pid']},{sh[0]:.2f},{sh[1]:.2f},{err:.3f},ok")
-                stage("COREGISTER", "ok", f"{fr['pid']} shift=({sh[0]:+.2f},{sh[1]:+.2f}) px")
+                rows.append(f"{fr['pid']},{sh[0]:.2f},{sh[1]:.2f},{err:.3f},ok ({how})")
+                stage("COREGISTER", "ok",
+                      f"{fr['pid']} shift=({sh[0]:+.2f},{sh[1]:+.2f}) px err={err:.3f} [{how}]")
             except Exception as e:  # noqa: BLE001
                 fr["shift"] = None
                 rows.append(f"{fr['pid']},,,,{e}")

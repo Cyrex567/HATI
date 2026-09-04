@@ -1,0 +1,93 @@
+PDS_VERSION_ID            = "PDS3"
+
+/*** GENERAL DATA DESCRIPTION PARAMETERS ***/
+PRODUCT_VERSION_ID        = "V1.0"
+DATA_SET_ID               = "LRO-L-LOLA-16-GDR-V1.0"
+PRODUCT_ID                = "MAS_57M_16"
+INSTRUMENT_HOST_NAME      = "LUNAR RECONNAISSANCE ORBITER"
+INSTRUMENT_NAME           = "LUNAR ORBITER LASER ALTIMETER"
+INSTRUMENT_ID             = "LOLA"
+MISSION_PHASE_NAME        = {"COMMISSIONING","NOMINAL MISSION"}
+TARGET_NAME               = MOON
+START_TIME                = 2009-09-17T11:35:54.242
+STOP_TIME                 = 2010-09-14T16:22:33.236
+PRODUCT_CREATION_TIME     = 2011-06-15T00:00:00
+PRODUCER_ID               = LRO_LOLA_TEAM
+PRODUCER_FULL_NAME        = "ODED AHARONSON"
+PRODUCER_INSTITUTION_NAME = "CALIFORNIA INSTITUTE OF TECHNOLOGY"
+DESCRIPTION               = "This data product is a map of the median
+   absolute (unsigned) slope in the along-track direction based on
+   altimetry data acquired by the LOLA instrument.  The point-to-point
+   slopes have been calculated along track at the 57-m baseline (one LOLA
+   shot spacing) and binned in 0.25-degree overlapping windows, from which
+   the median was reported. These values were then interpolated at a
+   resolution of 16 pix/deg by 16 pix/deg and projected using a simple
+   cylindrical projection with the Generic Mapping Tool's programs 'surface'
+   and 'grdimage'.  Map values are in units of degrees. The LOLA Laser 1 and
+   2 data through mission phase LRO_NO_13 are the source for this data set.
+   The map is in the form of a binary table with one row for each 0.0625
+   degrees of latitude.  This label describes an IMG file in the form of a
+   binary resampling with pixel registration."
+
+
+OBJECT                    = UNCOMPRESSED_FILE
+FILE_NAME                 = "MAS_57M_16.IMG"
+RECORD_TYPE               = FIXED_LENGTH
+FILE_RECORDS              = 2880
+RECORD_BYTES              = 5760
+^IMAGE                    = "MAS_57M_16.IMG"
+
+  OBJECT                  = IMAGE
+    NAME                  = COUNTS
+    DESCRIPTION           = "Each sample represents the median absolute slope
+    at the 57-m (one LOLA shot spacing) baseline. A scaling was applied to
+    make better use of the 16-bit integer range: a flat surface corresponds
+    to a numerical value of -30,000, and a surface tilted by 45 degrees
+    corresponds to a numerical value of 0."
+
+    LINES                 = 2880
+    LINE_SAMPLES          = 5760
+    DERIVED_MINIMUM       = -30001
+    DERIVED_MAXIMUM       = -6365
+    SAMPLE_TYPE           = LSB_INTEGER
+    SAMPLE_BITS           = 16
+    UNIT                  = DEGREE
+    SCALING_FACTOR        = 0.0015
+    OFFSET                = 45.
+
+
+  END_OBJECT              = IMAGE
+END_OBJECT                = UNCOMPRESSED_FILE
+
+OBJECT                    = IMAGE_MAP_PROJECTION
+ ^DATA_SET_MAP_PROJECTION     = "DSMAP.CAT"
+ MAP_PROJECTION_TYPE          = "SIMPLE CYLINDRICAL"
+ MAP_RESOLUTION               = 16 <pix/deg>
+ A_AXIS_RADIUS                = 1737.4 <km>
+ B_AXIS_RADIUS                = 1737.4 <km>
+ C_AXIS_RADIUS                = 1737.4 <km>
+ FIRST_STANDARD_PARALLEL      = 'N/A'
+ SECOND_STANDARD_PARALLEL     = 'N/A'
+ POSITIVE_LONGITUDE_DIRECTION = "EAST"
+ CENTER_LATITUDE              = 0. <deg>
+ CENTER_LONGITUDE             = 180. <deg>
+ REFERENCE_LATITUDE           = 'N/A'
+ REFERENCE_LONGITUDE          = 'N/A'
+ LINE_FIRST_PIXEL             = 1
+ LINE_LAST_PIXEL              = 2880
+ SAMPLE_FIRST_PIXEL           = 1
+ SAMPLE_LAST_PIXEL            = 5760
+ MAP_PROJECTION_ROTATION      = 0.0
+ MAP_SCALE                    = 1.895209401509343 <km/pix>
+ MAXIMUM_LATITUDE             = 90 <deg>
+ MINIMUM_LATITUDE             = -90 <deg>
+ WESTERNMOST_LONGITUDE        = 0 <deg>
+ EASTERNMOST_LONGITUDE        = 360 <deg>
+ LINE_PROJECTION_OFFSET       = 1439.5 <pix>
+ SAMPLE_PROJECTION_OFFSET     = 2879.5 <pix>
+
+ COORDINATE_SYSTEM_TYPE       = "BODY-FIXED ROTATING"
+ COORDINATE_SYSTEM_NAME       = "MEAN EARTH/POLAR AXIS OF DE421"
+END_OBJECT                = IMAGE_MAP_PROJECTION
+
+END

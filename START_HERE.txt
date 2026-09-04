@@ -1,0 +1,61 @@
+HATI  -  Hazard Assessment and Terrain Intelligence
+====================================================
+
+WHICH INSTRUCTIONS DO I FOLLOW?
+
+  Windows PC   ->  WINDOWS_RUNBOOK.md      <-- start here
+  Mac          ->  MAC_RUNBOOK.md
+  Background   ->  TRANSFER_README.md, PLAN_BREAKTHROUGH.md
+
+
+FASTEST PATH ON WINDOWS
+-----------------------
+
+  1. Install Python 3.11 or 3.12, ticking "Add python.exe to PATH".
+
+  2. In PowerShell, from this folder:
+
+        python -m venv .venv
+        .\.venv\Scripts\Activate.ps1
+        python -m pip install numpy scipy scikit-image matplotlib rasterio
+        python tests\test_channels.py
+
+     That must end with ALL CHECKS PASSED.
+
+  3. Double-click  HATI_Dashboard.bat
+
+     The dashboard opens at http://127.0.0.1:8737 and four of the five jobs
+     run immediately with nothing else installed.
+
+
+WHAT WORKS RIGHT AWAY, AND WHAT DOES NOT
+----------------------------------------
+
+  Works natively on Windows, no extra setup:
+      mare control v3, kinematics benchmark, shadow census, ingest dry-run,
+      the dashboard, every figure and paper
+
+  Needs WSL2 (Linux inside Windows):
+      the sweep ingest only, because ISIS does not run on Windows
+
+  Section 4 of WINDOWS_RUNBOOK.md covers WSL2 and ISIS.
+
+
+THE ONE RESULT THAT MATTERS
+---------------------------
+
+  After the ingest, before anything else, read:
+
+      data/sweep/coreg_report.csv
+
+  Median absolute shift at or below 1.00 px  ->  the gate passes.
+  Above 1.00 px  ->  stop, and report it. Do not run science on top of it.
+
+
+GETTING RESULTS OUT
+-------------------
+
+      python harvest_results.py --out %USERPROFILE%\Desktop
+
+  Collects every figure, CSV, report and PDF into one small zip.
+  Skips the tens of GB of intermediates you do not need to keep.
