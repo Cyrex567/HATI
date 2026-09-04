@@ -62,20 +62,33 @@ def stage(name: str, state: str, detail: str = "") -> None:
 
 
 def load_csv() -> list[dict]:
+    """Read the sweep CSV, keeping only frames whose footprint contains the site.
+
+    ODE's spatial query filters on the footprint BOUNDING BOX, which for a long
+    diagonal polar strip is far larger than the strip. The first real ingest
+    downloaded four frames on that basis and three of them imaged nothing at the
+    touchdown. solar_sweep_query.py now writes a covers_site column; honour it.
+    """
+    import csv as _csv
     csvs = sorted(OUT.glob("solar_sweep_*.csv"))
     if not csvs:
         sys.exit("no solar_sweep CSV in output/athena -- run solar_sweep_query.py first")
-    rows = []
-    for ln in csvs[-1].read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
-        f = ln.split(",")
-        if len(f) < 11:
-            continue
-        try:
-            rows.append({"pid": f[0], "utc": f[1], "elev": float(f[3]), "az": float(f[6]),
-                         "url": f[10]})
-        except ValueError:
-            continue
-    print(f"sweep CSV: {csvs[-1].name}  ({len(rows)} frames)")
+    rows, skipped = [], 0
+    with open(csvs[-1], encoding="utf-8", errors="replace") as fh:
+        for d in _csv.DictReader(fh):
+            if (d.get("covers_site") or "yes").strip() != "yes":
+                skipped += 1
+                continue
+            try:
+                rows.append({"pid": d["product"], "utc": d["utc"],
+                             "elev": float(d["sun_elev_deg"]), "az": float(d["sun_az_deg"]),
+                             "url": d["download_url"]})
+            except (KeyError, ValueError):
+                continue
+    note = f", {skipped} skipped (footprint does not cover the site)" if skipped else ""
+    print(f"sweep CSV: {csvs[-1].name}  ({len(rows)} usable frames{note})")
+    if not rows:
+        sys.exit("no frames cover the site; re-run solar_sweep_query.py to refresh the CSV")
     return rows
 
 
@@ -91,11 +104,23 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
     print(f"{'pid':<22}{'az(proxy)':>10}{'elev':>7}   url")
     for r in picked:
         print(f"{r['pid']:<22}{r['az']:>10.1f}{r['elev']:>7.2f}   {r['url'][-48:]}")
-    ok = len(picked) >= max(4, int(0.6 * n))
+    # What kinematics needs is azimuth SPREAD, not a full set of bins. Four frames
+    # across 150 degrees is workable; ten frames inside 15 degrees is not. Gate on
+    # the spread and the count, and say which one failed.
+    azs = sorted(r["az"] % 360 for r in picked)
+    span = (max(azs) - min(azs)) if len(azs) > 1 else 0.0
+    gaps = [(azs[i + 1] - azs[i]) for i in range(len(azs) - 1)] + [360 - (azs[-1] - azs[0])]
+    span = 360 - max(gaps)            # spread of the arc the frames actually occupy
+    ok = len(picked) >= 4 and span >= 40.0
     stage("SELECT", "ok" if ok else "fail",
-          f"{len(picked)}/{n} azimuth bins filled (elev {emin}-{emax} deg, target {target})")
+          f"{len(picked)}/{n} bins, azimuth spread {span:.0f} deg "
+          f"(elev {emin}-{emax} deg, target {target})")
     if not ok:
-        sys.exit("too few frames selected -- widen the elevation band or lower --n")
+        if len(picked) < 4:
+            sys.exit(f"only {len(picked)} frames selected; need at least 4. "
+                     f"Widen --min-elev/--max-elev or lower --n.")
+        sys.exit(f"azimuth spread is only {span:.0f} deg; shadows barely move below about "
+                 f"40 deg, so the kinematics cannot discriminate. Widen the elevation band.")
     return picked
 
 

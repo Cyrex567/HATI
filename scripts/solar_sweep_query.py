@@ -22,6 +22,7 @@ import argparse
 import datetime as dt
 import json
 import math
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -72,6 +73,56 @@ def to_float(x):
         return None
 
 
+def _polygon(wkt: str | None) -> list[tuple[float, float]] | None:
+    """First ring of a WKT POLYGON as (lon, lat) vertices."""
+    if not wkt:
+        return None
+    m = re.search(r"\(\(([^)]*)\)", wkt)
+    if not m:
+        return None
+    pts = []
+    for pair in m.group(1).split(","):
+        a = pair.split()
+        if len(a) >= 2:
+            try:
+                pts.append((float(a[0]), float(a[1])))
+            except ValueError:
+                pass
+    return pts or None
+
+
+def _contains(pt: tuple[float, float], poly: list[tuple[float, float]]) -> bool:
+    """Ray-casting point-in-polygon."""
+    x, y = pt
+    inside, j = False, len(poly) - 1
+    for i in range(len(poly)):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def covers_site(p: dict, lat: float, lon: float) -> bool | None:
+    """Does this frame's footprint actually contain the point?
+
+    ODE's spatial query filters on the footprint's BOUNDING BOX. A NAC strip is
+    long and narrow, so near the pole a diagonal strip has a bounding box vastly
+    larger than the strip, and the query returns frames that image nothing near
+    the site. On the first real ingest that cost three of four downloads. Test the
+    polygon itself. Returns None when the footprint is unusable (missing, or
+    wrapping in longitude, where a planar test is not valid).
+    """
+    poly = _polygon(get_any(p, "Footprint_geometry", "Footprint_GL_geometry"))
+    if not poly:
+        return None
+    lons = [q[0] for q in poly]
+    if max(lons) - min(lons) > 180:
+        return None
+    return _contains((lon % 360, lat), poly)
+
+
 def best_url(p: dict) -> str:
     pf = (p.get("Product_files") or {}).get("Product_file")
     if isinstance(pf, dict):
@@ -100,6 +151,9 @@ def main():
     ap.add_argument("--pt", default="EDRNAC4", help="ODE product type (EDRNAC4 / CDRNAC4)")
     ap.add_argument("--probe", action="store_true", help="print raw keys of first product and exit")
     ap.add_argument("--max-frames", type=int, default=600)
+    ap.add_argument("--all-frames", action="store_true",
+                    help="keep frames whose footprint does NOT contain the site "
+                         "(the old, over-permissive behaviour)")
     args = ap.parse_args()
 
     dlat = args.halfwidth_km / (math.pi / 180 * R_MOON_KM)
@@ -152,18 +206,33 @@ def main():
             az_real = True
         az = azf if azf is not None else (synodic_angle(t) if t else None)
         elev = (90.0 - inc) if inc is not None else None
+        cov = covers_site(p, args.lat, args.lon)
         rows.append(dict(pid=pid, utc=(t.isoformat() if t else ""), inc=inc, elev=elev,
                          emi=emi, pha=pha, az=az, az_src=("ODE" if azf is not None else "proxy"),
-                         clat=clat, clon=clon, url=best_url(p)))
+                         clat=clat, clon=clon, url=best_url(p),
+                         cov=("yes" if cov else ("unknown" if cov is None else "no"))))
 
+    n_all = len(rows)
+    n_yes = sum(1 for r in rows if r["cov"] == "yes")
+    n_unk = sum(1 for r in rows if r["cov"] == "unknown")
+    print(f"\nfootprint containment: {n_yes}/{n_all} frames actually cover the site "
+          f"({n_unk} undetermined).")
+    print("  ODE filters on the footprint BOUNDING BOX. Near the pole a long diagonal NAC")
+    print("  strip has a bounding box far larger than the strip, so the query returns many")
+    print("  frames that image nothing at the site. The polygon test removes them.")
+    if not args.all_frames:
+        rows = [r for r in rows if r["cov"] == "yes"]
+        print(f"keeping the {len(rows)} that contain it (pass --all-frames to keep the rest)")
     rows.sort(key=lambda r: (r["az"] if r["az"] is not None else 999))
     OUT.mkdir(parents=True, exist_ok=True)
     csv = OUT / f"solar_sweep_{args.lat:+.3f}_{args.lon:+.3f}_{args.pt}.csv"
     with open(csv, "w", encoding="utf-8") as f:
-        f.write("product,utc,incidence_deg,sun_elev_deg,emission_deg,phase_deg,sun_az_deg,az_source,center_lat,center_lon,download_url\n")
+        f.write("product,utc,incidence_deg,sun_elev_deg,emission_deg,phase_deg,sun_az_deg,"
+                "az_source,center_lat,center_lon,download_url,covers_site\n")
         for r in rows:
             f.write(",".join(str(r[k]) if r[k] is not None else ""
-                    for k in ("pid", "utc", "inc", "elev", "emi", "pha", "az", "az_src", "clat", "clon", "url")) + "\n")
+                    for k in ("pid", "utc", "inc", "elev", "emi", "pha", "az", "az_src",
+                              "clat", "clon", "url", "cov")) + "\n")
 
     # coverage summary
     azs = [r["az"] for r in rows if r["az"] is not None]
