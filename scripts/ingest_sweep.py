@@ -208,8 +208,16 @@ def coregister(frames: list[dict]) -> None:
                 with rasterio.open(fr["lev2"]) as src:        # GDAL reads ISIS3 cubes
                     r0, c0, how = touchdown_rowcol(src)
                     win = rasterio.windows.Window(c0 - h, r0 - h, 2 * h, 2 * h)
+                    # float64: ISIS marks nodata with -FLT_MAX (-3.4e38), which is
+                    # FINITE. Left unmasked it passes an isfinite() check and then
+                    # overflows the variance to inf, which phase correlation returns
+                    # as an exact (0,0) shift with a nan error, i.e. a fake perfect
+                    # alignment. Mask it explicitly, as NODATA_BELOW does elsewhere.
                     mov = src.read(1, window=win, boundless=True,
-                                   fill_value=float("nan")).astype("float32")
+                                   fill_value=float("nan")).astype("float64")
+                    if src.nodata is not None:
+                        mov[mov == src.nodata] = np.nan
+                    mov[mov <= ac.NODATA_BELOW] = np.nan
                 # A window of nodata is finite and uniform, so an .any() check passes
                 # it and phase_cross_correlation then returns exactly (0,0) with a nan
                 # error. That reads as a perfect alignment and sails through the gate.
@@ -218,12 +226,16 @@ def coregister(frames: list[dict]) -> None:
                     raise ValueError(f"window shape {mov.shape} != reference {refc.shape}")
                 finite = np.isfinite(mov)
                 if finite.sum() < 0.5 * mov.size:
-                    raise ValueError(f"window is {100*(1-finite.mean()):.0f}% nodata")
-                if float(np.nanstd(mov)) < 1e-6:
-                    raise ValueError("window has zero variance (no image data here): "
-                                     "the touchdown does not fall inside this cube's "
-                                     "valid extent, check projection and sign convention")
-                sh, err, _ = phase_cross_correlation(refc, np.nan_to_num(mov), upsample_factor=10)
+                    raise ValueError(f"only {100*finite.mean():.0f}% real data in the "
+                                     f"window; this frame's strip may not cover the site")
+                sd = float(np.nanstd(mov))
+                if not np.isfinite(sd) or sd < 1e-6:
+                    raise ValueError(f"window variance is {sd}, not a usable image")
+                # fill gaps with the local mean rather than zero, so masked pixels do
+                # not create an artificial step that dominates the correlation
+                filled = np.where(finite, mov, np.nanmean(mov))
+                sh, err, _ = phase_cross_correlation(refc.astype("float64"), filled,
+                                                     upsample_factor=10)
                 if not np.isfinite(err):
                     raise ValueError("correlation degenerate (nan error), not a measurement")
                 fr["shift"] = [float(sh[0]), float(sh[1])]
