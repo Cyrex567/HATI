@@ -282,8 +282,15 @@ def lev2_has_site(prj: Path, half: int = 400) -> bool | None:
     """Does this projected cube actually hold pixels at the touchdown?
 
     Cheap enough to run on every cached product. Returns None, meaning "cannot
-    tell, assume it is fine", when the python imaging stack is unavailable, so a
-    missing dependency never silently discards good work.
+    tell, assume it is fine", only when the python imaging stack is unavailable,
+    so a missing dependency never silently discards good work.
+
+    Everything else is a rebuild. A cube that will not open, or that carries no
+    map geometry, is not a usable level-2 product: cam2map killed part-way
+    through leaves exactly such a file on disk, and accepting it would send
+    co-registration down the hand-rolled formula path with its sign guessing,
+    which is what produced empty windows in the first place. Rebuilding costs
+    ISIS time and no download, so when in doubt, rebuild.
     """
     try:
         import numpy as np
@@ -291,7 +298,14 @@ def lev2_has_site(prj: Path, half: int = 400) -> bool | None:
         from rasterio.warp import transform as warp_transform
         sys.path.insert(0, str(ROOT / "scripts"))
         import athena_counterfactual as ac
+    except ImportError:
+        return None
+    try:
         with rasterio.open(prj) as src:
+            if not src.crs or not src.transform or src.transform.is_identity:
+                print(f"   {prj.name} has no map geometry, so cam2map did not finish "
+                      f"writing it; rebuilding", flush=True)
+                return False
             xs, ys = warp_transform("+proj=longlat +R=1737400 +no_defs", src.crs,
                                     [ac.TD_LON], [ac.TD_LAT])
             r, c = src.index(xs[0], ys[0])
@@ -302,8 +316,9 @@ def lev2_has_site(prj: Path, half: int = 400) -> bool | None:
                 a[a == src.nodata] = np.nan
             a[a <= ac.NODATA_BELOW] = np.nan
             return bool(np.isfinite(a).mean() >= 0.5)
-    except Exception:  # noqa: BLE001
-        return None
+    except Exception as e:  # noqa: BLE001
+        print(f"   {prj.name} could not be read ({e}); rebuilding", flush=True)
+        return False
 
 
 def cube_dims(cub: Path) -> tuple[int, int]:
