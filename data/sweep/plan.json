@@ -5,7 +5,33 @@
   "elev": 4.0,
   "az": 105.72360635931221,
   "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025067/NAC/M1496069741LE.IMG",
-  "margin": 3149.0
+  "margin": 3149.0,
+  "alternates": [
+   {
+    "pid": "nac.m1496041687le",
+    "utc": "2025-03-08T02:53:40+00:00",
+    "elev": 3.730000000000004,
+    "az": 101.7652814085853,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025067/NAC/M1496041687LE.IMG",
+    "margin": 4735.0
+   },
+   {
+    "pid": "nac.m1496013656le",
+    "utc": "2025-03-07T19:06:29+00:00",
+    "elev": 3.5,
+    "az": 97.81020168040688,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025066/NAC/M1496013656LE.IMG",
+    "margin": 4156.0
+   },
+   {
+    "pid": "nac.m1495985617le",
+    "utc": "2025-03-07T11:19:10+00:00",
+    "elev": 3.239999999999995,
+    "az": 93.85399317918642,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025066/NAC/M1495985617LE.IMG",
+    "margin": 4141.0
+   }
+  ]
  },
  {
   "pid": "nac.m1496181900le",
@@ -13,7 +39,33 @@
   "elev": 4.769999999999996,
   "az": 121.54886365414852,
   "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025068/NAC/M1496181900LE.IMG",
-  "margin": 2371.0
+  "margin": 2371.0,
+  "alternates": [
+   {
+    "pid": "nac.m1496153858le",
+    "utc": "2025-03-09T10:03:11+00:00",
+    "elev": 4.640000000000001,
+    "az": 117.59223186301791,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025068/NAC/M1496153858LE.IMG",
+    "margin": 2613.0
+   },
+   {
+    "pid": "nac.m1496237988le",
+    "utc": "2025-03-10T09:25:21+00:00",
+    "elev": 5.109999999999999,
+    "az": 129.46269162294186,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025069/NAC/M1496237988LE.IMG",
+    "margin": 1032.0
+   },
+   {
+    "pid": "nac.m1496125807le",
+    "utc": "2025-03-09T02:15:41+00:00",
+    "elev": 4.3799999999999955,
+    "az": 113.63447129880092,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025068/NAC/M1496125807LE.IMG",
+    "margin": 2392.0
+   }
+  ]
  },
  {
   "pid": "nac.m1496434319le",
@@ -21,7 +73,33 @@
   "elev": 5.359999999999999,
   "az": 157.16419363966725,
   "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025071/NAC/M1496434319LE.IMG",
-  "margin": 1327.0
+  "margin": 1327.0,
+  "alternates": [
+   {
+    "pid": "nac.m1496462370le",
+    "utc": "2025-03-12T23:45:03+00:00",
+    "elev": 5.299999999999997,
+    "az": 161.1222363971503,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025071/NAC/M1496462370LE.IMG",
+    "margin": 1196.0
+   },
+   {
+    "pid": "nac.m1164776359re",
+    "utc": "2014-09-08T00:44:52+00:00",
+    "elev": 4.719999999999999,
+    "az": 161.34276999703923,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0020/DATA/ESM/2014251/NAC/M1164776359RE.IMG",
+    "margin": 1059.0
+   },
+   {
+    "pid": "nac.m1101118606le",
+    "utc": "2012-09-01T06:02:19+00:00",
+    "elev": 5.260000000000005,
+    "az": 179.44813794825987,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0012/DATA/SCI/2012245/NAC/M1101118606LE.IMG",
+    "margin": 808.0
+   }
+  ]
  },
  {
   "pid": "nac.m1496630688le",
@@ -29,7 +107,33 @@
   "elev": 4.409999999999997,
   "az": 184.87133952173582,
   "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025073/NAC/M1496630688LE.IMG",
-  "margin": 2345.0
+  "margin": 2345.0,
+  "alternates": [
+   {
+    "pid": "nac.m1496686792le",
+    "utc": "2025-03-15T14:05:25+00:00",
+    "elev": 3.969999999999999,
+    "az": 192.78742503667974,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0062C/DATA/ESM5/2025074/NAC/M1496686792LE.IMG",
+    "margin": 2568.0
+   },
+   {
+    "pid": "nac.m1435400681re",
+    "utc": "2023-04-06T06:10:14+00:00",
+    "elev": 5.659999999999997,
+    "az": 185.5234945921691,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0055A/DATA/ESM5/2023096/NAC/M1435400681RE.IMG",
+    "margin": 1164.0
+   },
+   {
+    "pid": "nac.m1254292385re",
+    "utc": "2017-07-10T02:18:38+00:00",
+    "elev": 4.3700000000000045,
+    "az": 191.752665422311,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0032/DATA/ESM3/2017191/NAC/M1254292385RE.IMG",
+    "margin": 1086.0
+   }
+  ]
  },
  {
   "pid": "nac.m1433078591re",
@@ -37,6 +141,32 @@
   "elev": 3.569999999999993,
   "az": 217.8844133614203,
   "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0054C/DATA/ESM5/2023069/NAC/M1433078591RE.IMG",
-  "margin": 1665.0
+  "margin": 1665.0,
+  "alternates": [
+   {
+    "pid": "nac.m1341331935re",
+    "utc": "2020-04-12T11:57:48+00:00",
+    "elev": 2.8599999999999994,
+    "az": 232.74013478745223,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0043A/DATA/ESM4/2020103/NAC/M1341331935RE.IMG",
+    "margin": 1259.0
+   },
+   {
+    "pid": "nac.m1160064736re",
+    "utc": "2014-07-15T11:57:49+00:00",
+    "elev": 3.0400000000000063,
+    "az": 216.5486272955609,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0020/DATA/ESM/2014196/NAC/M1160064736RE.IMG",
+    "margin": 678.0
+   },
+   {
+    "pid": "nac.m1496855079le",
+    "utc": "2025-03-17T12:50:11+00:00",
+    "elev": 2.1599999999999966,
+    "az": 216.53201306900849,
+    "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-2-EDR-V1.0/LROLRC_0063A/DATA/ESM5/2025076/NAC/M1496855079LE.IMG",
+    "margin": 6173.0
+   }
+  ]
  }
 ]
