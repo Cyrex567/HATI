@@ -736,8 +736,9 @@ def main() -> None:
             "lev2": str(f["lev2"]), "shift_px": f.get("shift")} for f in done]
     (SWEEP_DIR / "manifest.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
     stage("MANIFEST", "ok", f"{len(done)}/{len(frames)} frames -> data/sweep/manifest.json")
-    print("\nNEXT: check coreg_report.csv (gate: median |shift| <= 1 px), then run the "
-          "real-data kinematics adapter on manifest.json.")
+    print("\nNEXT: the ##STAGE GATE line above is the verdict (median RESIDUAL <= 1 px, not "
+          "the raw shift); coreg_report.csv holds the per-frame numbers behind it. Then run "
+          "the real-data kinematics adapter on manifest.json.")
 
 
 if __name__ == "__main__":

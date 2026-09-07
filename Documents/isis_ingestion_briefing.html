@@ -1,0 +1,670 @@
+<title>ISIS Ingestion Briefing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@600;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#f2f5f8;
+  --panel:#ffffff;
+  --panel-2:#e9eef4;
+  --rule:#ccd6e2;
+  --rule-soft:#e0e7ef;
+  --ink:#0d1723;
+  --ink-2:#2c3a4a;
+  --muted:#5d6b7b;
+  --cy:#0c7a74;
+  --cy-soft:#d3eeec;
+  --ok:#1f7a49;
+  --warn:#96650f;
+  --bad:#b3262b;
+  --ok-soft:#dcf0e4;
+  --warn-soft:#f6ecd6;
+  --bad-soft:#f7dedf;
+  --term-bg:#0a111c;
+  --term-panel:#0e1826;
+  --term-rule:#22334a;
+  --term-ink:#e8eef7;
+  --term-mut:#8b97a5;
+  --term-cy:#27e1d6;
+  --term-ok:#3fb970;
+  --term-warn:#d9a13b;
+  --term-bad:#e5484d;
+  --shadow:0 1px 2px rgba(13,23,35,.06), 0 8px 24px rgba(13,23,35,.06);
+  --sans:'IBM Plex Sans', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --disp:'Chivo', var(--sans);
+  --mono:'IBM Plex Mono', Consolas, 'Cascadia Mono', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#080e17;
+    --panel:#0e1826;
+    --panel-2:#131f30;
+    --rule:#22334a;
+    --rule-soft:#1a2839;
+    --ink:#e8eef7;
+    --ink-2:#c9d3de;
+    --muted:#8b97a5;
+    --cy:#27e1d6;
+    --cy-soft:#10312f;
+    --ok:#3fb970;
+    --warn:#d9a13b;
+    --bad:#e5484d;
+    --ok-soft:#10281b;
+    --warn-soft:#2b2213;
+    --bad-soft:#2b1416;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#080e17;
+  --panel:#0e1826;
+  --panel-2:#131f30;
+  --rule:#22334a;
+  --rule-soft:#1a2839;
+  --ink:#e8eef7;
+  --ink-2:#c9d3de;
+  --muted:#8b97a5;
+  --cy:#27e1d6;
+  --cy-soft:#10312f;
+  --ok:#3fb970;
+  --warn:#d9a13b;
+  --bad:#e5484d;
+  --ok-soft:#10281b;
+  --warn-soft:#2b2213;
+  --bad-soft:#2b1416;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:var(--sans); font-size:16.5px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{font-family:var(--disp); text-wrap:balance; margin:0}
+p{margin:0}
+a{color:var(--cy)}
+:focus-visible{outline:2px solid var(--cy); outline-offset:3px; border-radius:3px}
+@media (prefers-reduced-motion: reduce){*{animation:none !important; transition:none !important}}
+
+/* ---------- masthead ---------- */
+.mast{
+  background:var(--term-bg); color:var(--term-ink);
+  border-bottom:1px solid var(--term-rule);
+}
+.mast-in{
+  max-width:1180px; margin:0 auto; padding:30px 26px 26px;
+  display:flex; gap:26px; align-items:center; flex-wrap:wrap;
+}
+.crest{
+  width:96px; height:96px; flex:none; border-radius:12px;
+  background:#fcfcfd; padding:7px; display:grid; place-items:center;
+  box-shadow:0 0 0 1px rgba(255,255,255,.14), 0 10px 30px rgba(0,0,0,.45);
+}
+.crest img{width:100%; height:100%; object-fit:contain; display:block}
+.mast h1{
+  font-size:clamp(28px,4.4vw,44px); font-weight:900; letter-spacing:-.015em;
+  line-height:1.06; color:var(--term-ink);
+}
+.mast .kicker{
+  font-family:var(--mono); font-size:11.5px; letter-spacing:.19em;
+  text-transform:uppercase; color:var(--term-cy); margin-bottom:9px;
+}
+.mast .dek{color:var(--term-mut); margin-top:11px; max-width:62ch; font-size:16px}
+.mast-txt{min-width:min(100%,320px); flex:1}
+
+.facts{
+  background:var(--term-panel); border-top:1px solid var(--term-rule);
+  border-bottom:1px solid var(--term-rule);
+}
+.facts-in{
+  max-width:1180px; margin:0 auto; padding:0 26px;
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(178px,1fr));
+}
+.fact{padding:15px 20px 15px 0; border-right:1px solid var(--term-rule)}
+.fact:last-child{border-right:0}
+.fact dt{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--term-mut); margin-bottom:4px;
+}
+.fact dd{
+  margin:0; font-family:var(--mono); font-size:14.5px; color:var(--term-ink);
+  font-variant-numeric:tabular-nums;
+}
+
+/* ---------- shell ---------- */
+.shell{max-width:1180px; margin:0 auto; padding:44px 26px 90px; display:flex; gap:44px}
+nav.rail{display:none}
+@media (min-width:1080px){
+  nav.rail{
+    display:block; width:212px; flex:none; align-self:flex-start;
+    position:sticky; top:26px; max-height:calc(100vh - 52px); overflow-y:auto;
+  }
+  nav.rail ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px}
+  nav.rail a{
+    display:flex; gap:10px; padding:6px 9px; border-radius:5px;
+    color:var(--muted); text-decoration:none; font-size:13.5px; line-height:1.35;
+  }
+  nav.rail a:hover{background:var(--panel-2); color:var(--ink)}
+  nav.rail .n{font-family:var(--mono); font-size:11.5px; color:var(--cy); padding-top:1px}
+  nav.rail .rail-h{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--muted); padding:0 9px 9px;
+  }
+}
+main{flex:1; min-width:0; display:flex; flex-direction:column; gap:52px}
+section{scroll-margin-top:22px; display:flex; flex-direction:column; gap:17px}
+section > h2{
+  font-size:27px; font-weight:700; letter-spacing:-.012em;
+  padding-bottom:11px; border-bottom:2px solid var(--rule);
+}
+section > h2 .sn{
+  font-family:var(--mono); font-size:14px; color:var(--cy);
+  font-weight:500; margin-right:11px; letter-spacing:0;
+}
+h3{font-size:18.5px; font-weight:700; margin-top:9px}
+p, li{max-width:70ch}
+.lede{font-size:18px; color:var(--ink-2); max-width:66ch}
+ul,ol{margin:0; padding-left:1.15em; display:flex; flex-direction:column; gap:8px}
+strong{font-weight:600}
+code{
+  font-family:var(--mono); font-size:.885em; background:var(--panel-2);
+  padding:1px 5px; border-radius:4px; border:1px solid var(--rule-soft);
+}
+.eq{
+  font-family:var(--mono); font-size:16px; background:var(--panel);
+  border:1px solid var(--rule); border-left:3px solid var(--cy);
+  padding:14px 18px; border-radius:0 7px 7px 0; color:var(--ink);
+  overflow-x:auto; max-width:70ch;
+}
+.eq b{color:var(--cy); font-weight:600}
+
+/* ---------- stage ledger ---------- */
+.ledger{display:flex; flex-direction:column; gap:0; border-top:1px solid var(--rule)}
+.stg{
+  display:grid; grid-template-columns:44px 1fr; gap:0 18px;
+  padding:19px 0 19px 14px; border-bottom:1px solid var(--rule);
+  border-left:3px solid var(--rule);
+}
+.stg.ours{border-left-color:var(--cy)}
+.stg .idx{
+  font-family:var(--mono); font-size:12px; color:var(--muted);
+  font-variant-numeric:tabular-nums; padding-top:4px;
+}
+.stg-b{display:flex; flex-direction:column; gap:9px; min-width:0}
+.stg-h{display:flex; gap:11px; align-items:baseline; flex-wrap:wrap}
+.stg-h .nm{font-family:var(--mono); font-size:15.5px; font-weight:600; color:var(--ink)}
+.tag{
+  font-family:var(--mono); font-size:10px; letter-spacing:.13em; text-transform:uppercase;
+  padding:2px 7px; border-radius:3px; border:1px solid var(--rule); color:var(--muted);
+  white-space:nowrap;
+}
+.tag.us{color:var(--cy); border-color:var(--cy); background:var(--cy-soft)}
+.stg p{max-width:66ch; font-size:15.5px}
+.cmd{
+  font-family:var(--mono); font-size:13px; color:var(--ink-2);
+  background:var(--panel-2); border:1px solid var(--rule-soft);
+  padding:9px 12px; border-radius:6px; overflow-x:auto; white-space:pre;
+}
+
+/* ---------- terminal ---------- */
+.term{
+  background:var(--term-bg); border:1px solid var(--term-rule); border-radius:9px;
+  overflow:hidden; box-shadow:var(--shadow);
+}
+.term-bar{
+  background:var(--term-panel); border-bottom:1px solid var(--term-rule);
+  padding:8px 14px; font-family:var(--mono); font-size:11px;
+  letter-spacing:.13em; text-transform:uppercase; color:var(--term-mut);
+}
+.term-body{
+  padding:15px 16px; overflow-x:auto; font-family:var(--mono);
+  font-size:13px; line-height:1.78; color:var(--term-ink); white-space:pre;
+}
+.term-body .c-ok{color:var(--term-ok)}
+.term-body .c-bad{color:var(--term-bad)}
+.term-body .c-wn{color:var(--term-warn)}
+.term-body .c-cy{color:var(--term-cy)}
+.term-body .c-mut{color:var(--term-mut)}
+.note{
+  display:grid; grid-template-columns:auto 1fr; gap:0 12px;
+  padding:11px 16px; border-top:1px solid var(--term-rule);
+  background:var(--term-panel); font-size:14px; color:var(--term-ink);
+}
+.note .ar{font-family:var(--mono); color:var(--term-cy)}
+.note p{max-width:74ch; color:var(--term-ink)}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto; border:1px solid var(--rule); border-radius:8px; background:var(--panel)}
+table{border-collapse:collapse; width:100%; font-size:14.5px}
+th,td{padding:10px 14px; text-align:left; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+thead th{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); background:var(--panel-2); border-bottom:1px solid var(--rule);
+  white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:0}
+td.m, th.m{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+.pill{
+  display:inline-block; font-family:var(--mono); font-size:11px; font-weight:500;
+  padding:2px 8px; border-radius:11px; white-space:nowrap;
+}
+.pill.ok{background:var(--ok-soft); color:var(--ok)}
+.pill.wn{background:var(--warn-soft); color:var(--warn)}
+.pill.bad{background:var(--bad-soft); color:var(--bad)}
+
+/* ---------- callout ---------- */
+.call{
+  border:1px solid var(--rule); border-left:3px solid var(--warn);
+  background:var(--panel); border-radius:0 8px 8px 0; padding:15px 19px;
+  display:flex; flex-direction:column; gap:8px;
+}
+.call.gate{border-left-color:var(--cy)}
+.call h4{
+  font-family:var(--mono); font-size:11px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--muted); font-weight:500;
+}
+.call p{font-size:15.5px}
+
+/* ---------- glossary ---------- */
+.gloss{display:grid; grid-template-columns:repeat(auto-fit,minmax(272px,1fr)); gap:1px;
+  background:var(--rule); border:1px solid var(--rule); border-radius:8px; overflow:hidden}
+.gl{background:var(--panel); padding:14px 17px; display:flex; flex-direction:column; gap:5px}
+.gl dt{font-family:var(--mono); font-size:13.5px; font-weight:600; color:var(--cy)}
+.gl dd{margin:0; font-size:14.5px; color:var(--ink-2); max-width:46ch}
+
+footer{
+  border-top:1px solid var(--rule); margin-top:14px; padding-top:22px;
+  font-size:13.5px; color:var(--muted); display:flex; flex-direction:column; gap:6px;
+}
+</style>
+
+<header class="mast">
+  <div class="mast-in">
+    <div class="crest"><img src="data:image/png;base64,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" alt="HATI insignia: a wolf before a crescent moon"></div>
+    <div class="mast-txt">
+      <div class="kicker">Máni Mission / HATI v2.5 / Ground segment</div>
+      <h1>ISIS ingestion, start to finish</h1>
+      <p class="dek">How a raw NASA detector dump becomes a map-projected image we can measure shadows in, what every line the pipeline prints actually means, and what the code is doing while it prints it.</p>
+    </div>
+  </div>
+  <div class="facts">
+    <dl class="facts-in">
+      <div class="fact"><dt>Target site</dt><dd>84.7906 S, 29.1957 E</dd></div>
+      <div class="fact"><dt>Instrument</dt><dd>LRO / LROC NAC</dd></div>
+      <div class="fact"><dt>Map scale</dt><dd>0.9 m per pixel</dd></div>
+      <div class="fact"><dt>Frames available</dt><dd>89 of 696</dd></div>
+      <div class="fact"><dt>Gate</dt><dd>residual &le; 1.00 px</dd></div>
+    </dl>
+  </div>
+</header>
+
+<div class="shell">
+<nav class="rail">
+  <div class="rail-h">Contents</div>
+  <ol>
+    <li><a href="#why"><span class="n">01</span><span>What it is for</span></a></li>
+    <li><a href="#shadow"><span class="n">02</span><span>The shadow trick</span></a></li>
+    <li><a href="#sweep"><span class="n">03</span><span>Why one image fails</span></a></li>
+    <li><a href="#isis"><span class="n">04</span><span>What ISIS is</span></a></li>
+    <li><a href="#stages"><span class="n">05</span><span>The ten stages</span></a></li>
+    <li><a href="#console"><span class="n">06</span><span>Reading the console</span></a></li>
+    <li><a href="#gate"><span class="n">07</span><span>The gate</span></a></li>
+    <li><a href="#code"><span class="n">08</span><span>What the code does</span></a></li>
+    <li><a href="#failures"><span class="n">09</span><span>How it has failed</span></a></li>
+    <li><a href="#run"><span class="n">10</span><span>Running it</span></a></li>
+    <li><a href="#gloss"><span class="n">11</span><span>Glossary</span></a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="why">
+  <h2><span class="sn">01</span>What the pipeline is for</h2>
+  <p class="lede">HATI is a hazard map for lunar landing sites. It has to find rocks that are smaller than a pixel, at a place where the sun never gets more than a few degrees above the horizon.</p>
+  <p>The target here is a point near Nobile crater in the lunar south polar region, at 84.79 degrees south. A lander touching down there needs to know whether the patch under it holds a 30 cm boulder. The best imagery available is from the Narrow Angle Camera on Lunar Reconnaissance Orbiter, which resolves about half a metre to a metre per pixel from orbit. A 30 cm rock is therefore invisible. It occupies less than one pixel and changes that pixel's brightness by almost nothing.</p>
+  <p>So we do not look for the rock. We look for its shadow, which at this latitude is enormous. The ingestion pipeline exists to produce the images that measurement runs on: a set of NAC frames of the same ground, taken at many different sun angles, all calibrated the same way, all projected onto the same map grid, and all aligned with each other to better than one pixel.</p>
+  <p>Everything in this document is in service of that last sentence. If the frames are not aligned, shadow motion and camera motion are the same signal and the measurement is worthless.</p>
+</section>
+
+<section id="shadow">
+  <h2><span class="sn">02</span>The shadow trick</h2>
+  <p>A vertical object of height <code>h</code> lit by a sun at elevation angle <code>e</code> casts a shadow of length <code>L</code>:</p>
+  <div class="eq">L = h &middot; cot(<b>e</b>)          so          h = L &middot; tan(<b>e</b>)</div>
+  <p>Near the equator this is useless. The sun climbs high, <code>cot(e)</code> falls toward zero, and a small rock casts almost no shadow. At 84.8 degrees south the sun tops out a few degrees above the horizon, and the geometry inverts in our favour. At a sun elevation of 5 degrees, <code>cot(5&deg;)</code> is 11.4.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Object height</th><th>Sun elevation</th><th class="m">Shadow length</th><th class="m">Shadow in NAC pixels</th><th>Visible?</th></tr></thead>
+      <tbody>
+        <tr><td class="m">0.30 m</td><td class="m">45&deg;</td><td class="m">0.30 m</td><td class="m">0.3 px</td><td><span class="pill bad">no</span></td></tr>
+        <tr><td class="m">0.30 m</td><td class="m">10&deg;</td><td class="m">1.70 m</td><td class="m">1.9 px</td><td><span class="pill wn">marginal</span></td></tr>
+        <tr><td class="m">0.30 m</td><td class="m">5&deg;</td><td class="m">3.43 m</td><td class="m">3.8 px</td><td><span class="pill ok">yes</span></td></tr>
+        <tr><td class="m">0.30 m</td><td class="m">2&deg;</td><td class="m">8.59 m</td><td class="m">9.5 px</td><td><span class="pill ok">yes</span></td></tr>
+        <tr><td class="m">1.00 m</td><td class="m">5&deg;</td><td class="m">11.43 m</td><td class="m">12.7 px</td><td><span class="pill ok">yes</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A rock a third of a metre across, invisible in its own right, throws a dark streak four pixels long. That streak is measurable. The pipeline targets a sun elevation band of 1.5 to 7.5 degrees for exactly this reason, aiming at 5 degrees, which is the compromise between long shadows and enough light to see anything at all.</p>
+</section>
+
+<section id="sweep">
+  <h2><span class="sn">03</span>Why one image is not enough</h2>
+  <p>Dark pixels are ambiguous. A shadow is dark. So is a patch of low-albedo soil, a pyroclastic deposit, or a small depression. From a single frame there is no way to tell a hazard from a stain, and a hazard map built on stains would send a lander around obstacles that are not there and into ones that are.</p>
+  <p>The discriminator is motion. Move the sun and a real shadow swings around its caster like a clock hand, staying anchored at the object's base. A dark patch of soil does not move at all, because it is painted on the ground.</p>
+  <p>That is the solar sweep. Collect frames of the same ground across a wide spread of sun azimuths, find every dark blob in every frame, and cast a vote at the up-sun end of each one, which is where the caster must be. Votes from a real obstacle pile up on a single point. Votes from an albedo patch smear into a ring, because the assumed caster position rotates with the sun while the patch stays put.</p>
+  <p>Two consequences fall straight out of this and both are enforced in code. What matters is the spread of sun azimuth rather than the number of frames, so the pipeline requires at least four frames covering at least 40 degrees of azimuth and refuses to continue otherwise. And the frames must be aligned to sub-pixel accuracy, because the whole method rests on deciding whether a blob moved between two images.</p>
+</section>
+
+<section id="isis">
+  <h2><span class="sn">04</span>What ISIS is, and why raw NASA data is not a picture</h2>
+  <p>ISIS is the Integrated Software for Imagers and Spectrometers, written and maintained by the USGS Astrogeology Science Center. It is the standard toolchain for turning planetary spacecraft data into something scientifically usable, and almost every published LROC measurement passed through it.</p>
+  <p>What you download from the NASA Planetary Data System is an EDR, an Experiment Data Record. It is close to a raw dump of what the detector read out, and it has several properties that make it useless as an image:</p>
+  <ul>
+    <li>The numbers are detector counts, not brightness. They carry the sensor's dark current, its per-pixel gain variation, and an electronic echo from the readout. Two frames of identical ground taken on different orbits will not have the same values.</li>
+    <li>There is no geometry attached. The file does not know where the spacecraft was, where it was pointing, or where the sun was. It is a rectangle of numbers with a timestamp.</li>
+    <li>NAC is a line-scan camera. It has no shutter and takes no snapshot. It builds an image one row at a time as the spacecraft flies, so every single row was taken from a slightly different place, at a slightly different attitude. The raw frame is not a projection of anything.</li>
+  </ul>
+  <p>ISIS fixes all three, in that order. It is Linux and macOS software, which is why this stage of HATI runs under WSL2 on a Windows machine and cannot run natively on Windows.</p>
+  <p>One term worth having up front: a <strong>cube</strong> is ISIS's own file format, ending in <code>.cub</code>. It holds the image data and a large text label carrying everything ISIS knows about the frame. Level 1 means calibrated but still in camera geometry. Level 2 means projected onto a map. The pipeline keeps only level 2 and deletes the intermediates, because each frame is a quarter of a gigabyte.</p>
+</section>
+
+<section id="stages">
+  <h2><span class="sn">05</span>The ten stages</h2>
+  <p>Every stage prints a line beginning <code>##STAGE</code> so the mission dashboard can parse progress without reading English. The four ISIS programs sit in the middle. Everything with a cyan bar is HATI's own code.</p>
+  <div class="ledger">
+
+    <div class="stg ours"><div class="idx">01</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">SELECT</span><span class="tag us">HATI</span></div>
+      <p>Reads the sweep CSV and chooses which frames to fetch. Splits the compass into bins and picks one frame per bin, so the set covers many sun directions rather than clustering at one. Rejects any frame whose footprint does not put the site comfortably inside the imaged strip, and keeps ranked alternates per bin in case the chosen one turns out not to image the site after all. Refuses to continue on fewer than four frames or less than 40 degrees of azimuth spread.</p>
+    </div></div>
+
+    <div class="stg ours"><div class="idx">02</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">DOWNLOAD</span><span class="tag us">HATI</span></div>
+      <p>Fetches the EDR from the LROC node of the Planetary Data System. Each frame is roughly 130 to 270 MB. Already downloaded files are reused, so a re-run costs nothing in bandwidth.</p>
+    </div></div>
+
+    <div class="stg"><div class="idx">03</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">LRONAC2ISIS</span><span class="tag">ISIS</span></div>
+      <p>Unpacks the PDS file into an ISIS cube. This is a format translation. It reads the PDS label, decompresses the detector data, and writes a <code>.cub</code> with an ISIS label. The pixel values are still raw counts and there is still no geometry.</p>
+      <div class="cmd">lronac2isis from=M1496181900LE.IMG to=M1496181900LE.cub</div>
+    </div></div>
+
+    <div class="stg"><div class="idx">04</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">SPICEINIT</span><span class="tag">ISIS</span></div>
+      <p>Attaches the geometry. SPICE is NASA's system for describing where everything was and how it was oriented at a given instant, distributed as binary files called kernels. This step works out, for every image line, where LRO was, which way the camera pointed, where the moon's surface was under it, and where the sun sat. It writes all of that into the cube's label. Nothing downstream can work without it.</p>
+      <p>The full kernel set is well over 100 GB, so <code>web=yes</code> asks the USGS kernel web service instead of holding a local copy. This is the slowest step per frame and it needs a working internet connection.</p>
+      <div class="cmd">spiceinit from=M1496181900LE.cub web=yes</div>
+    </div></div>
+
+    <div class="stg ours"><div class="idx">05</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">CAMPT</span><span class="tag us">HATI gate, ISIS tool</span></div>
+      <p>The first moment we can ask the camera itself a question. <code>campt</code> in ground mode takes a latitude and longitude and reports which detector sample and line it falls on. If the site is not on this frame's detector, we learn it here, before spending the expensive steps on a frame that cannot help.</p>
+      <p>The answer needs bounding. A NAC channel is 5064 samples wide, and <code>campt</code> will happily report sample 6320 without complaining, because it extrapolates past the edge of the focal plane. So the test is not "is the sample positive" but "is the sample inside the real detector, with the correlation window's worth of room to spare".</p>
+      <div class="cmd">campt from=M1496181900LE.cub type=ground latitude=-84.7906 longitude=29.1957</div>
+    </div></div>
+
+    <div class="stg"><div class="idx">06</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">LRONACCAL</span><span class="tag">ISIS</span></div>
+      <p>Radiometric calibration. Subtracts the dark level, divides out the flat field so every detector element responds the same way, removes the readout echo, and converts counts into a physical reflectance quantity. After this, a brightness value means the same thing in a 2013 frame as in a 2025 one, which is what makes frames from different years comparable at all.</p>
+      <div class="cmd">lronaccal from=M1496181900LE.cub to=M1496181900LE.cal.cub</div>
+    </div></div>
+
+    <div class="stg"><div class="idx">07</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">CAM2MAP</span><span class="tag">ISIS</span></div>
+      <p>The step that makes the pixels comparable in space. It takes the camera geometry from stage 04 and resamples the frame onto a fixed map grid, so a given pixel in the output always corresponds to the same patch of ground no matter which orbit the frame came from. HATI's grid is south polar stereographic at 0.9 m per pixel, defined in a small text file the script writes itself.</p>
+      <p>Polar stereographic is used because normal latitude and longitude are unusable this close to the pole, where the meridians converge and a few hundred metres of ground can span tens of degrees of longitude. The output is a level 2 cube and is what everything downstream reads.</p>
+      <div class="cmd">cam2map from=...cal.cub map=sweep_polar.map to=...lev2.cub pixres=map defaultrange=map</div>
+    </div></div>
+
+    <div class="stg ours"><div class="idx">08</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">COREGISTER</span><span class="tag us">HATI</span></div>
+      <p>Measures how far each projected frame is from truth. It cuts an 800 by 800 pixel window centred on the touchdown out of both the new frame and a trusted reference image, then cross-correlates them to find the offset between the two, to a tenth of a pixel. Then it applies that offset and correlates again to see what is left over. Writes <code>coreg_report.csv</code>.</p>
+    </div></div>
+
+    <div class="stg ours"><div class="idx">09</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">GATE</span><span class="tag us">HATI</span></div>
+      <p>The verdict. Takes the median leftover error across all measured frames and passes at or below one pixel. This is the single number that decides whether the shadow measurement is allowed to run.</p>
+    </div></div>
+
+    <div class="stg ours"><div class="idx">10</div><div class="stg-b">
+      <div class="stg-h"><span class="nm">MANIFEST</span><span class="tag us">HATI</span></div>
+      <p>Writes <code>manifest.json</code>, listing every surviving frame with its sun angle, its file path, and its measured shift. That file is the handover to the shadow kinematics detector.</p>
+    </div></div>
+
+  </div>
+</section>
+
+<section id="console">
+  <h2><span class="sn">06</span>Reading the console</h2>
+  <p>Every progress line has the same shape, which makes the whole log skimmable once you know it.</p>
+  <div class="eq">##STAGE  <b>NAME</b>  <b>STATE</b>  detail</div>
+  <p>The state is one of four words. <code>run</code> means it started. <code>ok</code> means it finished. <code>fail</code> means it did not, and the detail says why. <code>skip</code> means it was deliberately not attempted, which during a dry run is every stage.</p>
+
+  <h3>The opening lines</h3>
+  <div class="term">
+    <div class="term-bar">selection</div>
+    <div class="term-body">sweep CSV: solar_sweep_-84.791_+29.196_EDRNAC4.csv  (<span class="c-cy">89 usable frames</span>; 541 miss the site, 66 clip it by under 600 m)
+##STAGE SELECT run
+pid                    az(proxy)   elev     margin  alts   url
+nac.m1496069741le          105.7   4.00     3149 m     3   .../M1496069741LE.IMG
+nac.m1496181900le          121.5   4.77     2371 m     3   .../M1496181900LE.IMG
+nac.m1496434319le          157.2   5.36     1327 m     3   .../M1496434319LE.IMG
+nac.m1496630688le          184.9   4.41     2345 m     3   .../M1496630688LE.IMG
+nac.m1433078591re          217.9   3.57     1665 m     3   .../M1433078591RE.IMG
+##STAGE SELECT <span class="c-ok">ok</span> 5/10 bins, azimuth spread 112 deg (elev 1.5-7.5 deg, target 5.0)</div>
+    <div class="note"><span class="ar">&rsaquo;</span><p>The archive offered 696 frames whose bounding box touches the site. Only 89 of those actually image it with room to spare. The five picked cover 112 degrees of sun azimuth, which clears the 40 degree minimum comfortably. <strong>margin</strong> is how far inside the imaged strip the site sits, in metres. <strong>alts</strong> is how many backup frames that bin is holding.</p></div>
+  </div>
+
+  <h3>A frame going through cleanly</h3>
+  <div class="term">
+    <div class="term-bar">per-frame chain</div>
+    <div class="term-body">##STAGE DOWNLOAD run M1433078591RE.IMG
+   ... 67 MB
+##STAGE DOWNLOAD <span class="c-ok">ok</span> M1433078591RE.IMG (132 MB)
+##STAGE LRONAC2ISIS <span class="c-ok">ok</span> M1433078591RE
+##STAGE SPICEINIT <span class="c-ok">ok</span> M1433078591RE
+##STAGE CAMPT <span class="c-ok">ok</span> M1433078591RE: site at sample 1548 of 5064, line 33725
+##STAGE LRONACCAL <span class="c-ok">ok</span> M1433078591RE
+##STAGE CAM2MAP <span class="c-ok">ok</span> M1433078591RE</div>
+    <div class="note"><span class="ar">&rsaquo;</span><p>The CAMPT line is the one to actually read. <strong>Sample 1548 of 5064</strong> means the site lands well inside the detector's width, which is what we want. Line 33725 is how far down the strip it sits, and NAC strips are tens of thousands of lines long, so a large number there is normal. This was the one frame of the 4 September run that went all the way through.</p></div>
+  </div>
+
+  <h3>A frame rejected before it costs anything</h3>
+  <div class="term">
+    <div class="term-bar">campt rejection and fallback</div>
+    <div class="term-body">##STAGE SPICEINIT <span class="c-ok">ok</span> M1496434319LE
+##STAGE CAMPT <span class="c-bad">fail</span> M1496434319LE: site at sample 6053 of 5064 -- 989 past the edge of this channel
+   -&gt; M1496434319LE does not put the site on its detector; trying M1496462370LE
+##STAGE DOWNLOAD run M1496462370LE.IMG</div>
+    <div class="note"><span class="ar">&rsaquo;</span><p>This is the gate working. The footprint said this frame covered the site by 1327 m, but the camera model says the site falls 989 samples beyond the edge of the detector. The footprint describes the whole observation and cannot see the boundary between the two NAC channels. The run drops the frame and reaches for that bin's next alternate instead of losing the bin.</p></div>
+  </div>
+
+  <h3>A co-registration that measures</h3>
+  <p>The gate has not been passed yet at the time of writing, so the block below is what a pass looks like rather than a captured result. The shape of the output and the meaning of each number are exact.</p>
+  <div class="term">
+    <div class="term-bar">coregister and gate &middot; illustrative, not a captured run</div>
+    <div class="term-body">##STAGE COREGISTER run
+##STAGE COREGISTER <span class="c-ok">ok</span> nac.m1433078591re shift=(-24.10,-58.30) px residual=0.41 px ncc=+0.612 [cube crs]
+co-registration budget -&gt; data/sweep/coreg_report.csv
+
+  frames measured        : 5 of 5
+  median raw shift       : 63.10 px   (57 m at the 0.9 m/px map scale)
+     -- this is the SPICE pointing error, which co-registration exists
+        to remove. It is not the gate and is expected to be large.
+  median residual        : <span class="c-cy">0.41 px</span>   &lt;-- THE GATE, passes at &lt;= 1.00
+  median aligned ncc     : +0.612   (low ncc at a low residual means the sun moved, not the frame)
+##STAGE GATE <span class="c-ok">ok</span> median residual 0.41 px over 5 frames</div>
+    <div class="note"><span class="ar">&rsaquo;</span><p>Three numbers, and they mean different things. <strong>shift</strong> is where the frame was found relative to the reference, and a large value here is expected and fine. <strong>residual</strong> is what remains after correcting it, and that is the gate. <strong>ncc</strong> is how similar the two aligned images are, from -1 to +1. A middling ncc with a small residual is the normal result for a solar sweep, because the two frames were lit from different directions and genuinely contain different shadows.</p></div>
+  </div>
+
+  <h3>A co-registration that fails, and says why</h3>
+  <div class="term">
+    <div class="term-bar">diagnosed failure</div>
+    <div class="term-body">##STAGE COREGISTER <span class="c-bad">fail</span> nac.m1496630688le: only 0% real data in the window; this frame's strip may not cover the site
+   the whole cube is empty (0.0% valid) -- cam2map wrote no image data, so this is a
+   projection/extent problem, not selection</div>
+    <div class="note"><span class="ar">&rsaquo;</span><p>The second line is the important one. An empty window has three possible causes needing opposite fixes, so the pipeline works out which one it is rather than leaving you to guess. It reports the cube's fill percentage, the distance from the touchdown to the nearest real pixel, and one of three verdicts: the projection produced nothing, the frame genuinely misses the site, or the window is being read in the wrong place.</p></div>
+  </div>
+
+  <h3>Every stage name, in one place</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Line you see</th><th>What it means</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td class="m">SELECT fail</td><td>Fewer than four frames, or under 40 degrees of azimuth spread</td><td>Widen the elevation band with <code>--min-elev</code> and <code>--max-elev</code>, or lower <code>--n</code></td></tr>
+        <tr><td class="m">DOWNLOAD fail</td><td>The archive did not serve the file</td><td>Usually transient. Re-run; completed downloads are cached</td></tr>
+        <tr><td class="m">SPICEINIT fail</td><td>The USGS kernel service was unreachable, or the frame has no kernels</td><td>Check the connection and re-run</td></tr>
+        <tr><td class="m">CAMPT fail</td><td>The site is not on this frame's detector</td><td>Nothing. The run moves to the next alternate by itself</td></tr>
+        <tr><td class="m">CAMPT skip</td><td><code>campt</code> is missing or gave an unreadable answer</td><td>Nothing, but the footprint is now the only check, which is weaker</td></tr>
+        <tr><td class="m">CAM2MAP fail</td><td>Projection failed, often an extent that excludes the frame</td><td>Check the latitude and longitude range in the map file</td></tr>
+        <tr><td class="m">COREGISTER fail</td><td>The window could not carry a measurement</td><td>Read the diagnosis line printed underneath it</td></tr>
+        <tr><td class="m">GATE fail</td><td>Median residual is above one pixel</td><td>Stop. Do not run the shadow measurement on this stack</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="gate">
+  <h2><span class="sn">07</span>The gate, and why it is the residual</h2>
+  <p>Co-registration produces two error numbers and they are easy to confuse. Getting this backwards was a real mistake in this project, so it is worth stating plainly.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Number</th><th>What it is</th><th>Typical size</th><th>Gated?</th></tr></thead>
+      <tbody>
+        <tr><td class="m">shift</td><td>Where the frame was found relative to the reference. This is the residual error in the spacecraft's own knowledge of its position and pointing</td><td class="m">tens of px<br>(tens of metres)</td><td><span class="pill wn">no</span></td></tr>
+        <tr><td class="m">residual</td><td>What is left after applying the shift. This is our own alignment error</td><td class="m">under 1 px</td><td><span class="pill ok">yes</span></td></tr>
+        <tr><td class="m">ncc</td><td>How similar the two aligned images look, from -1 to +1</td><td class="m">0.3 to 0.8</td><td><span class="pill wn">no</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The shift is the thing co-registration exists to remove. SPICE geolocation for LROC NAC is good to some tens of metres before any bundle adjustment, so a shift of 60 pixels at 0.9 m per pixel is an ordinary, healthy result. Gating on it would throw away perfectly correctable frames.</p>
+  <p>What has to be small is what survives the correction. If two frames are still misaligned by more than a pixel after correction, then a shadow appearing to move by a pixel between them could just as easily be the frame that moved, and the measurement cannot separate the two.</p>
+  <div class="call gate">
+    <h4>The rule</h4>
+    <p>Median residual at or below 1.00 px passes. Above it, stop and report it. Do not run the shadow measurement on a stack that failed the gate, and do not adjust the threshold to make a run pass.</p>
+  </div>
+  <p>The ncc is diagnostic rather than a pass condition, and it needs reading with care. A low ncc alongside a small residual is not a problem. It is the expected signature of a solar sweep, where two frames of the same ground were lit from 100 degrees apart and therefore genuinely contain different shadows. A low ncc alongside a large residual is a different matter and means the correlation did not find the right peak.</p>
+</section>
+
+<section id="code">
+  <h2><span class="sn">08</span>What the code does</h2>
+  <p>Two scripts, about 900 lines together. The first asks the archive what exists. The second turns a subset of it into aligned images.</p>
+
+  <h3>solar_sweep_query.py</h3>
+  <p>Asks the Orbital Data Explorer, NASA's query service for planetary archives, for every NAC frame whose footprint touches the site, then tabulates the illumination geometry of each. The distribution of sun azimuths across the results is the solar sweep that is actually available for that place, which is worth knowing before committing to any downloads.</p>
+  <p>The interesting function is <code>site_margin_m</code>, which answers how far inside a frame's imaged strip the site sits. It works by projecting the footprint polygon's corners into metres and then measuring the distance from the site to the nearest polygon edge, positive inside and negative outside. Projecting first is the entire point. Testing the polygon in raw degrees looks reasonable and is wrong near the pole, where a footprint edge spanning tens of degrees of longitude is a straight line to the test and a kilometres-wide arc on the ground. The script writes one CSV row per frame including a <code>margin_m</code> column, and keeps only frames at least 600 m clear by default.</p>
+
+  <h3>ingest_sweep.py</h3>
+  <p>The pipeline. Reading order, roughly top to bottom:</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td class="m">load_csv</td><td>Reads the sweep CSV and drops frames that miss the site or only clip it. Keeps a separate unfiltered index of everything, because a frame rejected on its own footprint can still be the sibling channel that rescues its partner.</td></tr>
+        <tr><td class="m">select_frames</td><td>Bins by sun azimuth and picks the best frame per bin, ranking by nearness to the target elevation with a tie-break toward frames that sit further inside the strip. Attaches ranked alternates to each pick. Enforces the four frame and 40 degree spread minimums. Honours <code>--frames</code> to force specific products for debugging.</td></tr>
+        <tr><td class="m">download</td><td>Streams the EDR from PDS, skipping anything already on disk above 10 MB.</td></tr>
+        <tr><td class="m">isis</td><td>One-line wrapper that runs an ISIS program as a subprocess and returns success plus the last 400 characters of output, which is what the failure detail in the log comes from.</td></tr>
+        <tr><td class="m">cube_dims</td><td>Reads the real sample and line counts out of the ISIS label with <code>getkey</code>, so the detector bound is measured rather than assumed. Falls back to NAC's 5064 samples.</td></tr>
+        <tr><td class="m">campt_covers</td><td>The authoritative coverage gate. Runs <code>campt</code> in ground mode, parses the sample and line, and returns one of four verdicts: inside, off the sample edge, off the readout, or unknown. Unknown defers to the footprint rather than discarding a possibly good frame.</td></tr>
+        <tr><td class="m">sibling_channel</td><td>Swaps LE for RE and back. The two optics of one observation image adjacent ground swaths, so a site just past the edge of one is often well inside the other.</td></tr>
+        <tr><td class="m">lev2_has_site</td><td>Checks whether an already-projected cube actually holds pixels at the touchdown. Run on every cached product, so a known-empty file rebuilds itself instead of being trusted forever.</td></tr>
+        <tr><td class="m">process_frame</td><td>Drives the ISIS chain for one frame, with the campt gate placed between the two cheap steps and the two expensive ones. Deletes the intermediate cubes on success and keeps only level 2.</td></tr>
+        <tr><td class="m">where_is_the_data</td><td>Runs only when a window comes back empty. Reads the cube decimated, finds every valid pixel, and reports the fill fraction, the distance to the nearest real pixel, and which of the three causes it is.</td></tr>
+        <tr><td class="m">coregister</td><td>Cuts matching windows from the reference and the new frame, masks nodata, mean-subtracts both, cross-correlates for the shift, applies it, correlates again for the residual, and computes the correlation of the aligned pair. Writes the CSV and prints the gate verdict.</td></tr>
+        <tr><td class="m">main</td><td>Parses options, runs selection, and either writes a dry-run plan or executes. Walks each bin's queue until one frame survives, then co-registers the survivors and writes the manifest.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Two details in coregister worth knowing</h3>
+  <p>ISIS marks missing pixels with negative FLT_MAX, which is about -3.4 &times; 10<sup>38</sup>. That value is a perfectly finite number as far as a floating point check is concerned, so it passes an <code>isfinite</code> test and then overflows the variance to infinity, and the correlation returns an exact zero shift with a NaN error. That looks exactly like a perfect alignment. It is masked explicitly, and any window with less than half real data is refused outright.</p>
+  <p>The correlation runs unnormalised rather than with the library's default phase normalisation. Phase normalisation whitens the frequency spectrum, which amplifies the highest-frequency content. On imagery that has been resampled, and <code>cam2map</code> resamples by interpolating, that content is numerical noise rather than signal, and the correlation peak disappears. A deliberately planted three pixel shift comes back as exactly zero. Unnormalised correlation recovers planted shifts to a tenth of a pixel on smooth, noisy, sharply textured and contrast-flipped test images alike.</p>
+
+  <h3>Tests</h3>
+  <p>Three test files, all offline, all runnable in seconds. <code>test_footprint.py</code> plants strips of known geometry and pins the containment maths against the two real archive footprints that first exposed the bug. <code>test_coreg.py</code> plants known shifts and demands them back to a fifth of a pixel, including the case the library default silently returns zero for. <code>test_channels.py</code> covers the terrain channel stack, which is a different part of HATI.</p>
+</section>
+
+<section id="failures">
+  <h2><span class="sn">09</span>Four ways this has already failed</h2>
+  <p>Worth knowing, because most of the guards in the code exist to catch one of these, and their messages will look cryptic without the history.</p>
+
+  <h3>Correlating against nothing, and calling it perfect</h3>
+  <p>The first real run reported a shift of exactly (0.00, 0.00) with a NaN error on every frame. That reads as flawless alignment. It was the signature of correlating a window that contained no image data, because the ISIS nodata sentinel had not been masked. Anything that cannot carry a real measurement is now refused rather than reported as a pass.</p>
+
+  <h3>Trusting a bounding box</h3>
+  <p>The archive's spatial query filters on the footprint's bounding box. A NAC strip is long and narrow and runs diagonally, so near the pole its bounding box is enormously larger than the strip. Three of the first four frames imaged nothing at the site.</p>
+
+  <h3>Testing the polygon in the wrong coordinate space</h3>
+  <p>The fix for that was to test the footprint polygon instead of its box, which was right in principle and wrong in execution: the test ray-cast in raw degrees. At 84.8 degrees south that space is stretched about tenfold in longitude, the polygon balloons, and nearly everything passes. All five frames of the next run passed the test and all five came back empty. Measured properly, they missed the site by 0.4 to 3.0 km. The test now projects the vertices first and returns a distance in metres.</p>
+
+  <h3>Asking the camera the right question without bounding the answer</h3>
+  <p>Then came the campt gate, which checked only that the sample number was positive. A NAC channel is 5064 samples wide and campt extrapolates past the focal plane without erroring. The run put the site at samples 5069, 6053 and 6320 on three frames whose footprints read as 1.3 to 2.3 km inside, and all three projected to empty. The sample is now tested against the cube's real width.</p>
+
+  <div class="call">
+    <h4>The pattern</h4>
+    <p>Every one of these produced output that looked like success. That is why the pipeline now prefers a loud refusal over a plausible number, and why the gate is printed as a verdict rather than left in a CSV for someone to interpret.</p>
+  </div>
+</section>
+
+<section id="run">
+  <h2><span class="sn">10</span>Running it</h2>
+  <p>Selection and the dry run work anywhere Python does. Everything from stage 03 onward needs ISIS, so on Windows that means inside WSL2.</p>
+  <h3>Find out what imagery exists</h3>
+  <div class="cmd">python scripts/solar_sweep_query.py --lat -84.7906 --lon 29.1957 --halfwidth-km 3</div>
+  <p>Writes the sweep CSV and prints how many frames actually image the site. Costs one web request and no disk.</p>
+  <h3>See the plan without downloading anything</h3>
+  <div class="cmd">python scripts/ingest_sweep.py --n 10</div>
+  <p>Dry run is the default. It prints the frames it would fetch and writes <code>data/sweep/plan.json</code>.</p>
+  <h3>Actually run it</h3>
+  <div class="cmd">python scripts/ingest_sweep.py --n 10 --execute</div>
+  <p>Budget roughly 0.35 GB and several minutes per frame, most of it in <code>spiceinit</code> and <code>cam2map</code>.</p>
+  <h3>Options worth knowing</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Option</th><th>Default</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td class="m">--n</td><td class="m">10</td><td>Azimuth bins, and so the maximum number of frames</td></tr>
+        <tr><td class="m">--min-elev / --max-elev</td><td class="m">1.5 / 7.5</td><td>Sun elevation band in degrees. Widen this if selection cannot find enough frames</td></tr>
+        <tr><td class="m">--target-elev</td><td class="m">5.0</td><td>Preferred sun elevation within a bin</td></tr>
+        <tr><td class="m">--min-margin-m</td><td class="m">600</td><td>How far inside the strip the site must sit</td></tr>
+        <tr><td class="m">--alternates</td><td class="m">3</td><td>Backup frames per bin for campt to fall back on</td></tr>
+        <tr><td class="m">--frames</td><td class="m">(none)</td><td>Force specific product ids and bypass the gates. For debugging on known-good frames</td></tr>
+        <tr><td class="m">--no-campt</td><td class="m">off</td><td>Skip the ground-point check. Only for isolating a problem</td></tr>
+        <tr><td class="m">--execute</td><td class="m">off</td><td>Without it, nothing is downloaded and no ISIS program runs</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>What to read afterwards</h3>
+  <p>The <code>##STAGE GATE</code> line is the answer. <code>data/sweep/coreg_report.csv</code> has the per-frame numbers behind it, and <code>data/sweep/manifest.json</code> is what the shadow measurement consumes next.</p>
+</section>
+
+<section id="gloss">
+  <h2><span class="sn">11</span>Glossary</h2>
+  <dl class="gloss">
+    <div class="gl"><dt>EDR</dt><dd>Experiment Data Record. The rawest archived form of a frame, close to a detector dump.</dd></div>
+    <div class="gl"><dt>DN</dt><dd>Digital Number. A raw detector count, before calibration. Not a brightness.</dd></div>
+    <div class="gl"><dt>cube</dt><dd>ISIS's file format. Image data plus a long text label holding everything ISIS knows about the frame.</dd></div>
+    <div class="gl"><dt>level 1 / level 2</dt><dd>Calibrated but still in camera geometry, versus projected onto a map grid.</dd></div>
+    <div class="gl"><dt>SPICE</dt><dd>NASA's system for spacecraft and planetary geometry: positions, orientations and time.</dd></div>
+    <div class="gl"><dt>kernel</dt><dd>One SPICE data file. The complete LRO set runs past 100 GB, so we query a web service instead.</dd></div>
+    <div class="gl"><dt>PDS</dt><dd>Planetary Data System. NASA's archive, where the EDRs are downloaded from.</dd></div>
+    <div class="gl"><dt>ODE</dt><dd>Orbital Data Explorer. The search interface over PDS that the sweep query talks to.</dd></div>
+    <div class="gl"><dt>NAC</dt><dd>Narrow Angle Camera on LRO. Two optics, LE and RE, each 5064 pixels wide, imaging adjacent swaths.</dd></div>
+    <div class="gl"><dt>line-scan camera</dt><dd>A camera with no shutter that builds an image one row at a time as the spacecraft moves.</dd></div>
+    <div class="gl"><dt>footprint</dt><dd>The archive's polygon describing roughly what ground an observation covers. Coarse, and it describes the observation rather than one optic.</dd></div>
+    <div class="gl"><dt>ortho</dt><dd>An image resampled so every pixel sits at its true map position, with terrain distortion removed.</dd></div>
+    <div class="gl"><dt>polar stereographic</dt><dd>A map projection that behaves near a pole, where latitude and longitude do not.</dd></div>
+    <div class="gl"><dt>phase correlation</dt><dd>A method for finding the offset between two images by comparing them in the frequency domain.</dd></div>
+    <div class="gl"><dt>nodata</dt><dd>A reserved pixel value meaning nothing was imaged here. ISIS uses negative FLT_MAX.</dd></div>
+    <div class="gl"><dt>PVL</dt><dd>Parameter Value Language. The plain-text label format ISIS uses, including the map definition file.</dd></div>
+    <div class="gl"><dt>solar sweep</dt><dd>A set of images of one place taken at many different sun angles. The core of the method.</dd></div>
+  </dl>
+</section>
+
+<footer>
+  <p>HATI v2.5 ground segment. Máni Mission. Prepared 7 September 2026.</p>
+  <p>Pipeline source: <code>scripts/solar_sweep_query.py</code> and <code>scripts/ingest_sweep.py</code>. Tests: <code>tests/test_footprint.py</code>, <code>tests/test_coreg.py</code>.</p>
+</footer>
+
+</main>
+</div>
