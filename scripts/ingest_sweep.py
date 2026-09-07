@@ -307,14 +307,39 @@ def lev2_has_site(prj: Path, half: int = 400) -> bool | None:
 
 
 def cube_dims(cub: Path) -> tuple[int, int]:
-    """Samples and lines of a cube, from the ISIS label. Falls back to NAC's 5064."""
-    dims = []
-    for key in ("Samples", "Lines"):
-        ok, out = isis(["getkey", f"from={cub}", "grpname=Dimensions", f"keyword={key}"])
-        m = re.search(r"(\d+)", out or "")
-        dims.append(int(m.group(1)) if (ok and m) else 0)
-    ns, nl = dims
-    return (ns or 5064), (nl or 0)
+    """Samples and lines of a cube, read from the ISIS label.
+
+    Read stdout specifically, not the isis() wrapper. That wrapper returns
+    stderr in preference to stdout, which is right for reporting why a program
+    failed and wrong for reading a value out of one: getkey wrote a warning to
+    stderr and the width came back as 3 instead of 5064, which made the detector
+    bound impossible to satisfy and rejected every frame in the run.
+
+    Take the last integer, so an echoed path cannot be mistaken for the value,
+    and treat an implausible answer as a failed read. A NAC channel is 5064
+    samples; nothing this pipeline touches is a hundred pixels wide. Falling back
+    to the known width is much better than rejecting every frame because a label
+    would not parse.
+    """
+    def read(key: str) -> int:
+        try:
+            r = subprocess.run(["getkey", f"from={cub}", "grpname=Dimensions",
+                                f"keyword={key}"],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode != 0:
+                return 0
+            nums = re.findall(r"\d+", r.stdout or "")
+            return int(nums[-1]) if nums else 0
+        except Exception:  # noqa: BLE001
+            return 0
+
+    ns, nl = read("Samples"), read("Lines")
+    if ns < 100:
+        if ns:
+            print(f"   note: read a detector width of {ns} from {cub.name}, which cannot "
+                  f"be right; using NAC's 5064", flush=True)
+        ns = 5064
+    return ns, (nl if nl > 100 else 0)
 
 
 def campt_covers(cub: Path, lat: float, lon: float, base: str,
