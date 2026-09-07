@@ -235,6 +235,49 @@ def isis(cmd: list[str]) -> tuple[bool, str]:
         return False, str(e)
 
 
+def systemic(stage_name: str, tail: str) -> bool:
+    """Will this failure repeat identically on every other frame?
+
+    An installation fault looks exactly like a data fault from one frame's output,
+    and the difference decides whether trying the next frame is sensible or is a
+    quarter-gigabyte thrown away. These signatures are all environment, never data.
+    """
+    t = (tail or "").lower()
+    return any(k in t for k in (
+        "isispreferences", "isisroot", "isisdata",
+        "preference file", "no such file or directory: 'lronac2isis'",
+        "command not found", "cannot find the directory",
+        "environment variable"))
+
+
+def check_isis_env() -> list[str]:
+    """Everything wrong with the ISIS installation, before anything is downloaded.
+
+    Binaries on PATH is not enough. Conda puts them there on activation, but ISIS
+    also needs ISISROOT to find its own configuration, and a missing ISISROOT
+    fails in exactly the same place on every frame. Checking here turns an hour
+    and several gigabytes into one line printed in a second.
+    """
+    import os
+    problems = []
+    missing = [b for b in ISIS_BIN if not shutil.which(b)]
+    if missing:
+        problems.append(
+            f"not on PATH: {', '.join(missing)}. Run 'conda activate isis'.")
+    root = os.environ.get("ISISROOT", "")
+    if not root:
+        problems.append(
+            "ISISROOT is not set. Run:  python $CONDA_PREFIX/scripts/isisVarInit.py "
+            "--data-dir=$HOME/isisdata   then re-activate the environment.")
+    elif not (Path(root) / "IsisPreferences").exists():
+        problems.append(
+            f"ISISROOT is set to {root}, but {root}/IsisPreferences does not exist, "
+            f"so it points somewhere that is not an ISIS installation.")
+    if not os.environ.get("ISISDATA"):
+        problems.append("ISISDATA is not set. Same fix as ISISROOT.")
+    return problems
+
+
 def lev2_has_site(prj: Path, half: int = 400) -> bool | None:
     """Does this projected cube actually hold pixels at the touchdown?
 
@@ -394,6 +437,7 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path,
         ok, tail = isis(cmd)
         stage(name, "ok" if ok else "fail", base if ok else f"{base}: {tail}")
         if not ok:
+            fr["fail"] = (name, tail)
             return False
 
     if not skip_campt:
@@ -410,6 +454,7 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path,
         ok, tail = isis(cmd)
         stage(name, "ok" if ok else "fail", base if ok else f"{base}: {tail}")
         if not ok:
+            fr["fail"] = (name, tail)
             return False
     cub.unlink(missing_ok=True); cal.unlink(missing_ok=True)   # keep only lev2
     return True
@@ -676,10 +721,11 @@ def main() -> None:
                            args.max_elev, args.target_elev, force=forced,
                            alternates=args.alternates)
 
-    have_isis = all(shutil.which(b) for b in ISIS_BIN)
-    isis_msg = "YES" if have_isis else \
-        "NO  (conda create -n isis -c usgs-astrogeology isis; set ISISROOT/ISISDATA)"
-    print(f"ISIS3 on PATH: {isis_msg}")
+    isis_problems = check_isis_env()
+    have_isis = not isis_problems
+    print(f"ISIS3 ready: {'YES' if have_isis else 'NO'}")
+    for p in isis_problems:
+        print(f"   - {p}")
     est = 0.35 * len(frames)
     print(f"plan: {len(frames)} frames, ~{est:.1f} GB download, ISIS chain, coregistration")
 
@@ -694,7 +740,8 @@ def main() -> None:
         return
 
     if not have_isis:
-        sys.exit("--execute needs ISIS3 on PATH; install it first")
+        sys.exit("\n--execute needs a working ISIS installation. Fix the points above "
+                 "first.\nNothing was downloaded.")
     mapfile = SWEEP_DIR / "sweep_polar.map"
     mapfile.write_text(MAP_PVL, encoding="utf-8")
 
@@ -714,19 +761,40 @@ def main() -> None:
                 alt.pop("alternates", None)
                 if alt["url"] != fr["url"]:
                     queue.append(alt)
-        for i, f in enumerate(queue):
+        prev = None
+        for f in queue:
             key = f["pid"].split(".")[-1].upper()
             if key in tried:
                 continue
             tried.add(key)
-            if i:
-                print(f"   -> {queue[i-1]['pid'].split('.')[-1].upper()} does not put "
-                      f"the site on its detector; trying {key}", flush=True)
+            if prev:
+                print(f"   -> {prev} does not put the site on its detector; "
+                      f"trying {key}", flush=True)
             if not download(f, SWEEP_DIR):
-                continue
+                break                      # a dead download is not a coverage problem
             if process_frame(f, SWEEP_DIR, mapfile, skip_campt=args.no_campt):
                 done.append(f)
                 break
+            # Only a campt verdict justifies spending another quarter-gigabyte on the
+            # next frame. Anything else -- ISIS failing, cam2map failing -- will fail
+            # identically on every alternate, and retrying it downloads the whole bin
+            # for nothing. That is exactly what an unset ISISROOT did on 7 September:
+            # thirteen frames fetched, every one dying in lronac2isis, each reported
+            # as "does not put the site on its detector".
+            if f.get("campt") not in ("off_sample", "off_line"):
+                st, tail = f.get("fail", ("?", ""))
+                stage("BIN", "fail",
+                      f"{key} failed in {st}, which is not about coverage; "
+                      f"not trying this bin's alternates")
+                if systemic(st, tail):
+                    sys.exit(
+                        f"\nStopping: {st} failed with an error that will repeat on every "
+                        f"frame.\n\n    {tail.strip()[:300]}\n\n"
+                        f"This is an installation problem, not a data problem. Fix it "
+                        f"before re-running;\nnothing downloaded so far is wasted, it is "
+                        f"all cached.")
+                break
+            prev = key
     if not done:
         sys.exit("no frame survived the ISIS chain; nothing to co-register")
     coregister(done)
