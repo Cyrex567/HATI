@@ -197,6 +197,73 @@ def detect(dn: np.ndarray, frac: float, bg_win: int) -> np.ndarray:
     return ndi.binary_opening(mask, iterations=1)
 
 
+def regions_of(mask, min_area):
+    """Coordinates of every region large enough to consider.
+
+    Split out from voting because it is the expensive half and it does not
+    depend on the sun. The shuffled-azimuth null re-votes the same images a
+    couple of hundred times, and relabelling nine million pixels on every trial
+    costs about half an hour on a 2.7 km window for no new information.
+    """
+    from skimage.measure import label, regionprops
+    out = []
+    for p in regionprops(label(mask)):
+        if p.area < min_area:
+            continue
+        out.append((p.coords[:, 0].astype(np.float64),
+                    p.coords[:, 1].astype(np.float64)))
+    return out
+
+
+def bases_from_regions(regions, az_map_deg, elev_deg, elong):
+    """Where each cast-shadow-shaped region says its caster is."""
+    az = math.radians(az_map_deg)
+    tan_e = math.tan(math.radians(elev_deg))
+    srow, scol = -math.cos(az), math.sin(az)          # toward the sun, in the raster
+    prow, pcol = -scol, srow
+    bases = []
+    for rr, cc in regions:
+        proj = rr * srow + cc * scol
+        perp = rr * prow + cc * pcol
+        along = (proj.max() - proj.min()) * RES
+        wide = (perp.max() - perp.min()) * RES
+        if along < elong * max(wide, RES):
+            continue                                   # not a cast shadow shape
+        i = int(np.argmax(proj))                       # up-sun extreme = the base
+        bases.append((int(rr[i]), int(cc[i]), along * tan_e))
+    return bases
+
+
+def stamp(shape, bases, radius):
+    """Binary vote map and height map for one frame, each vote spread over a disc.
+
+    Writes only the discs, rather than filtering the whole array: a few hundred
+    votes times a thirteen-pixel disc instead of nine million pixels.
+    """
+    v = np.zeros(shape, np.float32)
+    h = np.zeros(shape, np.float32)
+    H, W = shape
+    if radius <= 0:
+        for br, bc, hh in bases:
+            if 0 <= br < H and 0 <= bc < W:
+                v[br, bc] = 1.0
+                h[br, bc] = max(h[br, bc], hh)
+        return v, h
+    R = radius
+    yy, xx = np.ogrid[-R:R + 1, -R:R + 1]
+    disc = (yy * yy + xx * xx) <= R * R
+    for br, bc, hh in bases:
+        r0, r1 = max(0, br - R), min(H, br + R + 1)
+        c0, c1 = max(0, bc - R), min(W, bc + R + 1)
+        if r0 >= r1 or c0 >= c1:
+            continue
+        d = disc[r0 - (br - R):r1 - (br - R), c0 - (bc - R):c1 - (bc - R)]
+        v[r0:r1, c0:c1][d] = 1.0
+        sub = h[r0:r1, c0:c1]
+        np.maximum(sub, np.where(d, hh, 0.0), out=sub)
+    return v, h
+
+
 def vote(mask, az_map_deg, elev_deg, min_area, elong, radius=2):
     """One frame's votes: where does this illumination say the casters are?
 
@@ -214,38 +281,10 @@ def vote(mask, az_map_deg, elev_deg, min_area, elong, radius=2):
     anything. Binary per frame, summed across frames, so a pixel holding k means
     k separate illuminations put a caster there.
     """
-    from scipy import ndimage as ndi
-    from skimage.measure import label, regionprops
-    e = math.radians(elev_deg)
-    az = math.radians(az_map_deg)
-    srow, scol = -math.cos(az), math.sin(az)          # toward the sun, in the raster
-    prow, pcol = -scol, srow
-    tan_e = math.tan(e)
-    v = np.zeros(mask.shape, np.float32)
-    h = np.zeros(mask.shape, np.float32)
-    cast = 0
-    for p in regionprops(label(mask)):
-        if p.area < min_area:
-            continue
-        rr = p.coords[:, 0].astype(np.float64)
-        cc = p.coords[:, 1].astype(np.float64)
-        proj = rr * srow + cc * scol
-        perp = rr * prow + cc * pcol
-        along = (proj.max() - proj.min()) * RES
-        wide = (perp.max() - perp.min()) * RES
-        if along < elong * max(wide, RES):
-            continue                                   # not a cast shadow shape
-        i = int(np.argmax(proj))                       # up-sun extreme = the base
-        br, bc = int(rr[i]), int(cc[i])
-        v[br, bc] = 1.0
-        h[br, bc] = max(h[br, bc], along * tan_e)      # h = L*tan(e)
-        cast += 1
-    if radius > 0 and cast:
-        y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
-        disc = (y * y + x * x) <= radius * radius
-        v = (ndi.maximum_filter(v, footprint=disc) > 0).astype(np.float32)
-        h = ndi.maximum_filter(h, footprint=disc)
-    return v, h, cast
+    regions = regions_of(mask, min_area)
+    bases = bases_from_regions(regions, az_map_deg, elev_deg, elong)
+    v, h = stamp(mask.shape, bases, radius)
+    return v, h, len(bases)
 
 
 def accumulate(frames, shape, min_area, elong, radius=2, order=None):
@@ -258,12 +297,17 @@ def accumulate(frames, shape, min_area, elong, radius=2, order=None):
     idx = list(range(n)) if order is None else list(order)
     casts = []
     for k, f in enumerate(frames):
+        # cached on the frame: the regions do not depend on the sun, and the null
+        # re-votes these same images a couple of hundred times
+        if "regions" not in f:
+            f["regions"] = regions_of(f["mask"], min_area)
         g = frames[idx[k]]
-        v, h, cast = vote(f["mask"], g["az_map"], g["elev"], min_area, elong, radius)
+        bases = bases_from_regions(f["regions"], g["az_map"], g["elev"], elong)
+        v, h = stamp(shape, bases, radius)
         evidence += v
         height_acc += h
         dark += f["mask"]
-        casts.append(cast)
+        casts.append(len(bases))
     conf = ndi.gaussian_filter(evidence, 1.2)
     hmap = np.where(evidence > 0, height_acc / np.maximum(evidence, 1e-6), 0.0)
     return conf, evidence, hmap, dark / max(n, 1), casts
