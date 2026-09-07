@@ -6,7 +6,7 @@ NOBILE03 polar-stereographic grid -- the input the shadow-kinematics detector
 needs for its first real-data run.
 
 Stages (each prints '##STAGE <NAME> <run|ok|fail|skip> ...' for the dashboard):
-  SELECT       azimuth-stratified pick of N lit frames (elev in band, near 5 deg)
+  SELECT       azimuth-stratified pick of N lit frames, on real sun azimuth
   DOWNLOAD     fetch NAC EDR .IMG from the LROC PDS node  (~250-450 MB each!)
   LRONAC2ISIS  EDR -> ISIS cube
   SPICEINIT    attach geometry (web=yes -> USGS kernel service)
@@ -39,21 +39,50 @@ REF_ORTHO = ROOT / "data" / "athena" / "NAC_DTM_NOBILE03_M1101075756_90CM.IMG"
 ISIS_BIN = ["lronac2isis", "spiceinit", "lronaccal", "cam2map"]
 ALL_BY_PID: dict[str, dict] = {}      # every frame in the sweep CSV, filtered or not
 
-MAP_PVL = """Group = Mapping
+MOON_R = 1737400.0
+MAP_RES = 0.9                     # metres per pixel
+
+
+def map_pvl(lat: float, lon: float, half_km: float, res: float = MAP_RES) -> str:
+    """A projection box just big enough around the site.
+
+    The extent is what cam2map costs. The original box ran -85.10 to -84.50 and
+    27.5 to 31.5, which is 18.6 by 21.3 km: about 490 million pixels, a two
+    gigabyte cube per frame, of which the strip filled a tenth. Co-registration
+    reads 720 m of that and the kinematics 2.7 km, so nearly all of it was
+    written to be ignored. Sixteen frames at that size is 31 GB and hours of
+    resampling.
+
+    Sized from the site instead. The corners of a square in the projection plane
+    are converted back to latitude and longitude, which is what cam2map's
+    ground range wants.
+    """
+    d = half_km * 1000.0
+    phi, lam = math.radians(lat), math.radians(lon)
+    rho = 2.0 * MOON_R * math.tan(math.pi / 4 + phi / 2)
+    x0, y0 = rho * math.sin(lam), rho * math.cos(lam)
+    lats, lons = [], []
+    for sx in (-1, 0, 1):
+        for sy in (-1, 0, 1):
+            x, y = x0 + sx * d, y0 + sy * d
+            r = math.hypot(x, y)
+            lats.append(math.degrees(2 * math.atan(r / (2 * MOON_R)) - math.pi / 2))
+            lons.append(math.degrees(math.atan2(x, y)) % 360.0)
+    return f"""Group = Mapping
   ProjectionName     = PolarStereographic
   CenterLongitude    = 0.0
   CenterLatitude     = -90.0
   TargetName         = Moon
-  EquatorialRadius   = 1737400.0 <meters>
-  PolarRadius        = 1737400.0 <meters>
+  EquatorialRadius   = {MOON_R} <meters>
+  PolarRadius        = {MOON_R} <meters>
   LatitudeType       = Planetocentric
   LongitudeDirection = PositiveEast
   LongitudeDomain    = 360
-  PixelResolution    = 0.9 <meters/pixel>
-  MinimumLatitude    = -85.10
-  MaximumLatitude    = -84.50
-  MinimumLongitude   = 27.5
-  MaximumLongitude   = 31.5
+  PixelResolution    = {res} <meters/pixel>
+  MinimumLatitude    = {min(lats):.4f}
+  MaximumLatitude    = {max(lats):.4f}
+  MinimumLongitude   = {min(lons):.4f}
+  MaximumLongitude   = {max(lons):.4f}
 End_Group
 End
 """
@@ -178,7 +207,7 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
         head = dict(cand[0])
         head["alternates"] = [dict(c) for c in cand[1:1 + max(0, alternates)]]
         picked.append(head)
-    print(f"{'pid':<22}{'az(proxy)':>10}{'elev':>7}{'margin':>11}{'alts':>6}   url")
+    print(f"{'pid':<22}{'sun az':>10}{'elev':>7}{'margin':>11}{'alts':>6}   url")
     for r in picked:
         print(f"{r['pid']:<22}{r['az']:>10.1f}{r['elev']:>7.2f}"
               f"{r['margin']:>9.0f} m{len(r.get('alternates', [])):>6}   {r['url'][-48:]}")
@@ -768,6 +797,10 @@ def main() -> None:
     ap.add_argument("--no-sibling", action="store_true",
                     help="do not retry the other NAC channel when the site lands "
                          "just past the sample edge of the one selected")
+    ap.add_argument("--map-halfwidth-km", type=float, default=2.5,
+                    help="half-width of the projection box around the site. The "
+                         "kinematics reads 2.7 km at most, so the old 18.6 by 21.3 km "
+                         "box wrote a 2 GB cube per frame to use a tenth of it.")
     ap.add_argument("--execute", action="store_true",
                     help="actually download + run ISIS (default: dry-run plan only)")
     args = ap.parse_args()
@@ -799,8 +832,14 @@ def main() -> None:
     if not have_isis:
         sys.exit("\n--execute needs a working ISIS installation. Fix the points above "
                  "first.\nNothing was downloaded.")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import athena_counterfactual as _ac
     mapfile = SWEEP_DIR / "sweep_polar.map"
-    mapfile.write_text(MAP_PVL, encoding="utf-8")
+    pvl = map_pvl(_ac.TD_LAT, _ac.TD_LON, args.map_halfwidth_km)
+    mapfile.write_text(pvl, encoding="utf-8")
+    side = 2 * args.map_halfwidth_km * 1000.0 / MAP_RES
+    print(f"map extent: {2*args.map_halfwidth_km:.1f} km square around the site, "
+          f"about {side:.0f} x {side:.0f} px ({side*side*4/1e9:.2f} GB per cube)")
 
     done, tried = [], set()
     for fr in frames:
@@ -855,7 +894,8 @@ def main() -> None:
     coregister(done)
 
     stage("MANIFEST", "run")
-    man = [{"pid": f["pid"], "az_proxy": f["az"], "elev": f["elev"],
+    man = [{"pid": f["pid"], "az_deg": f["az"], "az_source": "sslon-model",
+            "elev": f["elev"],
             "lev2": str(f["lev2"]), "shift_px": f.get("shift")} for f in done]
     (SWEEP_DIR / "manifest.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
     stage("MANIFEST", "ok", f"{len(done)}/{len(frames)} frames -> data/sweep/manifest.json")

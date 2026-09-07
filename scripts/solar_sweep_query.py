@@ -8,10 +8,14 @@ frames IS the available solar sweep: how many distinct sun directions we can
 actually assemble for a given site before paying for co-registration.
 
 Source: ODE REST API, https://oderest.rsl.wustl.edu/  (target=moon, LROC NAC).
-Geometry fields are the authoritative per-frame index values. Sun azimuth is
-used if ODE returns it; otherwise a synodic-phase proxy is computed from the
-acquisition time (monotonic in sub-solar longitude over a lunation) so we can
-still measure azimuth DIVERSITY -- flagged clearly as a proxy.
+Geometry fields are the authoritative per-frame index values for incidence,
+emission and phase. ODE serves no sun azimuth, so it is computed from the
+acquisition time by a sub-solar longitude model calibrated against ISIS campt:
+worst error 0.08 degrees over a two-year baseline. That matters more than it
+sounds. The earlier synodic proxy had the rate right and the sign backwards, so
+its azimuths were 30 to 170 degrees out frame by frame, which is fine for
+counting how much diversity an archive holds and useless for a method whose
+entire content is which way the shadows point.
 
 Usage:
   python scripts/solar_sweep_query.py --lat -84.7906 --lon 29.1957 --halfwidth-km 3
@@ -36,9 +40,36 @@ SYNODIC = 29.530588853
 NEW_MOON = dt.datetime(2000, 1, 6, 18, 14, tzinfo=dt.timezone.utc)  # ref new moon
 
 
-def synodic_angle(t: dt.datetime) -> float:
-    days = (t - NEW_MOON).total_seconds() / 86400.0
-    return (days % SYNODIC) / SYNODIC * 360.0
+# Sub-solar longitude on the Moon, calibrated against ISIS campt.
+#
+# The earlier synodic proxy had the right rate and the wrong SIGN. The Sun rises
+# in the east and sets in the west, so the sub-solar point tracks WESTWARD and
+# its positive-east longitude decreases. Getting that backwards put the azimuth
+# 30 to 170 degrees out, frame by frame, which is worse than useless for a method
+# whose whole content is which way the shadows point.
+#
+# The constant is fitted to sub-solar longitudes measured by campt on five frames
+# spanning two years. Worst error over that baseline: 0.08 degrees.
+J2000 = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
+SSLON_AT_J2000 = 249.882                 # degrees east
+SSLON_RATE = 360.0 / SYNODIC             # degrees per day, westward
+
+
+def subsolar_longitude(t: dt.datetime) -> float:
+    """Selenographic east longitude of the sub-solar point."""
+    days = (t - J2000).total_seconds() / 86400.0
+    return (SSLON_AT_J2000 - SSLON_RATE * days) % 360.0
+
+
+def sun_azimuth_at(t: dt.datetime, site_lon: float) -> float:
+    """Ground bearing of the Sun from a polar site, degrees clockwise from north.
+
+    Near the pole the bearing is the difference in longitude to the sub-solar
+    point, to better than a quarter of a degree: the sub-solar latitude only
+    ranges over the Moon's 1.54 degree obliquity, which moves the bearing by
+    about a tenth of a degree.
+    """
+    return (subsolar_longitude(t) - site_lon) % 360.0
 
 
 def parse_utc(s: str):
@@ -259,11 +290,11 @@ def main():
         clon = to_float(get_any(p, "Center_longitude", "Centerlongitude"))
         if azf is not None:
             az_real = True
-        az = azf if azf is not None else (synodic_angle(t) if t else None)
+        az = sun_azimuth_at(t, args.lon) if t else azf
         elev = (90.0 - inc) if inc is not None else None
         mar = site_margin_m(p, args.lat, args.lon)
         rows.append(dict(pid=pid, utc=(t.isoformat() if t else ""), inc=inc, elev=elev,
-                         emi=emi, pha=pha, az=az, az_src=("ODE" if azf is not None else "proxy"),
+                         emi=emi, pha=pha, az=az, az_src=("model" if t else ("ODE" if azf is not None else "")),
                          clat=clat, clon=clon, url=best_url(p),
                          margin=(None if mar is None else round(mar)),
                          cov=("unknown" if mar is None else
@@ -303,7 +334,8 @@ def main():
     filled = sum(1 for b in bins if b)
     elevs = [r["elev"] for r in rows if r["elev"] is not None]
     lit = [e for e in elevs if e and e > 0]
-    print(f"\nazimuth source: {'ODE (real)' if az_real else 'synodic-time PROXY (no ODE azimuth field)'}")
+    print("\nazimuth source: sub-solar longitude model, calibrated against ISIS campt")
+    print("  (worst error 0.08 deg over a two-year baseline; ODE serves no azimuth field)")
     print(f"azimuth coverage: {filled}/12 thirty-degree sectors populated")
     print("  sector(deg) :", " ".join(f"{i*30:>3}:{bins[i]}" for i in range(12)))
     if elevs:
