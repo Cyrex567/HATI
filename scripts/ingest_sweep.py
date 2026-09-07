@@ -510,7 +510,7 @@ def coregister(frames: list[dict]) -> None:
         rr, rc_ = ac.ortho_pixel()
         h = 400
         refc = ref[rr - h:rr + h, rc_ - h:rc_ + h]
-        rows = ["pid,shift_row_px,shift_col_px,error,note"]
+        rows = ["pid,shift_row_px,shift_col_px,residual_px,ncc,skimage_error,note"]
         for fr in frames:
             try:
                 with rasterio.open(fr["lev2"]) as src:        # GDAL reads ISIS3 cubes
@@ -542,23 +542,102 @@ def coregister(frames: list[dict]) -> None:
                 # fill gaps with the local mean rather than zero, so masked pixels do
                 # not create an artificial step that dominates the correlation
                 filled = np.where(finite, mov, np.nanmean(mov))
-                sh, err, _ = phase_cross_correlation(refc.astype("float64"), filled,
-                                                     upsample_factor=10)
+                # normalization=None, not skimage's default 'phase'.
+                #
+                # Phase normalisation whitens the spectrum, which amplifies the
+                # high-frequency bins. On imagery that has been resampled -- and
+                # cam2map interpolates, which low-passes -- those bins hold numerical
+                # noise rather than signal, and the correlation peak disappears: a
+                # planted 3 px shift on a smoothed field comes back as exactly
+                # (0.00, 0.00). It also fails outright when the two frames carry
+                # different shadows, which for a solar sweep is the normal case, not
+                # the exception. Plain cross-correlation recovers the planted shift to
+                # 0.1 px in every regime tested: smooth, noisy, sharply textured, and
+                # contrast-flipped illumination.
+                #
+                # It also restores a usable error. Under phase normalisation skimage's
+                # error is ~1.000 whether the answer is right or hopeless, so it cannot
+                # be read at all; unnormalised it runs about 0.5 when aligned and rises
+                # toward 1.0 as the illumination diverges.
+                #
+                # Mean-subtract first: unnormalised correlation is otherwise dominated
+                # by the DC term, and NAC DN values sit well above zero.
+                r0f = refc.astype("float64")
+                r0f = r0f - np.nanmean(r0f)
+                filled = filled - np.nanmean(filled)
+                sh, err, _ = phase_cross_correlation(r0f, filled, upsample_factor=10,
+                                                     normalization=None)
                 if not np.isfinite(err):
                     raise ValueError("correlation degenerate (nan error), not a measurement")
+
+                # residual: apply the shift and correlate again. This is the quantity
+                # the gate is actually about. The raw shift is the SPICE pointing
+                # error, which is tens of metres and is meant to be corrected, not
+                # gated on; what has to be sub-pixel is what is left after correcting.
+                #
+                # ncc: Pearson correlation of the aligned pair over real pixels.
+                # Interpretable on its own, and the honest caveat is that frames at
+                # different sun azimuth carry different shadows, so a modest ncc at a
+                # small residual means illumination difference, not misalignment.
+                from scipy.ndimage import shift as nd_shift
+                aligned = nd_shift(filled, sh, order=1, mode="nearest")
+                sh2, _, _ = phase_cross_correlation(r0f, aligned, upsample_factor=20,
+                                                    normalization=None)
+                resid = float(np.hypot(sh2[0], sh2[1]))
+                m = np.isfinite(r0f) & np.isfinite(aligned)
+                if m.sum() > 100:
+                    a, b = r0f[m], aligned[m]
+                    sa, sb = a.std(), b.std()
+                    ncc = float(((a - a.mean()) * (b - b.mean())).mean() / (sa * sb)) \
+                        if sa > 1e-9 and sb > 1e-9 else float("nan")
+                else:
+                    ncc = float("nan")
+
                 fr["shift"] = [float(sh[0]), float(sh[1])]
-                rows.append(f"{fr['pid']},{sh[0]:.2f},{sh[1]:.2f},{err:.3f},ok ({how})")
+                fr["residual_px"] = resid
+                fr["ncc"] = ncc
+                rows.append(f"{fr['pid']},{sh[0]:.2f},{sh[1]:.2f},{resid:.3f},"
+                            f"{ncc:.3f},{err:.3f},ok ({how})")
                 stage("COREGISTER", "ok",
-                      f"{fr['pid']} shift=({sh[0]:+.2f},{sh[1]:+.2f}) px err={err:.3f} [{how}]")
+                      f"{fr['pid']} shift=({sh[0]:+.2f},{sh[1]:+.2f}) px "
+                      f"residual={resid:.2f} px ncc={ncc:+.3f} [{how}]")
             except Exception as e:  # noqa: BLE001
                 fr["shift"] = None
                 diag = where_is_the_data(fr, np, rasterio, ac)
-                rows.append(f"{fr['pid']},,,,{e}{'; ' + diag if diag else ''}")
+                rows.append(f"{fr['pid']},,,,,,{e}{'; ' + diag if diag else ''}")
                 stage("COREGISTER", "fail", f"{fr['pid']}: {e}")
                 if diag:
                     print(f"   {diag}", flush=True)
         (SWEEP_DIR / "coreg_report.csv").write_text("\n".join(rows), encoding="utf-8")
         print(f"co-registration budget -> {SWEEP_DIR/'coreg_report.csv'}")
+
+        ok_fr = [f for f in frames if f.get("residual_px") is not None]
+        if not ok_fr:
+            stage("GATE", "fail", "no frame produced a measurement")
+            return
+        res = sorted(f["residual_px"] for f in ok_fr)
+        med = res[len(res) // 2] if len(res) % 2 else 0.5 * (res[len(res)//2 - 1]
+                                                             + res[len(res)//2])
+        raw = sorted(math.hypot(*f["shift"]) for f in ok_fr)
+        rmed = raw[len(raw) // 2] if len(raw) % 2 else 0.5 * (raw[len(raw)//2 - 1]
+                                                              + raw[len(raw)//2])
+        nccs = [f["ncc"] for f in ok_fr if f.get("ncc") == f.get("ncc")]
+        print()
+        print(f"  frames measured        : {len(ok_fr)} of {len(frames)}")
+        print(f"  median raw shift       : {rmed:.2f} px   "
+              f"({rmed * 0.9:.0f} m at the 0.9 m/px map scale)")
+        print(f"     -- this is the SPICE pointing error, which co-registration exists")
+        print(f"        to remove. It is not the gate and is expected to be large.")
+        print(f"  median residual        : {med:.2f} px   <-- THE GATE, passes at <= 1.00")
+        if nccs:
+            print(f"  median aligned ncc     : {sorted(nccs)[len(nccs)//2]:+.3f}   "
+                  f"(low ncc at a low residual means the sun moved, not the frame)")
+        gate = med <= 1.0
+        stage("GATE", "ok" if gate else "fail",
+              f"median residual {med:.2f} px over {len(ok_fr)} frames")
+        if not gate:
+            print("\n  Do not run kinematics on this. A residual above a pixel means the\n"
+                  "  shadow motion we would measure is contaminated by frame motion.")
     except ImportError as e:
         stage("COREGISTER", "fail", f"missing python dep: {e}")
 
