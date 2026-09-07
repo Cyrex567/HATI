@@ -727,6 +727,7 @@ def coregister(frames: list[dict]) -> None:
                 fr["shift"] = [float(sh[0]), float(sh[1])]
                 fr["residual_px"] = resid
                 fr["ncc"] = ncc
+                fr["win"] = filled          # kept for the closure test below
                 rows.append(f"{fr['pid']},{sh[0]:.2f},{sh[1]:.2f},{resid:.3f},"
                             f"{ncc:.3f},{err:.3f},ok ({how})")
                 stage("COREGISTER", "ok",
@@ -763,9 +764,65 @@ def coregister(frames: list[dict]) -> None:
         if nccs:
             print(f"  median aligned ncc     : {sorted(nccs)[len(nccs)//2]:+.3f}   "
                   f"(low ncc at a low residual means the sun moved, not the frame)")
-        gate = med <= 1.0
+        # ---- closure, which is the part that is not self-confirming.
+        #
+        # The residual above is close to a tautology: shifting a window by exactly
+        # the offset the correlator just reported and correlating again returns
+        # near zero by construction, whether or not that offset was the right one.
+        # Closure is independent. Frame i and frame j were each aligned to the same
+        # reference, so correlating them DIRECTLY must return the difference of
+        # their two shifts. Nothing forces that to hold. If the correlator locked
+        # onto a wrong peak on any frame, its triangles fail to close, and the
+        # error is real rather than assumed.
+        clo = []
+        pairs = [(a, b) for i, a in enumerate(ok_fr) for b in ok_fr[i + 1:]
+                 if a.get("win") is not None and b.get("win") is not None]
+        for a, b in pairs:
+            try:
+                d, _, _ = phase_cross_correlation(b["win"], a["win"],
+                                                  upsample_factor=10,
+                                                  normalization=None)
+            except Exception:  # noqa: BLE001
+                continue
+            ex = (a["shift"][0] - b["shift"][0], a["shift"][1] - b["shift"][1])
+            clo.append((math.hypot(d[0] - ex[0], d[1] - ex[1]),
+                        abs(((a.get("az", 0) - b.get("az", 0)) + 180) % 360 - 180),
+                        a, b))
+        if clo:
+            e = sorted(c[0] for c in clo)
+            cmed = e[len(e) // 2] if len(e) % 2 else 0.5 * (e[len(e)//2 - 1] + e[len(e)//2])
+            print(f"  closure over {len(clo)} frame pairs : median {cmed:.2f} px, "
+                  f"90th pct {e[int(0.9*(len(e)-1))]:.2f} px")
+            print(f"     -- correlating two frames directly must reproduce the difference")
+            print(f"        of their shifts. Unlike the residual, nothing forces this.")
+            far = [c[0] for c in clo if c[1] > 90]
+            if far:
+                print(f"     -- pairs over 90 deg apart in sun azimuth: median "
+                      f"{sorted(far)[len(far)//2]:.2f} px over {len(far)} of them")
+            # Per frame, because one bad shift only spoils the pairs containing it
+            # and leaves the overall median untouched. This is what names the frame.
+            bad = []
+            for f in ok_fr:
+                own = sorted(c[0] for c in clo if c[2] is f or c[3] is f)
+                if not own:
+                    continue
+                f["closure_px"] = own[len(own) // 2]
+                if f["closure_px"] > 2.0:
+                    bad.append(f)
+            if bad:
+                print("     -- frames that do not close with the rest:")
+                for f in sorted(bad, key=lambda x: -x["closure_px"]):
+                    print(f"          {f['pid']:<22}{f['closure_px']:>7.2f} px")
+                print("        Their shift is inconsistent with every other frame, so the")
+                print("        correlator found the wrong peak there. Drop them rather than")
+                print("        trusting a residual that cannot see this.")
+        else:
+            cmed = float("nan")
+
+        gate = med <= 1.0 and (not clo or cmed <= 2.0)
         stage("GATE", "ok" if gate else "fail",
-              f"median residual {med:.2f} px over {len(ok_fr)} frames")
+              f"median residual {med:.2f} px, closure {cmed:.2f} px over "
+              f"{len(ok_fr)} frames")
         if not gate:
             print("\n  Do not run kinematics on this. A residual above a pixel means the\n"
                   "  shadow motion we would measure is contaminated by frame motion.")
