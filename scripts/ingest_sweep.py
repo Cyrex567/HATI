@@ -428,6 +428,23 @@ def sibling_channel(pid: str) -> str | None:
     return None
 
 
+def sibling_record(fr: dict, sib: str) -> dict:
+    """A frame record for the other optic of the same observation.
+
+    Prefer the catalogue's own row when the archive listed that channel, since it
+    carries the real URL and margin. Otherwise derive it: the two products differ
+    by two characters in the same archive directory.
+    """
+    if sib in ALL_BY_PID:
+        return dict(ALL_BY_PID[sib])
+    alt = {k: v for k, v in fr.items()
+           if k not in ("alternates", "campt", "fail", "img", "lev2")}
+    alt["pid"] = "nac." + sib.lower()
+    alt["url"] = re.sub(r"(M\d+)(LE|RE)\.IMG$", rf"\g<1>{sib[-2:]}.IMG",
+                        fr["url"], flags=re.I)
+    return alt
+
+
 def process_frame(fr: dict, workdir: Path, mapfile: Path,
                   skip_campt: bool = False) -> bool:
     base = fr["img"].stem
@@ -773,21 +790,9 @@ def main() -> None:
     done, tried = [], set()
     for fr in frames:
         queue = [fr] + list(fr.get("alternates") or [])
-        # last resort: the other optic of the same observation, which images the
-        # adjacent swath. ODE lists only one channel per observation here, but the
-        # archive path differs by two characters, so it costs nothing to try.
-        if not args.no_sibling:
-            sib = sibling_channel(fr["pid"].split(".")[-1])
-            if sib and sib not in ALL_BY_PID:
-                alt = dict(fr)
-                alt["pid"] = "nac." + sib.lower()
-                alt["url"] = re.sub(r"(M\d+)(LE|RE)\.IMG$", rf"\g<1>{sib[-2:]}.IMG",
-                                    fr["url"], flags=re.I)
-                alt.pop("alternates", None)
-                if alt["url"] != fr["url"]:
-                    queue.append(alt)
         prev = None
-        for f in queue:
+        while queue:
+            f = queue.pop(0)
             key = f["pid"].split(".")[-1].upper()
             if key in tried:
                 continue
@@ -819,6 +824,16 @@ def main() -> None:
                         f"before re-running;\nnothing downloaded so far is wasted, it is "
                         f"all cached.")
                 break
+            # The two optics image adjacent ground strips, so a site that has run off
+            # the sample edge of one is most likely on the other -- far likelier than
+            # on some other observation entirely. Try it next rather than last: every
+            # LE frame of this site so far has missed off the same edge, while the only
+            # frame that ever passed was an RE. Skipped for off_line, where the site is
+            # outside the readout along-track and the sibling shares that readout.
+            if f.get("campt") == "off_sample" and not args.no_sibling:
+                sib = sibling_channel(key)
+                if sib and sib not in tried:
+                    queue.insert(0, sibling_record(f, sib))
             prev = key
     if not done:
         sys.exit("no frame survived the ISIS chain; nothing to co-register")
