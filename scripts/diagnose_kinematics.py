@@ -148,15 +148,28 @@ def main() -> None:
         print(f"   {f['pid']:<18}{pred:>10.1f}{meas:>10.1f}{d:>10.1f}"
               f"{len(areas):>9}   {v}")
     print(f"\n   worst disagreement: {worst:.1f} deg")
+    ds = [circ_diff_180(f["axis_meas"], f["az_map"] % 180.0)
+          for f in frames if "axis_meas" in f]
+    scatter = float(np.std(ds)) if len(ds) > 1 else 0.0
     if worst < 20:
-        print("   -> the sun geometry is right. The zero is not a rotation bug.")
-    elif worst > 40:
-        print("   -> the geometry is wrong. Every vote points the wrong way, so no")
-        print("      threshold change can help. Check the A + lambda map rotation,")
-        print("      the sub-solar bearing, and the raster row sign.")
+        print("   -> regions run ALONG the sun line. These are cast shadows from")
+        print("      compact casters, which is what the voter wants.")
+    elif min(ds) > 55 and scatter < 25:
+        print("   -> regions run ACROSS the sun line, consistently, tracking it")
+        print("      frame to frame. That is NOT a rotation bug: a bowl crater lit")
+        print("      at low sun shadows its down-sun interior wall, and that shadow")
+        print("      is a lune whose long axis is perpendicular to the sun. This")
+        print("      window is crater-dominated, so the elongation filter is right")
+        print("      to reject nearly all of it, and there is little for the voter")
+        print("      to find. Search more ground rather than loosening the filter.")
+        print("      (A real rotation bug would NOT track the sun: it would put the")
+        print("      measured axis at a fixed angle regardless of frame.)")
+    elif scatter > 35:
+        print("   -> no consistent relationship to the sun. The regions are probably")
+        print("      not shadows at all: check the detection threshold.")
     else:
-        print("   -> borderline. Look at whether the disagreement is a constant")
-        print("      offset (a convention bug) or scattered (just noisy regions).")
+        print("   -> mixed. Look at whether the offset is constant across frames, a")
+        print("      convention problem, or varies, which is terrain.")
 
     # ------------------------------------------------------ 2. what we vote on
     print()

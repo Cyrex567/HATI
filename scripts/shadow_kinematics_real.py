@@ -256,15 +256,17 @@ def accumulate(frames, shape, min_area, elong, radius=2, order=None):
     dark = np.zeros(shape, np.float32)
     n = len(frames)
     idx = list(range(n)) if order is None else list(order)
+    casts = []
     for k, f in enumerate(frames):
         g = frames[idx[k]]
-        v, h, _ = vote(f["mask"], g["az_map"], g["elev"], min_area, elong, radius)
+        v, h, cast = vote(f["mask"], g["az_map"], g["elev"], min_area, elong, radius)
         evidence += v
         height_acc += h
         dark += f["mask"]
+        casts.append(cast)
     conf = ndi.gaussian_filter(evidence, 1.2)
     hmap = np.where(evidence > 0, height_acc / np.maximum(evidence, 1e-6), 0.0)
-    return conf, evidence, hmap, dark / max(n, 1)
+    return conf, evidence, hmap, dark / max(n, 1), casts
 
 
 def concentration(evidence: np.ndarray, n_frames: int) -> tuple[int, float]:
@@ -368,10 +370,26 @@ def main() -> None:
         print(f"  {f['pid']:<22} shadow pixels {sf:5.1f}%{flag}")
 
     shape = frames[0]["dn"].shape
-    conf, evidence, hmap, darkf = accumulate(frames, shape, args.min_area,
-                                            args.elongation, args.vote_radius)
+    conf, evidence, hmap, darkf, casts = accumulate(frames, shape, args.min_area,
+                                                    args.elongation, args.vote_radius)
     hits, mass = concentration(evidence, len(frames))
     need = max(2, int(math.ceil(0.6 * len(frames))))
+
+    silent = sum(1 for c in casts if c == 0)
+    print(f"\n{'-'*68}\nCAST-SHADOW REGIONS FOUND")
+    for f, c in zip(frames, casts):
+        print(f"  {f['pid']:<22}{c:>6}")
+    print(f"  {'total':<22}{sum(casts):>6}")
+    if silent:
+        print(f"\n  {silent} of {len(casts)} frames found no cast-shadow-shaped region at "
+              f"all, so\n  agreement by {need} frames is arithmetically impossible. That is "
+              f"a shortage of\n  obstacles in this window, not a threshold to tune. Search "
+              f"more ground with\n  --half, or point the run at terrain that has boulders "
+              f"in it.")
+    if sum(casts) == 0:
+        print("\n  No votes were cast anywhere. Nothing to test against a null.")
+        write_products(conf, evidence, hmap, darkf, frames, ac, args, need)
+        return
 
     # ---- the null: same images, same shadows, azimuths shuffled between them
     rng = np.random.default_rng(11)
@@ -381,8 +399,8 @@ def main() -> None:
         order = rng.permutation(n)
         if np.all(order == np.arange(n)):
             continue
-        _, ev, _, _ = accumulate(frames, shape, args.min_area, args.elongation,
-                                 args.vote_radius, order)
+        _, ev, _, _, _ = accumulate(frames, shape, args.min_area, args.elongation,
+                                    args.vote_radius, order)
         h, m = concentration(ev, n)
         null_hits.append(h)
         null_mass.append(m)
@@ -392,7 +410,7 @@ def main() -> None:
     p = float((null_hits >= hits).mean())
 
     print(f"\n{'-'*68}\nCONVERGENCE")
-    print(f"  total votes cast            : {int(evidence.sum())}")
+    print(f"  votes cast (regions)        : {sum(casts)}")
     print(f"  pixels with >= {need} votes      : {hits}")
     print(f"  share of votes in them      : {100*mass:.1f}%")
     print(f"  shuffled-azimuth null       : {nh_mean:.1f} +/- {nh_sd:.1f} pixels "

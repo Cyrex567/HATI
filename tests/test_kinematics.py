@@ -94,7 +94,7 @@ def main() -> None:
 
     # the caster converges, and lands where it was planted
     frames = scene()
-    conf, ev, hm, dark = K.accumulate(frames, (S, S), 4, 1.8, 2)
+    conf, ev, hm, dark, casts = K.accumulate(frames, (S, S), 4, 1.8, 2)
     need = max(2, int(math.ceil(0.6 * len(frames))))
     hits, mass = K.concentration(ev, len(frames))
     rr, cc = np.nonzero(ev >= need)
@@ -124,7 +124,7 @@ def main() -> None:
         o = rng.permutation(len(frames))
         if np.all(o == np.arange(len(frames))):
             continue
-        _, e2, _, _ = K.accumulate(frames, (S, S), 4, 1.8, 2, o)
+        _, e2, _, _, _ = K.accumulate(frames, (S, S), 4, 1.8, 2, o)
         null.append(K.concentration(e2, len(frames))[0])
     null = np.array(null, float)
     p = float((null >= hits).mean())
