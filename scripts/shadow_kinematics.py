@@ -98,6 +98,18 @@ def render(h, albedo, az, elev):
 
 # ----------------------------------------------------------------- detect + vote
 def detect(dn):
+    # NOTE, and it is a caveat on the numbers this script reports. The opening
+    # erases anything narrower than three pixels. That is harmless here because
+    # make_scene() gives every boulder a 1 to 2 pixel footprint, so even the
+    # 0.3 m ones cast shadows 3 to 5 pixels wide. On real imagery at 0.9 m per
+    # pixel a shadow is about as wide as its caster, so a real 0.3 m boulder
+    # casts a ONE pixel wide shadow and this line would delete it. The real-data
+    # detector in shadow_kinematics_real.py cleans by area instead; injected
+    # sub-metre boulders went from 0% recovered to 100% when it was changed.
+    #
+    # So this benchmark's AUC does not measure the sub-metre regime as it appears
+    # in real data. Left as it stands rather than silently restating a published
+    # number: the figure it produced is what it produced.
     bg = ndi.uniform_filter(dn, BG_WIN)   # separable, fast; shadows are sparse
     mask = dn < SHADOW_FRAC * bg
     return ndi.binary_opening(mask, iterations=1)

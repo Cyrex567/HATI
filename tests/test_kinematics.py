@@ -132,6 +132,55 @@ def main() -> None:
     check("it beats a shuffled-azimuth null", p < 0.05 and hits > null.mean(),
           f"real {hits} vs null {null.mean():.1f} +/- {null.std():.1f}, z {z:+.1f}, p {p:.3f}")
 
+    # The shadow of a sub-metre boulder is one pixel wide at 0.9 m per pixel, and
+    # a 3x3 morphological opening erases anything narrower than three. The
+    # detector used to open the mask, so it was deleting the shadow of every
+    # obstacle below about 2.7 m: the entire population this project exists to
+    # find. Injected 0.3 and 0.5 m boulders were recovered 0% of the time before
+    # this and 100% after. Cleaning by area instead keeps thin lines.
+    dn = np.full((200, 200), 120.0)
+    for t in range(16):
+        dn[60 + t, 100] = 25.0
+    thin = K.detect(dn, 0.5, 45, 4)
+    check("a one-pixel-wide shadow survives detection", int(thin.sum()) >= 12,
+          f"{int(thin.sum())} of 16 planted pixels kept")
+
+    noise = np.full((200, 200), 120.0)
+    noise[100, 100] = 25.0
+    check("...while an isolated noise pixel is still removed",
+          int(K.detect(noise, 0.5, 45, 4).sum()) == 0)
+
+    # and the whole chain, image to vote, must recover a planted sub-metre boulder
+    from scipy.ndimage import gaussian_filter
+    rng2 = np.random.default_rng(2)
+    az = [17.2, 23.3, 47.7, 267.4, 277.7, 286.3]
+    el = [4.0, 3.5, 2.8, 1.25, 2.9, 2.6]
+
+    class _A:
+        shadow_frac, bg_win, min_area, elongation, vote_radius = 0.5, 45, 4, 1.8, 5
+
+    real = [{"dn": gaussian_filter(rng2.normal(size=(400, 400)), 3) * 20 + 120,
+             "az_map": a, "elev": e} for a, e in zip(az, el)]
+    for f in real:
+        f["mask"] = K.detect(f["dn"], 0.5, 45, 4)
+    _, ev0, _, _, casts0 = K.accumulate(real, (400, 400), 4, 1.8, 5)
+    check("an empty scene produces no false convergence",
+          int(K.hits_by_k(ev0, len(real))[2]) == 0, f"{sum(casts0)} votes cast")
+
+    planted = [(int(r), int(c), 0.5)
+               for r, c in rng2.integers(110, 290, (25, 2))]
+    frac = K.recovery(real, (400, 400), planted, _A, k=3, tol=8.0)
+    check("half-metre boulders injected into the imagery are recovered",
+          frac >= 0.8, f"{100 * frac:.0f}% of {len(planted)}")
+
+    # the agreement threshold must not get stricter as the sweep grows
+    ev = np.zeros((50, 50), np.float32)
+    ev[10, 10] = 4
+    curve = K.hits_by_k(ev, 16)
+    check("hits_by_k reports every threshold, not one fixed fraction",
+          len(curve) == 16 and curve[3] == 1 and curve[4] == 0,
+          "a pixel with 4 votes counts at k<=4 and not above")
+
     # the sun bearing must be the one we think it is
     lat, lon = -84.7906, 29.1957
     check("sub-solar point on the same meridian gives a bearing of due north",

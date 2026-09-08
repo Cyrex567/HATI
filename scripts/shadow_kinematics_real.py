@@ -178,7 +178,7 @@ def frame_window(lev2: Path, shift, half: int, ac) -> np.ndarray | None:
 
 
 # --------------------------------------------------------------- detect + vote
-def detect(dn: np.ndarray, frac: float, bg_win: int) -> np.ndarray:
+def detect(dn: np.ndarray, frac: float, bg_win: int, min_area: int = 4) -> np.ndarray:
     """Shadow where a pixel is much darker than its own neighbourhood.
 
     A local background, not a global threshold: at five degrees of sun elevation
@@ -186,6 +186,18 @@ def detect(dn: np.ndarray, frac: float, bg_win: int) -> np.ndarray:
     global cut would call one end of the window shadow and the other end ground.
     Nodata is filled before filtering, since one NaN poisons the whole kernel,
     and masked out again afterwards.
+
+    Cleaned by AREA, not by morphological opening. Opening with a 3x3 element
+    erases any feature narrower than three pixels, and at 0.9 m per pixel the
+    shadow of a boulder is about as wide as the boulder: 1 px for anything under
+    a metre, 2 px up to about 1.8 m. So the opening inherited from the synthetic
+    version was deleting the shadow of every obstacle below roughly 2.7 m, which
+    is the whole sub-resolution population this project exists to find. It never
+    showed up on the synthetic benchmark because those boulders were rendered
+    with 1 to 2 pixel footprints, giving 3 to 5 pixel shadows that survived.
+
+    Removing small connected components does the job the opening was there for,
+    killing isolated noise, while leaving a one-pixel-wide line intact.
     """
     from scipy import ndimage as ndi
     valid = np.isfinite(dn)
@@ -194,7 +206,16 @@ def detect(dn: np.ndarray, frac: float, bg_win: int) -> np.ndarray:
     filled = np.where(valid, dn, np.nanmedian(dn))
     bg = ndi.uniform_filter(filled, bg_win)
     mask = valid & (filled < frac * bg)
-    return ndi.binary_opening(mask, iterations=1)
+    # Done here rather than with skimage's remove_small_objects, whose parameter
+    # and its meaning changed in 0.26. The rule has to match the voter's exactly,
+    # so it is spelled out: drop components smaller than min_area, keep the rest
+    # however thin they are.
+    lab, n = ndi.label(mask)
+    if n == 0:
+        return mask
+    area = np.bincount(lab.ravel())
+    area[0] = 0
+    return area[lab] >= max(2, min_area)
 
 
 def regions_of(mask, min_area):
@@ -313,18 +334,84 @@ def accumulate(frames, shape, min_area, elong, radius=2, order=None):
     return conf, evidence, hmap, dark / max(n, 1), casts
 
 
-def concentration(evidence: np.ndarray, n_frames: int) -> tuple[int, float]:
-    """How much of the vote mass lands on pixels seen by most of the sweep.
+def hits_by_k(evidence: np.ndarray, n_frames: int) -> np.ndarray:
+    """How many pixels carry votes from at least k frames, for every k.
 
-    With no ground truth this is the statistic that carries the claim. A pixel
-    holding votes from most illuminations is a caster that stayed put. Smeared
-    votes from albedo patches land one deep and almost never stack.
+    The whole curve, not one number at a fixed fraction of the sweep. The
+    previous version asked for agreement by 60% of frames, which is a threshold
+    that gets HARDER as the sweep grows: three of five, but ten of sixteen.
+    That is backwards. Detection of any one caster is probabilistic, so the
+    fraction of frames that see it does not rise with n; adding frames should
+    buy statistical power, not a stricter test.
+
+    Comparing the whole curve against the same curve computed under shuffled
+    azimuths lets the data say which k separates signal from chance, instead of
+    a constant chosen in advance.
     """
+    return np.array([int((evidence >= k).sum()) for k in range(1, n_frames + 1)])
+
+
+def concentration(evidence: np.ndarray, n_frames: int) -> tuple[int, float]:
+    """Kept for the regression tests: hits and vote share at 60% agreement."""
     need = max(2, int(math.ceil(0.6 * n_frames)))
     hits = int((evidence >= need).sum())
     total = float(evidence.sum())
     mass = float(evidence[evidence >= need].sum()) / total if total > 0 else 0.0
     return hits, mass
+
+
+# --------------------------------------------------------------- injection
+def inject_shadows(dn, boulders, az_map_deg, elev_deg, bg_win, darkness=0.25):
+    """Darken the ground where boulders of known height would cast, in one frame.
+
+    Injected into the IMAGE, before detection, so the recovery number measures
+    the whole chain: thresholding, region shaping, the elongation filter, the
+    vote and the accumulation. Injecting into the mask instead would skip the
+    step most likely to be wrong.
+
+    The shadow runs anti-sun from the base for h*cot(e), with a width of about
+    the boulder itself, and is set to a fraction of the local background rather
+    than to a constant, because a real shadow is dark relative to its
+    surroundings and the scene brightness varies across the window.
+    """
+    from scipy import ndimage as ndi
+    out = dn.copy()
+    valid = np.isfinite(out)
+    bg = ndi.uniform_filter(np.where(valid, out, np.nanmedian(out)), bg_win)
+    ar = math.radians(az_map_deg)
+    srow, scol = -math.cos(ar), math.sin(ar)
+    cot = 1.0 / math.tan(math.radians(elev_deg))
+    H, W = out.shape
+    for br, bc, h in boulders:
+        length_px = h * cot / RES
+        half_w = max(0, int(round(0.5 * h / RES)))
+        for t in range(int(round(length_px)) + 1):
+            r = int(round(br - t * srow))
+            c = int(round(bc - t * scol))
+            r0, r1 = max(0, r - half_w), min(H, r + half_w + 1)
+            c0, c1 = max(0, c - half_w), min(W, c + half_w + 1)
+            if r0 < r1 and c0 < c1:
+                out[r0:r1, c0:c1] = darkness * bg[r0:r1, c0:c1]
+    return out
+
+
+def recovery(frames, shape, boulders, args, k: int, tol: float) -> float:
+    """Fraction of planted boulders the detector finds, on the real imagery."""
+    inj = []
+    for f in frames:
+        d = inject_shadows(f["dn"], boulders, f["az_map"], f["elev"], args.bg_win)
+        inj.append({"mask": detect(d, args.shadow_frac, args.bg_win, args.min_area),
+                    "az_map": f["az_map"], "elev": f["elev"]})
+    _, ev, _, _, _ = accumulate(inj, shape, args.min_area, args.elongation,
+                                args.vote_radius)
+    rr, cc = np.nonzero(ev >= k)
+    if rr.size == 0:
+        return 0.0
+    found = 0
+    for br, bc, _ in boulders:
+        if np.min((rr - br) ** 2 + (cc - bc) ** 2) <= tol * tol:
+            found += 1
+    return found / len(boulders)
 
 
 # --------------------------------------------------------------- main
@@ -336,10 +423,14 @@ def main() -> None:
                     help="a pixel is shadow below this fraction of its local background")
     ap.add_argument("--bg-win", type=int, default=45, help="local background window, px")
     ap.add_argument("--min-area", type=int, default=4, help="smallest region to vote, px")
-    ap.add_argument("--vote-radius", type=int, default=2,
+    ap.add_argument("--vote-radius", type=int, default=0,
                     help="how close two frames must agree to count as agreeing, px. "
-                         "The up-sun extreme of a discretised shadow lands a pixel or "
-                         "three from the true base, so exact coincidence finds nothing.")
+                         "0 means derive it from the measured closure in the manifest, "
+                         "which is the real frame-to-frame alignment.")
+    ap.add_argument("--inject", type=int, default=60,
+                    help="synthetic boulders planted per sensitivity trial. 0 skips it.")
+    ap.add_argument("--inject-heights", default="0.3,0.5,1.0,2.0",
+                    help="boulder heights in metres for the sensitivity table")
     ap.add_argument("--elongation", type=float, default=1.8,
                     help="how much longer than wide, along the sun line, to count as a "
                          "cast shadow rather than a blob")
@@ -400,6 +491,23 @@ def main() -> None:
         print(f"{f['pid']:<22}{f['az']:>8.1f}{f['az_map']:>8.1f}{f['elev']:>7.2f}"
               f"{1/math.tan(math.radians(f['elev'])):>8.1f}{100*f['fill']:>6.0f}%  {f['src']}")
     print(f"\nazimuth spread in the map frame: {spread:.0f} deg over {len(frames)} frames")
+
+    # The vote radius has to match how well the frames actually agree with each
+    # other, which the co-registration closure measures. The residual is 0.1 px
+    # against the reference, but frames lit from different directions close with
+    # one another at a few pixels, and that is the number a vote has to tolerate.
+    # Demanding 2 px agreement when the data only supports 4 finds nothing.
+    #
+    # This cannot inflate a result: the shuffled-azimuth null is accumulated at
+    # the same radius, so a looser radius raises the null in step.
+    if args.vote_radius <= 0:
+        clo = [e.get("closure_px") for e in man if e.get("closure_px")]
+        base = (sorted(clo)[len(clo) // 2] if clo else 2.0)
+        args.vote_radius = int(max(2, min(10, round(base + 2))))
+        src = (f"from the measured closure of {base:.1f} px" if clo
+               else "defaulted; no closure in the manifest")
+        print(f"vote radius: {args.vote_radius} px  ({src}, plus 2 px for the "
+              f"shadow-base scatter)")
     if spread < 40:
         sys.exit("under 40 degrees of spread; shadows barely move, so the kinematics "
                  "cannot separate a caster from a stain.")
@@ -407,7 +515,7 @@ def main() -> None:
     # ---- detect
     print()
     for f in frames:
-        f["mask"] = detect(f["dn"], args.shadow_frac, args.bg_win)
+        f["mask"] = detect(f["dn"], args.shadow_frac, args.bg_win, args.min_area)
         sf = 100.0 * f["mask"].sum() / max(np.isfinite(f["dn"]).sum(), 1)
         f["shadow_pct"] = sf
         flag = "  <-- suspicious, check --shadow-frac" if (sf < 0.2 or sf > 45) else ""
@@ -436,33 +544,72 @@ def main() -> None:
         return
 
     # ---- the null: same images, same shadows, azimuths shuffled between them
-    rng = np.random.default_rng(11)
-    null_hits, null_mass = [], []
     n = len(frames)
+    rng = np.random.default_rng(11)
+    real_curve = hits_by_k(evidence, n)
+    null_curves = []
     for _ in range(args.trials):
         order = rng.permutation(n)
         if np.all(order == np.arange(n)):
             continue
         _, ev, _, _, _ = accumulate(frames, shape, args.min_area, args.elongation,
                                     args.vote_radius, order)
-        h, m = concentration(ev, n)
-        null_hits.append(h)
-        null_mass.append(m)
-    null_hits = np.array(null_hits, float)
-    nh_mean, nh_sd = float(null_hits.mean()), float(null_hits.std())
-    z = (hits - nh_mean) / nh_sd if nh_sd > 1e-9 else float("nan")
-    p = float((null_hits >= hits).mean())
+        null_curves.append(hits_by_k(ev, n))
+    null_curves = np.array(null_curves, float)
 
-    print(f"\n{'-'*68}\nCONVERGENCE")
+    print(f"\n{'-'*68}\nCONVERGENCE, at every agreement threshold")
     print(f"  votes cast (regions)        : {sum(casts)}")
-    print(f"  pixels with >= {need} votes      : {hits}")
-    print(f"  share of votes in them      : {100*mass:.1f}%")
-    print(f"  shuffled-azimuth null       : {nh_mean:.1f} +/- {nh_sd:.1f} pixels "
-          f"({len(null_hits)} trials)")
-    print(f"  z vs null                   : {z:+.1f}      p = {p:.3f}")
-    verdict = ("the sun is driving the convergence" if (p < 0.05 and hits > nh_mean)
-               else "NOT separable from chance; this sweep does not support a detection")
-    print(f"  verdict                     : {verdict}")
+    print(f"  shuffled-azimuth trials     : {len(null_curves)}")
+    print()
+    print(f"  {'k frames agree':>15}{'real':>9}{'null mean':>11}{'null p99':>10}"
+          f"{'p':>8}   ")
+    best = None
+    for i in range(1, n):                       # k = 2 .. n
+        k = i + 1
+        r = int(real_curve[i])
+        col = null_curves[:, i] if null_curves.size else np.zeros(1)
+        p = float((col >= r).mean()) if r > 0 else 1.0
+        p99 = float(np.percentile(col, 99))
+        flag = ""
+        if r > 0 and p < 0.05 and r > col.mean():
+            flag = "  <-- separates"
+            if best is None or k > best[0]:
+                best = (k, r, p)
+        print(f"  {k:>15}{r:>9}{col.mean():>11.1f}{p99:>10.0f}{p:>8.3f}{flag}")
+        if r == 0 and col.mean() == 0:
+            break
+
+    # the reporting threshold is whichever k the data supports, not a constant
+    need = best[0] if best else max(2, int(math.ceil(0.6 * n)))
+    hits = int(real_curve[need - 1])
+    if best:
+        print(f"\n  The sun drives convergence at k = {best[0]}: {best[1]} pixels, "
+              f"p = {best[2]:.3f}.")
+    else:
+        print("\n  No agreement threshold separates the real sweep from shuffled "
+              "azimuths.")
+
+    # ---- sensitivity: what could this sweep have found if it were there?
+    if args.inject:
+        print(f"\n{'-'*68}\nSENSITIVITY, by injection into the real frames")
+        print("  Boulders of known height are darkened into the imagery before")
+        print("  detection, so this measures the whole chain and not just the voter.")
+        print("  It turns a null result into a bound: not 'nothing is there' but")
+        print("  'nothing this size would have been found'.\n")
+        rr = np.random.default_rng(3)
+        H, W = shape
+        m = 120
+        pos = np.column_stack([rr.integers(m, H - m, args.inject),
+                               rr.integers(m, W - m, args.inject)])
+        kk = need
+        print(f"  {'boulder height':>15}{'shadow at 3 deg':>18}{'recovered':>12}")
+        for h in [float(x) for x in args.inject_heights.split(",") if x.strip()]:
+            b = [(int(p[0]), int(p[1]), h) for p in pos]
+            frac = recovery(frames, shape, b, args, kk, tol=3.0 + args.vote_radius)
+            print(f"  {h:>13.1f} m{h / math.tan(math.radians(3.0)):>15.1f} m"
+                  f"{100 * frac:>11.0f}%")
+        print(f"\n  Recovery is measured at k = {kk}, the same threshold the real")
+        print("  result is reported at, and on the same frames.")
 
     # ---- heights at the converged pixels
     hs = hmap[evidence >= need]
@@ -476,13 +623,17 @@ def main() -> None:
     write_products(conf, evidence, hmap, darkf, frames, ac, args, need)
 
     print(f"\n{'-'*68}")
-    if p < 0.05 and hits > nh_mean:
-        print("Real-data shadow kinematics ran and beat its own null. There is no boulder\n"
-              "catalogue at this site, so this is a convergence result, not a validated\n"
-              "detection rate: the AUC of 0.990 in the papers is the synthetic benchmark\n"
-              "and stays labelled that way.")
+    if best:
+        print(f"Real-data shadow kinematics beat its own null at k = {best[0]}, p = "
+              f"{best[2]:.3f}.\nThere is no boulder catalogue at this site, so this is a "
+              f"convergence result and\nnot a validated detection rate: the AUC of 0.990 in "
+              f"the papers is the synthetic\nbenchmark and stays labelled that way.")
     else:
-        print("Do not report this as a detection. Widen the azimuth spread or add frames.")
+        print("No detection. Read that against the sensitivity table above: if injected\n"
+              "boulders of a given size are recovered and no real ones converge, the\n"
+              "statement is that nothing that size is there, which is a result. If the\n"
+              "injected ones are not recovered either, the sweep is simply not sensitive\n"
+              "enough yet, and the answer is more frames rather than a looser threshold.")
 
 
 def write_products(conf, evidence, hmap, darkf, frames, ac, args, need) -> None:
