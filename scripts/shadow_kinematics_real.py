@@ -748,14 +748,22 @@ def write_products(conf, evidence, hmap, darkf, frames, ac, args, need) -> None:
             dst.write(arr.astype("float32"), 1)
         print(f"  -> {path}")
 
+    # Report LOCATIONS, not pixels. Each converged caster is stamped as a disc of
+    # the vote radius, so 42 pixels at radius 3 is about 1.4 places, not 42
+    # boulders. Counting pixels overstates a detection by more than an order of
+    # magnitude and is exactly how a threshold artefact gets written up as a map.
+    from scipy import ndimage as _ndi
+    lab, nloc = _ndi.label(evidence >= need)
     ys, xs = np.nonzero(evidence >= need)
-    rows = ["row,col,x_m,y_m,votes,height_m"]
+    print(f"  {len(ys)} pixels at k >= {need}, which is {nloc} distinct location"
+          f"{'' if nloc == 1 else 's'} once the vote discs are merged")
+    rows = ["row,col,x_m,y_m,votes,height_m,location_id"]
     for r, c in zip(ys, xs):
         rows.append(f"{r},{c},{x0 + c*RES:.1f},{y0 - r*RES:.1f},"
-                    f"{evidence[r,c]:.0f},{hmap[r,c]:.2f}")
+                    f"{evidence[r,c]:.0f},{hmap[r,c]:.2f},{lab[r,c]}")
     csv = OUT / "shadow_kinematics_real_detections.csv"
     csv.write_text("\n".join(rows), encoding="utf-8")
-    print(f"  -> {csv}  ({len(ys)} candidates)")
+    print(f"  -> {csv}  ({len(ys)} px in {nloc} locations)")
 
     show = sorted(frames, key=lambda f: f["az_map"])
     pick = [show[0], show[len(show) // 2], show[-1]]
