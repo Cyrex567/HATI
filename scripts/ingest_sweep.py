@@ -256,6 +256,32 @@ def download(fr: dict, dest: Path) -> bool:
         return False
 
 
+def isis_retry(cmd: list[str], tries: int = 4, delay: int = 30) -> tuple[bool, str]:
+    """Run an ISIS program, retrying only when the failure is the kernel server.
+
+    spiceinit web=yes fetches from the USGS kernel service, which returns "an
+    error occurred when talking to the server" under load. On one 16-frame run
+    that killed five bins in a row after eleven frames had gone through fine,
+    which is the shape of rate limiting rather than of bad data. Retry those and
+    nothing else: a frame that genuinely has no kernels fails differently and
+    should not be waited on four times.
+    """
+    import time
+    tail = ""
+    for k in range(tries):
+        ok, tail = isis(cmd)
+        if ok:
+            return True, tail
+        if "server" not in (tail or "").lower():
+            return False, tail
+        if k < tries - 1:
+            print(f"   kernel server refused; waiting {delay}s and retrying "
+                  f"({k + 2} of {tries})", flush=True)
+            time.sleep(delay)
+            delay *= 2
+    return False, tail
+
+
 def isis(cmd: list[str]) -> tuple[bool, str]:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
@@ -520,7 +546,7 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path,
     ]
     for name, cmd in early:
         stage(name, "run", base)
-        ok, tail = isis(cmd)
+        ok, tail = isis_retry(cmd) if name == "SPICEINIT" else isis(cmd)
         stage(name, "ok" if ok else "fail", base if ok else f"{base}: {tail}")
         if not ok:
             fr["fail"] = (name, tail)
@@ -642,6 +668,8 @@ def coregister(frames: list[dict]) -> None:
         h = 400
         refc = ref[rr - h:rr + h, rc_ - h:rc_ + h]
         rows = ["pid,shift_row_px,shift_col_px,residual_px,ncc,skimage_error,note"]
+        # closure is filled in after every frame is measured, so the CSV is
+        # written at the end rather than as we go
         for fr in frames:
             try:
                 with rasterio.open(fr["lev2"]) as src:        # GDAL reads ISIS3 cubes
@@ -700,6 +728,7 @@ def coregister(frames: list[dict]) -> None:
                                                      normalization=None)
                 if not np.isfinite(err):
                     raise ValueError("correlation degenerate (nan error), not a measurement")
+                MAX_RESID = 5.0
 
                 # residual: apply the shift and correlate again. This is the quantity
                 # the gate is actually about. The raw shift is the SPICE pointing
@@ -723,6 +752,17 @@ def coregister(frames: list[dict]) -> None:
                         if sa > 1e-9 and sb > 1e-9 else float("nan")
                 else:
                     ncc = float("nan")
+
+                # Per frame, not just on the median. A run of eleven frames reported
+                # two of them "ok" at residuals of 209 and 221 px, because two bad
+                # frames cannot move a median. A residual this size means the shift
+                # was so wrong that applying it smeared the window and the second
+                # correlation found a different peak; it is not a measurement.
+                if resid > MAX_RESID:
+                    raise ValueError(
+                        f"residual {resid:.1f} px after applying a shift of "
+                        f"({sh[0]:+.1f},{sh[1]:+.1f}); the correlator found a peak "
+                        f"that does not survive being applied")
 
                 fr["shift"] = [float(sh[0]), float(sh[1])]
                 fr["residual_px"] = resid
@@ -801,33 +841,72 @@ def coregister(frames: list[dict]) -> None:
                       f"{sorted(far)[len(far)//2]:.2f} px over {len(far)} of them")
             # Per frame, because one bad shift only spoils the pairs containing it
             # and leaves the overall median untouched. This is what names the frame.
-            bad = []
+            #
+            # The cut is robust rather than fixed. Real frames lit from a hundred
+            # degrees apart do not close to zero: on the first run the good ones sat
+            # at 2.5 to 4.6 px while the bad ones sat at 185 to 192, a fortyfold gap.
+            # A fixed 2 px threshold called all eleven bad, which is useless. Median
+            # plus five scaled MADs separates them and adapts to how well a
+            # particular set correlates.
+            per = []
             for f in ok_fr:
                 own = sorted(c[0] for c in clo if c[2] is f or c[3] is f)
-                if not own:
-                    continue
-                f["closure_px"] = own[len(own) // 2]
-                if f["closure_px"] > 2.0:
-                    bad.append(f)
+                if own:
+                    f["closure_px"] = own[len(own) // 2]
+                    per.append(f["closure_px"])
+            cut = float("inf")
+            if len(per) >= 4:
+                pm = sorted(per)[len(per) // 2]
+                mad = sorted(abs(v - pm) for v in per)[len(per) // 2]
+                cut = max(3.0, pm + 5.0 * 1.4826 * mad)
+            bad = [f for f in ok_fr if f.get("closure_px", 0.0) > cut]
+            print(f"     -- per-frame closure, outlier cut at {cut:.1f} px:")
+            for f in sorted(ok_fr, key=lambda x: x.get("closure_px", 0.0)):
+                mark = "  <-- DROPPED" if f in bad else ""
+                print(f"          {f['pid']:<22}{f.get('closure_px', float('nan')):>8.2f} px{mark}")
             if bad:
-                print("     -- frames that do not close with the rest:")
-                for f in sorted(bad, key=lambda x: -x["closure_px"]):
-                    print(f"          {f['pid']:<22}{f['closure_px']:>7.2f} px")
-                print("        Their shift is inconsistent with every other frame, so the")
-                print("        correlator found the wrong peak there. Drop them rather than")
-                print("        trusting a residual that cannot see this.")
+                print("        A dropped frame's shift disagrees with every other frame, so")
+                print("        the correlator found the wrong peak there. The residual cannot")
+                print("        see this: applying a wrong shift and re-correlating still")
+                print("        returns near zero.")
+                keep = [f for f in ok_fr if f not in bad]
+                if len(keep) >= 3:
+                    ok_fr = keep
+                    res = sorted(f["residual_px"] for f in ok_fr)
+                    med = res[len(res) // 2] if len(res) % 2 else 0.5 * (
+                        res[len(res)//2 - 1] + res[len(res)//2])
+                    g = sorted(c[0] for c in clo
+                               if c[2] not in bad and c[3] not in bad)
+                    if g:
+                        cmed = g[len(g) // 2]
+                    print(f"        After dropping {len(bad)}: {len(ok_fr)} frames, "
+                          f"median residual {med:.2f} px, closure {cmed:.2f} px")
+                else:
+                    print(f"        Only {len(keep)} frames would survive; not dropping any.")
         else:
             cmed = float("nan")
 
-        gate = med <= 1.0 and (not clo or cmed <= 2.0)
+        # Closure between frames lit from very different directions is genuinely
+        # harder than aligning either to the reference, so it is held to a looser
+        # bound than the residual rather than to the same one.
+        res_ok = med <= 1.0
+        clo_ok = (not clo) or (cmed <= 8.0)
+        gate = res_ok and clo_ok
         stage("GATE", "ok" if gate else "fail",
               f"median residual {med:.2f} px, closure {cmed:.2f} px over "
               f"{len(ok_fr)} frames")
-        if not gate:
+        if not res_ok:
             print("\n  Do not run kinematics on this. A residual above a pixel means the\n"
                   "  shadow motion we would measure is contaminated by frame motion.")
+        elif not clo_ok:
+            print(f"\n  The residual passes but the frames do not agree with each other:\n"
+                  f"  median closure {cmed:.1f} px. Every frame aligned to the reference\n"
+                  f"  separately, and those alignments are mutually inconsistent, so at\n"
+                  f"  least some of them found the wrong peak. Do not run kinematics.")
+        return ok_fr
     except ImportError as e:
         stage("COREGISTER", "fail", f"missing python dep: {e}")
+    return frames
 
 
 def main() -> None:
@@ -948,14 +1027,17 @@ def main() -> None:
             prev = key
     if not done:
         sys.exit("no frame survived the ISIS chain; nothing to co-register")
-    coregister(done)
+    kept = coregister(done) or []
 
     stage("MANIFEST", "run")
     man = [{"pid": f["pid"], "az_deg": f["az"], "az_source": "sslon-model",
             "elev": f["elev"],
-            "lev2": str(f["lev2"]), "shift_px": f.get("shift")} for f in done]
+            "lev2": str(f["lev2"]), "shift_px": f.get("shift"),
+            "residual_px": f.get("residual_px"), "closure_px": f.get("closure_px")}
+           for f in kept]
     (SWEEP_DIR / "manifest.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
-    stage("MANIFEST", "ok", f"{len(done)}/{len(frames)} frames -> data/sweep/manifest.json")
+    stage("MANIFEST", "ok", f"{len(kept)}/{len(frames)} frames -> data/sweep/manifest.json"
+          + (f" ({len(done) - len(kept)} dropped for not closing)" if len(kept) < len(done) else ""))
     print("\nNEXT: the ##STAGE GATE line above is the verdict (median RESIDUAL <= 1 px, not "
           "the raw shift); coreg_report.csv holds the per-frame numbers behind it. Then run "
           "the real-data kinematics adapter on manifest.json.")
