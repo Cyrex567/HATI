@@ -417,8 +417,11 @@ def recovery(frames, shape, boulders, args, k: int, tol: float) -> float:
 # --------------------------------------------------------------- main
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--half", type=int, default=400,
-                    help="half-window in pixels around the touchdown (0.9 m each)")
+    ap.add_argument("--half", type=int, default=0,
+                    help="half-window in pixels around the touchdown. 0 means take "
+                         "the one the ingest co-registered on, recorded in the "
+                         "manifest, so the shift is verified on the same ground the "
+                         "science reads. Overriding it breaks that guarantee.")
     ap.add_argument("--shadow-frac", type=float, default=0.5,
                     help="a pixel is shadow below this fraction of its local background")
     ap.add_argument("--bg-win", type=int, default=45, help="local background window, px")
@@ -446,9 +449,26 @@ def main() -> None:
     man = json.loads(MANIFEST.read_text())
     OUT.mkdir(parents=True, exist_ok=True)
 
+    # One window for the whole project. Co-registration measured its shift and
+    # closure on this exact ground, so reading a different amount here would put
+    # the science outside what the gate verified.
+    ingest_half = next((int(e["half_px"]) for e in man if e.get("half_px")), 0)
+    if args.half <= 0:
+        if not ingest_half:
+            sys.exit("this manifest predates the shared window; re-run the ingest, "
+                     "or pass --half explicitly and note that co-registration was "
+                     "only verified over 720 m")
+        args.half = ingest_half
+    elif ingest_half and args.half != ingest_half:
+        print(f"  WARNING: reading {2*args.half} px while co-registration was "
+              f"verified on {2*ingest_half} px.\n"
+              f"  The shift is a rigid translation fitted to that window; nothing "
+              f"checks it holds\n  outside. Prefer --half 0.")
+
     print(f"manifest: {len(man)} frames from {MANIFEST}")
     print(f"site    : {ac.TD_LAT}, {ac.TD_LON}   window {2*args.half} px "
-          f"({2*args.half*RES:.0f} m)   scale {RES} m/px\n")
+          f"({2*args.half*RES:.0f} m)   scale {RES} m/px"
+          + ("   (as co-registered)" if args.half == ingest_half else "") + "\n")
 
     # ---- geometry and windows
     frames, dropped = [], []

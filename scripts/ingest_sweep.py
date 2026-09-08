@@ -623,7 +623,7 @@ def where_is_the_data(fr: dict, np, rasterio, ac) -> str:
         return f"(could not diagnose: {e})"
 
 
-def coregister(frames: list[dict]) -> None:
+def coregister(frames: list[dict], half: int = 1200) -> list[dict]:
     """Phase-correlation shift of each projected cube vs the reference ortho.
     This CSV is the co-registration error budget the kinematics claim rests on."""
     stage("COREGISTER", "run")
@@ -665,7 +665,20 @@ def coregister(frames: list[dict]) -> None:
 
         ref = ac.load_ortho().astype("float32")
         rr, rc_ = ac.ortho_pixel()
-        h = 400
+        # One window for the whole project. Co-registration used to measure on
+        # 720 m while the kinematics read 2.7 km, so the shift and its closure
+        # were verified on a ninth of the ground the science actually used, and a
+        # rigid translation was assumed to hold across the rest untested.
+        #
+        # The reference ortho sets the ceiling: the touchdown sits 1299 px from
+        # its bottom edge, so nothing larger can be compared against it.
+        room = int(min(rr, ac.ORTHO_LINES - rr, rc_, ac.ORTHO_SAMPLES - rc_)) - 4
+        h = int(min(half, room))
+        if h < half:
+            print(f"  window clamped to {h} px ({2*h*MAP_RES/1000:.2f} km): the "
+                  f"reference ortho has only {room} px below the touchdown")
+        print(f"  co-registration window: {2*h} px = {2*h*MAP_RES/1000:.2f} km "
+              f"(the kinematics reads the same)")
         refc = ref[rr - h:rr + h, rc_ - h:rc_ + h]
         rows = ["pid,shift_row_px,shift_col_px,residual_px,ncc,skimage_error,note"]
         # closure is filled in after every frame is measured, so the CSV is
@@ -767,7 +780,7 @@ def coregister(frames: list[dict]) -> None:
                 fr["shift"] = [float(sh[0]), float(sh[1])]
                 fr["residual_px"] = resid
                 fr["ncc"] = ncc
-                fr["win"] = filled          # kept for the closure test below
+                fr["win"] = filled.astype("float32")   # kept for the closure test below
                 rows.append(f"{fr['pid']},{sh[0]:.2f},{sh[1]:.2f},{resid:.3f},"
                             f"{ncc:.3f},{err:.3f},ok ({how})")
                 stage("COREGISTER", "ok",
@@ -898,7 +911,17 @@ def coregister(frames: list[dict]) -> None:
         if not res_ok:
             print("\n  Do not run kinematics on this. A residual above a pixel means the\n"
                   "  shadow motion we would measure is contaminated by frame motion.")
-        elif not clo_ok:
+        if clo and math.isfinite(cmed):
+            # Closure is not just a pass mark: it sets the vote radius downstream,
+            # and a vote radius comparable to a shadow length blurs neighbouring
+            # casters into each other. At 3 degrees a 0.5 m boulder casts about
+            # 11 px, so closure needs to stay well under that to discriminate.
+            print(f"  what this means downstream: the kinematics will vote at a radius "
+                  f"of about {int(max(2, min(10, round(cmed + 2))))} px.")
+            print(f"     -- a 0.5 m boulder at 3 deg sun casts 11 px, so a radius near "
+                  f"that blurs\n        neighbouring casters together and costs "
+                  f"resolution, not correctness.")
+        if not clo_ok:
             print(f"\n  The residual passes but the frames do not agree with each other:\n"
                   f"  median closure {cmed:.1f} px. Every frame aligned to the reference\n"
                   f"  separately, and those alignments are mutually inconsistent, so at\n"
@@ -933,6 +956,11 @@ def main() -> None:
     ap.add_argument("--no-sibling", action="store_true",
                     help="do not retry the other NAC channel when the site lands "
                          "just past the sample edge of the one selected")
+    ap.add_argument("--half", type=int, default=1200,
+                    help="half-window in pixels for co-registration AND for the "
+                         "kinematics, which reads it back from the manifest. One "
+                         "number so the shift is verified on the ground the science "
+                         "uses. Capped by the reference ortho at 1299.")
     ap.add_argument("--map-halfwidth-km", type=float, default=2.5,
                     help="half-width of the projection box around the site. The "
                          "kinematics reads 2.7 km at most, so the old 18.6 by 21.3 km "
@@ -1027,11 +1055,11 @@ def main() -> None:
             prev = key
     if not done:
         sys.exit("no frame survived the ISIS chain; nothing to co-register")
-    kept = coregister(done) or []
+    kept = coregister(done, args.half) or []
 
     stage("MANIFEST", "run")
     man = [{"pid": f["pid"], "az_deg": f["az"], "az_source": "sslon-model",
-            "elev": f["elev"],
+            "half_px": args.half, "elev": f["elev"],
             "lev2": str(f["lev2"]), "shift_px": f.get("shift"),
             "residual_px": f.get("residual_px"), "closure_px": f.get("closure_px")}
            for f in kept]
