@@ -623,6 +623,42 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path,
     return True
 
 
+def bounded_shift(ref, mov, max_px, pcc, nd_shift, np, upsample=10):
+    """Phase correlation restricted to a physically possible displacement.
+
+    cam2map places a frame using SPICE, whose pointing error at this site has
+    measured between 5 and 65 px across every frame ingested so far. A correlator
+    left unbounded can return far more than that, and on one 15-frame run six
+    frames came back with shifts of 490 to 730 px, which is 440 to 660 m. Nothing
+    about the spacecraft's knowledge of its own position is wrong by half a
+    kilometre, so those peaks were not the ground.
+
+    Their magnitudes tracked the offset of each frame's valid-data centroid,
+    which suggests the correlator was matching the shape of the covered region
+    rather than the terrain in it. That is a hypothesis: it could not be
+    reproduced synthetically in three attempts, on weak shared structure, on
+    straight strip edges, or on half-empty windows, all of which the ordinary
+    correlator handled correctly.
+
+    The bound does not depend on the explanation being right. It only says the
+    answer must lie within what the spacecraft could plausibly be wrong by, and
+    on every case that already worked, bounded and unbounded agree to 0.1 px.
+    """
+    F = np.fft.fft2(ref)
+    G = np.fft.fft2(mov)
+    cc = np.fft.fftshift(np.fft.ifft2(F * G.conj()).real)
+    ny, nx = cc.shape
+    cy, cx = ny // 2, nx // 2
+    yy, xx = np.ogrid[:ny, :nx]
+    cc[(yy - cy) ** 2 + (xx - cx) ** 2 > max_px * max_px] = -np.inf
+    py, px = np.unravel_index(int(np.argmax(cc)), cc.shape)
+    coarse = (cy - py, cx - px)
+    at_edge = math.hypot(*coarse) > 0.95 * max_px
+    fine, err, _ = pcc(ref, nd_shift(mov, coarse, order=1, mode="nearest"),
+                       upsample_factor=upsample, normalization=None)
+    return (np.array([coarse[0] + fine[0], coarse[1] + fine[1]]), err, at_edge)
+
+
 def where_is_the_data(fr: dict, np, rasterio, ac) -> str:
     """When a window comes back empty, say WHY in one line.
 
@@ -674,7 +710,8 @@ def where_is_the_data(fr: dict, np, rasterio, ac) -> str:
         return f"(could not diagnose: {e})"
 
 
-def coregister(frames: list[dict], half: int = 1200) -> list[dict]:
+def coregister(frames: list[dict], half: int = 1200,
+               max_shift: int = 200) -> list[dict]:
     """Phase-correlation shift of each projected cube vs the reference ortho.
     This CSV is the co-registration error budget the kinematics claim rests on."""
     stage("COREGISTER", "run")
@@ -683,6 +720,7 @@ def coregister(frames: list[dict], half: int = 1200) -> list[dict]:
         import rasterio
         from rasterio.warp import transform as warp_transform
         from skimage.registration import phase_cross_correlation
+        from scipy.ndimage import shift as nd_shift_fn
         sys.path.insert(0, str(ROOT / "scripts"))
         import athena_counterfactual as ac
 
@@ -789,8 +827,14 @@ def coregister(frames: list[dict], half: int = 1200) -> list[dict]:
                 r0f = refc.astype("float64")
                 r0f = r0f - np.nanmean(r0f)
                 filled = filled - np.nanmean(filled)
-                sh, err, _ = phase_cross_correlation(r0f, filled, upsample_factor=10,
-                                                     normalization=None)
+                sh, err, at_edge = bounded_shift(r0f, filled, max_shift,
+                                                 phase_cross_correlation,
+                                                 nd_shift_fn, np)
+                if at_edge:
+                    raise ValueError(
+                        f"the best peak within {max_shift} px sits on that boundary, "
+                        f"so the real displacement is probably outside it; SPICE is "
+                        f"not wrong by {max_shift * MAP_RES:.0f} m")
                 if not np.isfinite(err):
                     raise ValueError("correlation degenerate (nan error), not a measurement")
                 MAX_RESID = 5.0
@@ -1009,6 +1053,10 @@ def main() -> None:
     ap.add_argument("--no-sibling", action="store_true",
                     help="do not retry the other NAC channel when the site lands "
                          "just past the sample edge of the one selected")
+    ap.add_argument("--max-shift-px", type=int, default=200,
+                    help="largest displacement the correlator may return. Measured "
+                         "SPICE pointing error here is 5 to 65 px; anything near 500 "
+                         "is the correlator matching something other than the ground.")
     ap.add_argument("--max-emission", type=float, default=40.0,
                     help="reject frames viewed more obliquely than this. cam2map "
                          "projects onto a sphere, so relief is not removed and a "
@@ -1113,7 +1161,7 @@ def main() -> None:
             prev = key
     if not done:
         sys.exit("no frame survived the ISIS chain; nothing to co-register")
-    kept = coregister(done, args.half) or []
+    kept = coregister(done, args.half, args.max_shift_px) or []
 
     stage("MANIFEST", "run")
     man = [{"pid": f["pid"], "az_deg": f["az"], "az_source": "sslon-model",
