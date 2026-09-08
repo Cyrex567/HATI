@@ -236,8 +236,33 @@ def regions_of(mask, min_area):
     return out
 
 
-def bases_from_regions(regions, az_map_deg, elev_deg, elong):
-    """Where each cast-shadow-shaped region says its caster is."""
+def bases_from_regions(regions, az_map_deg, elev_deg, elong, max_width_px=4.0):
+    """Where each cast-shadow-shaped region says its caster is.
+
+    Two filters, and the width one matters more than the ratio.
+
+    A boulder's shadow is as WIDE as the boulder: 1 px for anything under a
+    metre at 0.9 m/px, 3 px at 2.7 m. A crest or a crater rim casts a shadow
+    that is long AND wide, and a pure ratio test passes it happily. That is why
+    8491 regions passed on crater-dominated ground.
+
+    Width is also what makes the up-sun extreme meaningful. On a thin streak the
+    extreme IS the caster, and stays the caster under any assumed azimuth within
+    90 degrees of the truth. On a wide region the up-sun boundary is a crest
+    perpendicular to the sun, the maximum along that direction is degenerate, and
+    which pixel wins is decided by boundary noise. Worse, an assumed azimuth even
+    slightly off picks the END of that crest instead, deterministically and by the
+    sign of the error, and crest ends are fixed terrain points that recur in every
+    frame. Verified directly: a 1 px streak votes at the identical pixel at every
+    azimuth error tested, while a 13 px crest walks (297,295) to (302,304) across
+    30 degrees of error.
+
+    That is what broke the shuffled-azimuth null. Permuting azimuths inside an 88
+    degree span cannot move a thin vote at all, so it preserves every boulder
+    coincidence, while it relocates every wide-region vote onto a repeatable
+    terrain corner. The null could only come out above the real result, which is
+    exactly what it did, three times.
+    """
     az = math.radians(az_map_deg)
     tan_e = math.tan(math.radians(elev_deg))
     srow, scol = -math.cos(az), math.sin(az)          # toward the sun, in the raster
@@ -247,7 +272,10 @@ def bases_from_regions(regions, az_map_deg, elev_deg, elong):
         proj = rr * srow + cc * scol
         perp = rr * prow + cc * pcol
         along = (proj.max() - proj.min()) * RES
-        wide = (perp.max() - perp.min()) * RES
+        wide_px = perp.max() - perp.min()
+        wide = wide_px * RES
+        if wide_px > max_width_px:
+            continue          # a crest or a rim, not a boulder shadow
         if along < elong * max(wide, RES):
             continue                                   # not a cast shadow shape
         i = int(np.argmax(proj))                       # up-sun extreme = the base
@@ -308,7 +336,8 @@ def vote(mask, az_map_deg, elev_deg, min_area, elong, radius=2):
     return v, h, len(bases)
 
 
-def accumulate(frames, shape, min_area, elong, radius=2, order=None):
+def accumulate(frames, shape, min_area, elong, radius=2, order=None,
+               max_width_px=4.0, jitter=None):
     """Vote over every frame. `order` permutes which geometry goes with which image."""
     from scipy import ndimage as ndi
     evidence = np.zeros(shape, np.float32)
@@ -323,7 +352,15 @@ def accumulate(frames, shape, min_area, elong, radius=2, order=None):
         if "regions" not in f:
             f["regions"] = regions_of(f["mask"], min_area)
         g = frames[idx[k]]
-        bases = bases_from_regions(f["regions"], g["az_map"], g["elev"], elong)
+        bases = bases_from_regions(f["regions"], g["az_map"], g["elev"], elong,
+                                   max_width_px)
+        if jitter is not None:
+            # the spatial-shift null: displace this frame's whole vote map by more
+            # than the terrain correlation length. Unlike permuting azimuths it
+            # destroys the correspondence without touching the estimator, so it
+            # measures chance coincidence and nothing else.
+            dy, dx = jitter[k]
+            bases = [(b[0] + dy, b[1] + dx, b[2]) for b in bases]
         v, h = stamp(shape, bases, radius)
         evidence += v
         height_acc += h
@@ -430,6 +467,11 @@ def main() -> None:
                     help="how close two frames must agree to count as agreeing, px. "
                          "0 means derive it from the measured closure in the manifest, "
                          "which is the real frame-to-frame alignment.")
+    ap.add_argument("--max-width-px", type=float, default=4.0,
+                    help="widest region allowed to vote, across the sun line. A "
+                         "boulder shadow is as wide as the boulder: 1 px under a "
+                         "metre. A crest or rim shadow is long AND wide and passes "
+                         "a pure ratio test, then votes at a fixed terrain corner.")
     ap.add_argument("--inject", type=int, default=60,
                     help="synthetic boulders planted per sensitivity trial. 0 skips it.")
     ap.add_argument("--inject-heights", default="0.3,0.5,1.0,2.0",
@@ -555,8 +597,9 @@ def main() -> None:
         print(f"  {f['pid']:<22} shadow pixels {sf:5.1f}%{flag}")
 
     shape = frames[0]["dn"].shape
-    conf, evidence, hmap, darkf, casts = accumulate(frames, shape, args.min_area,
-                                                    args.elongation, args.vote_radius)
+    conf, evidence, hmap, darkf, casts = accumulate(
+        frames, shape, args.min_area, args.elongation, args.vote_radius,
+        None, args.max_width_px)
     hits, mass = concentration(evidence, len(frames))
     need = max(2, int(math.ceil(0.6 * len(frames))))
 
@@ -580,19 +623,35 @@ def main() -> None:
     n = len(frames)
     rng = np.random.default_rng(11)
     real_curve = hits_by_k(evidence, n)
+    # The primary control is a SPATIAL SHIFT, not an azimuth permutation.
+    #
+    # Permuting azimuths looked like the natural null and is invalid here. Every
+    # azimuth in this sweep lies within 88 degrees of every other, and the up-sun
+    # extreme of a THIN region is unchanged by any assumed direction within 90
+    # degrees of the truth. So permutation preserves every boulder coincidence
+    # intact, while relocating every wide-region vote onto a repeatable terrain
+    # corner. It can only sit above the real result, and it did, three runs
+    # running. Verified directly: a 1 px streak votes at the identical pixel at
+    # every azimuth error, a 13 px crest walks several pixels with the sign of it.
+    #
+    # Displacing each frame's finished vote map by more than the terrain
+    # correlation length destroys the correspondence without touching the
+    # estimator, so it measures chance coincidence and nothing else.
+    lo = max(40, 4 * args.vote_radius)
     null_curves = []
     for _ in range(args.trials):
-        order = rng.permutation(n)
-        if np.all(order == np.arange(n)):
-            continue
+        jit = [(int(rng.integers(-shape[0] // 4, shape[0] // 4)),
+                int(rng.integers(-shape[1] // 4, shape[1] // 4))) for _ in range(n)]
+        jit = [(dy if abs(dy) > lo else lo, dx if abs(dx) > lo else lo)
+               for dy, dx in jit]
         _, ev, _, _, _ = accumulate(frames, shape, args.min_area, args.elongation,
-                                    args.vote_radius, order)
+                                    args.vote_radius, None, args.max_width_px, jit)
         null_curves.append(hits_by_k(ev, n))
     null_curves = np.array(null_curves, float)
 
     print(f"\n{'-'*68}\nCONVERGENCE, at every agreement threshold")
     print(f"  votes cast (regions)        : {sum(casts)}")
-    print(f"  shuffled-azimuth trials     : {len(null_curves)}")
+    print(f"  spatial-shift null trials   : {len(null_curves)}")
     print()
     print(f"  {'k frames agree':>15}{'real':>9}{'null mean':>11}{'null p99':>10}"
           f"{'p':>8}   ")
