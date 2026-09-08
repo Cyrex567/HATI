@@ -181,6 +181,56 @@ def main() -> None:
           len(curve) == 16 and curve[3] == 1 and curve[4] == 0,
           "a pixel with 4 votes counts at k<=4 and not above")
 
+    # A vote count cannot separate a boulder from a crater rim: both converge.
+    # Fitting a fixed point against a point that walks with the sun can.
+    az8 = [3.5, 14.4, 24.0, 43.5, 52.5, 73.7, 345.9, 354.6]
+    rng3 = np.random.default_rng(0)
+    fixed = [(i, 200 + rng3.normal(0, 1), 300 + rng3.normal(0, 1))
+             for i in range(len(az8))]
+    cp = K.classify(fixed, az8)
+    check("a fixed caster fits a point, so the arc radius comes back near zero",
+          cp["radius_px"] < 3.0, f"radius {cp['radius_px']:.2f} px")
+
+    for R in (12.0, 30.0):
+        arc = []
+        for i, a in enumerate(az8):
+            ar = math.radians(a)
+            arc.append((i, 200 + R * -math.cos(ar) + rng3.normal(0, 1),
+                        300 + R * math.sin(ar) + rng3.normal(0, 1)))
+        ca = K.classify(arc, az8)
+        check(f"a rim of radius {R:.0f} px is recovered as an arc, not a point",
+              abs(ca["radius_px"] - R) < 3.0 and ca["rms_arc"] < 0.4 * ca["rms_point"],
+              f"radius {ca['radius_px']:.1f} px, rms {ca['rms_point']:.1f} -> "
+              f"{ca['rms_arc']:.1f}")
+
+    # The negative control. Without it the recovery column is half a result: a
+    # detector that fires on everything scores 100%. Craters and ridges are the
+    # two things that vote at a fixed terrain corner and mimic a caster.
+    from scipy.ndimage import gaussian_filter as _gf
+    rng4 = np.random.default_rng(5)
+    SS = 420
+    el8 = [3.29, 3.52, 3.68, 3.59, 3.34, 3.38, 4.79, 3.63]
+    bare = [{"dn": _gf(rng4.normal(size=(SS, SS)), 3) * 20 + 120,
+             "az_map": a, "elev": e} for a, e in zip(az8, el8)]
+
+    class _B:
+        shadow_frac, bg_win, min_area = 0.5, 45, 4
+        elongation, vote_radius, max_width_px = 1.8, 3, 4.0
+
+    spots = [(140, 140), (260, 280), (330, 130)]
+    ev_b = K._run_injected(bare, (SS, SS), _B, lambda d, a, e: K.inject_shadows(
+        d, [(r, c, 0.5) for r, c in spots], a, e, 45))
+    ev_c = K._run_injected(bare, (SS, SS), _B, lambda d, a, e: K.inject_craters(
+        d, [(r, c, 14, 3.0) for r, c in spots], a, e, 45))
+    ev_r = K._run_injected(bare, (SS, SS), _B, lambda d, a, e: K.inject_ridges(
+        d, [(r, c, 80, 35.0, 4.0) for r, c in spots], a, e, 45))
+    tp = K.hits_near(ev_b, spots, 3, 20.0)
+    fc = K.hits_near(ev_c, spots, 3, 20.0)
+    fr = K.hits_near(ev_r, spots, 3, 20.0)
+    check("injected half-metre boulders are called casters", tp >= 2, f"{tp} of 3")
+    check("injected craters are NOT called casters", fc == 0, f"{fc} of 3")
+    check("injected ridges are NOT called casters", fr == 0, f"{fr} of 3")
+
     # the sun bearing must be the one we think it is
     lat, lon = -84.7906, 29.1957
     check("sub-solar point on the same meridian gives a bearing of due north",

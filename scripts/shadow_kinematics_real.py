@@ -361,6 +361,8 @@ def accumulate(frames, shape, min_area, elong, radius=2, order=None,
             # measures chance coincidence and nothing else.
             dy, dx = jitter[k]
             bases = [(b[0] + dy, b[1] + dx, b[2]) for b in bases]
+        if order is None and jitter is None:
+            f["_bases"] = bases          # kept so each cluster can be classified
         v, h = stamp(shape, bases, radius)
         evidence += v
         height_acc += h
@@ -397,6 +399,40 @@ def concentration(evidence: np.ndarray, n_frames: int) -> tuple[int, float]:
     return hits, mass
 
 
+# --------------------------------------------------------------- what is it
+def classify(votes, azs):
+    """Is this cluster a fixed point, or a point that walks with the sun?
+
+    A boulder casts from the same base every frame, so its votes fit a single
+    fixed point B. A crater rim does not: the up-sun end of its shadow slides
+    around the rim as the sun turns, tracing c + r*s_hat with r the rim radius.
+    Both converge under a coincidence count, which is why the vote tally alone
+    cannot tell them apart and this comparison is the actual test.
+
+    Fits both by least squares and returns their RMS residuals and the fitted
+    radius. The arc model has one more parameter so it can never fit worse; what
+    matters is whether r is large enough to be a real arc rather than noise.
+
+    votes: (frame index, row, col).  azs: map azimuth per frame, degrees.
+    """
+    if len(votes) < 3:
+        return None
+    v = np.array([(r, c) for _, r, c in votes], float)
+    rms_point = float(np.sqrt(np.mean(np.sum((v - v.mean(0)) ** 2, axis=1))))
+
+    # v_i = c + r * s_hat_i, unknowns (c_row, c_col, r), two rows per vote
+    A, b = [], []
+    for (fi, r, c) in votes:
+        a = math.radians(azs[fi])
+        A.append([1.0, 0.0, -math.cos(a)]); b.append(r)
+        A.append([0.0, 1.0, math.sin(a)]);  b.append(c)
+    sol, *_ = np.linalg.lstsq(np.array(A), np.array(b), rcond=None)
+    resid = np.array(b) - np.array(A) @ sol
+    rms_arc = float(np.sqrt(np.mean(resid.reshape(-1, 2).sum(axis=1) ** 2 / 2)))
+    return {"rms_point": rms_point, "rms_arc": rms_arc, "radius_px": float(abs(sol[2])),
+            "n": len(votes)}
+
+
 # --------------------------------------------------------------- injection
 def inject_shadows(dn, boulders, az_map_deg, elev_deg, bg_win, darkness=0.25):
     """Darken the ground where boulders of known height would cast, in one frame.
@@ -430,6 +466,95 @@ def inject_shadows(dn, boulders, az_map_deg, elev_deg, bg_win, darkness=0.25):
             if r0 < r1 and c0 < c1:
                 out[r0:r1, c0:c1] = darkness * bg[r0:r1, c0:c1]
     return out
+
+
+def inject_craters(dn, craters, az_map_deg, elev_deg, bg_win, darkness=0.25):
+    """Bowl craters, the negative control the pipeline must NOT call a boulder.
+
+    At low sun the interior wall on the SUNWARD side faces away from the sun and
+    is also shadowed by its own rim, so the shadow occupies the sunward part of
+    the bowl, bounded by a chord perpendicular to the sun. The result is a lune
+    whose long axis is across the sun line, and whose up-sun extreme walks along
+    the rim as the sun turns. That is the thing that converges on a terrain
+    corner and looks like a caster.
+
+    craters: (row, col, radius_px, depth_m).
+    """
+    from scipy import ndimage as ndi
+    out = dn.copy()
+    bg = ndi.uniform_filter(np.where(np.isfinite(out), out, np.nanmedian(out)), bg_win)
+    ar = math.radians(az_map_deg)
+    srow, scol = -math.cos(ar), math.sin(ar)
+    cot = 1.0 / math.tan(math.radians(elev_deg))
+    H, W = out.shape
+    for r0, c0, rad, depth in craters:
+        reach = min(2.0 * rad, depth * cot / RES)      # how far the rim shadow throws
+        lo = max(0, int(r0 - rad)); hi = min(H, int(r0 + rad) + 1)
+        cl = max(0, int(c0 - rad)); ch = min(W, int(c0 + rad) + 1)
+        if lo >= hi or cl >= ch:
+            continue
+        yy, xx = np.mgrid[lo:hi, cl:ch]
+        dy, dx = yy - r0, xx - c0
+        inside = dy * dy + dx * dx <= rad * rad
+        along = dy * srow + dx * scol                  # toward the sun
+        shadow = inside & (along > rad - reach)
+        sub = out[lo:hi, cl:ch]
+        sub[shadow] = darkness * bg[lo:hi, cl:ch][shadow]
+    return out
+
+
+def inject_ridges(dn, ridges, az_map_deg, elev_deg, bg_win, darkness=0.25):
+    """Linear crests, the other thing that votes at a fixed terrain corner.
+
+    A ridge of height h throws a band h*cot(e) wide down-sun along its whole
+    length. The band's long axis is the ridge, fixed in the ground, and its ends
+    are fixed points that recur in every frame.
+
+    ridges: (row, col, length_px, orientation_deg, height_m).
+    """
+    from scipy import ndimage as ndi
+    out = dn.copy()
+    bg = ndi.uniform_filter(np.where(np.isfinite(out), out, np.nanmedian(out)), bg_win)
+    ar = math.radians(az_map_deg)
+    srow, scol = -math.cos(ar), math.sin(ar)
+    cot = 1.0 / math.tan(math.radians(elev_deg))
+    H, W = out.shape
+    for r0, c0, length, orient, h in ridges:
+        orad = math.radians(orient)
+        ur, uc = math.cos(orad), math.sin(orad)        # along the ridge
+        reach = int(round(h * cot / RES))
+        for t in range(-int(length) // 2, int(length) // 2 + 1):
+            br, bc = r0 + t * ur, c0 + t * uc
+            for q in range(0, max(1, reach) + 1):      # sweep the shadow down-sun
+                rr = int(round(br - q * srow))
+                cc = int(round(bc - q * scol))
+                if 0 <= rr < H and 0 <= cc < W:
+                    out[rr, cc] = darkness * bg[rr, cc]
+    return out
+
+
+def _run_injected(frames, shape, args, render):
+    """Detect and accumulate over frames with something rendered into them."""
+    inj = []
+    for f in frames:
+        d = render(f["dn"], f["az_map"], f["elev"])
+        inj.append({"mask": detect(d, args.shadow_frac, args.bg_win, args.min_area),
+                    "az_map": f["az_map"], "elev": f["elev"]})
+    _, ev, _, _, _ = accumulate(inj, shape, args.min_area, args.elongation,
+                                args.vote_radius, None, args.max_width_px)
+    return ev
+
+
+def hits_near(ev, targets, k, tol) -> int:
+    """How many planted objects have a converged pixel within tol."""
+    rr, cc = np.nonzero(ev >= k)
+    if rr.size == 0:
+        return 0
+    n = 0
+    for t in targets:
+        if np.min((rr - t[0]) ** 2 + (cc - t[1]) ** 2) <= tol * tol:
+            n += 1
+    return n
 
 
 def recovery(frames, shape, boulders, args, k: int, tol: float) -> float:
@@ -702,6 +827,38 @@ def main() -> None:
                   f"{100 * frac:>11.0f}%")
         print(f"\n  Recovery is measured at k = {kk}, the same threshold the real")
         print("  result is reported at, and on the same frames.")
+
+    # ---- what is each surviving cluster, a point or an arc?
+    if best:
+        from scipy import ndimage as _ndi
+        lab, nloc = _ndi.label(evidence >= need)
+        azs = [f["az_map"] for f in frames]
+        print(f"\n{'-'*68}\nWHAT THE SURVIVORS ARE")
+        print("  A vote count cannot tell a boulder from a crater rim: both converge.")
+        print("  A boulder casts from one fixed base, so its votes fit a POINT. A rim's")
+        print("  shadow end slides around the rim as the sun turns, so its votes fit an")
+        print("  ARC of the rim's own radius. Fitting both is the actual test.\n")
+        print(f"  {'loc':>4}{'px':>5}{'frames':>8}{'rms point':>11}{'rms arc':>9}"
+              f"{'radius':>9}{'height':>8}   reading")
+        for li in range(1, nloc + 1):
+            ys, xs = np.nonzero(lab == li)
+            cy, cx = float(ys.mean()), float(xs.mean())
+            reach = args.vote_radius + 4
+            votes = [(i, br, bc) for i, f in enumerate(frames)
+                     for (br, bc, _h) in f.get("_bases", [])
+                     if (br - cy) ** 2 + (bc - cx) ** 2 <= reach * reach]
+            cl = classify(votes, azs)
+            hh = float(np.median(hmap[lab == li][hmap[lab == li] > 0])) \
+                if np.any(hmap[lab == li] > 0) else float("nan")
+            if cl is None:
+                print(f"  {li:>4}{ys.size:>5}{'-':>8}{'-':>11}{'-':>9}{'-':>9}"
+                      f"{hh:>7.2f}m   too few votes to fit")
+                continue
+            rad = cl["radius_px"]
+            verdict = ("consistent with a point caster" if rad <= args.vote_radius
+                       else f"walks {rad*RES:.1f} m: rim or crest, not a boulder")
+            print(f"  {li:>4}{ys.size:>5}{cl['n']:>8}{cl['rms_point']:>11.2f}"
+                  f"{cl['rms_arc']:>9.2f}{rad:>9.2f}{hh:>7.2f}m   {verdict}")
 
     # ---- heights at the converged pixels
     hs = hmap[evidence >= need]
