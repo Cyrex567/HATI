@@ -815,17 +815,47 @@ def main() -> None:
         print("  'nothing this size would have been found'.\n")
         rr = np.random.default_rng(3)
         H, W = shape
-        m = 120
+        m = 140
+        kk = need
+        tol = 3.0 + args.vote_radius
         pos = np.column_stack([rr.integers(m, H - m, args.inject),
                                rr.integers(m, W - m, args.inject)])
-        kk = need
-        print(f"  {'boulder height':>15}{'shadow at 3 deg':>18}{'recovered':>12}")
+        print(f"  {'planted':>24}{'shadow at 3 deg':>18}{'called a caster':>18}")
         for h in [float(x) for x in args.inject_heights.split(",") if x.strip()]:
             b = [(int(p[0]), int(p[1]), h) for p in pos]
-            frac = recovery(frames, shape, b, args, kk, tol=3.0 + args.vote_radius)
-            print(f"  {h:>13.1f} m{h / math.tan(math.radians(3.0)):>15.1f} m"
-                  f"{100 * frac:>11.0f}%")
-        print(f"\n  Recovery is measured at k = {kk}, the same threshold the real")
+            frac = recovery(frames, shape, b, args, kk, tol=tol)
+            lbl = f"boulder {h:.1f} m"
+            print(f"  {lbl:>24}{h / math.tan(math.radians(3.0)):>15.1f} m"
+                  f"{100 * frac:>17.0f}%")
+
+        # The negative half. Positive injection alone is not a result: a detector
+        # that fires on everything scores 100% recovery. Craters and ridges are
+        # the two things that vote at a fixed terrain corner and therefore mimic
+        # a caster to a coincidence count. These rows ARE the false-positive rate.
+        print()
+        nn = max(8, args.inject // 3)
+        neg = np.column_stack([rr.integers(m, H - m, nn), rr.integers(m, W - m, nn)])
+        tgt = [(int(p[0]), int(p[1])) for p in neg]
+        for rad, dep in ((6, 1.5), (14, 3.0), (30, 6.0)):
+            cr = [(t[0], t[1], rad, dep) for t in tgt]
+            ev = _run_injected(frames, shape, args,
+                               lambda d, a, e, c=cr: inject_craters(d, c, a, e,
+                                                                    args.bg_win))
+            fp = hits_near(ev, tgt, kk, tol + rad)
+            lbl = f"crater {2 * rad * RES:.0f} m across"
+            print(f"  {lbl:>24}{'':>18}{100 * fp / len(tgt):>17.0f}%")
+        for ln, hh in ((30, 2.0), (80, 4.0)):
+            rg = [(t[0], t[1], ln, float(rr.integers(0, 180)), hh) for t in tgt]
+            ev = _run_injected(frames, shape, args,
+                               lambda d, a, e, g=rg: inject_ridges(d, g, a, e,
+                                                                   args.bg_win))
+            fp = hits_near(ev, tgt, kk, tol + ln / 2)
+            lbl = f"ridge {ln * RES:.0f} m, {hh:.0f} m high"
+            print(f"  {lbl:>24}{'':>18}{100 * fp / len(tgt):>17.0f}%")
+        print(f"\n  Boulder rows are recovery, crater and ridge rows are the FALSE")
+        print("  POSITIVE rate. Anything above a few percent there means a converged")
+        print("  pixel is not on its own evidence of a boulder.")
+        print(f"\n  All measured at k = {kk}, the threshold the real")
         print("  result is reported at, and on the same frames.")
 
     # ---- what is each surviving cluster, a point or an arc?
