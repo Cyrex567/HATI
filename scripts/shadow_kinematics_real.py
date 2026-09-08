@@ -279,7 +279,7 @@ def bases_from_regions(regions, az_map_deg, elev_deg, elong, max_width_px=4.0):
         if along < elong * max(wide, RES):
             continue                                   # not a cast shadow shape
         i = int(np.argmax(proj))                       # up-sun extreme = the base
-        bases.append((int(rr[i]), int(cc[i]), along * tan_e))
+        bases.append((int(rr[i]), int(cc[i]), along * tan_e, along / RES))
     return bases
 
 
@@ -293,7 +293,7 @@ def stamp(shape, bases, radius):
     h = np.zeros(shape, np.float32)
     H, W = shape
     if radius <= 0:
-        for br, bc, hh in bases:
+        for br, bc, hh, *_ in bases:
             if 0 <= br < H and 0 <= bc < W:
                 v[br, bc] = 1.0
                 h[br, bc] = max(h[br, bc], hh)
@@ -301,7 +301,7 @@ def stamp(shape, bases, radius):
     R = radius
     yy, xx = np.ogrid[-R:R + 1, -R:R + 1]
     disc = (yy * yy + xx * xx) <= R * R
-    for br, bc, hh in bases:
+    for br, bc, hh, *_ in bases:
         r0, r1 = max(0, br - R), min(H, br + R + 1)
         c0, c1 = max(0, bc - R), min(W, bc + R + 1)
         if r0 >= r1 or c0 >= c1:
@@ -360,7 +360,7 @@ def accumulate(frames, shape, min_area, elong, radius=2, order=None,
             # destroys the correspondence without touching the estimator, so it
             # measures chance coincidence and nothing else.
             dy, dx = jitter[k]
-            bases = [(b[0] + dy, b[1] + dx, b[2]) for b in bases]
+            bases = [(b[0] + dy, b[1] + dx, b[2], b[3]) for b in bases]
         if order is None and jitter is None:
             f["_bases"] = bases          # kept so each cluster can be classified
         v, h = stamp(shape, bases, radius)
@@ -431,6 +431,51 @@ def classify(votes, azs):
     rms_arc = float(np.sqrt(np.mean(resid.reshape(-1, 2).sum(axis=1) ** 2 / 2)))
     return {"rms_point": rms_point, "rms_arc": rms_arc, "radius_px": float(abs(sol[2])),
             "n": len(votes)}
+
+
+def bright_side(frames, cy, cx, reach, patch=2):
+    """Is there a lit protrusion up-sun of this shadow, or a lit wall beyond it?
+
+    The arc test has no power below a rim radius of about 4 px, because the chord
+    an arc traces over 88 degrees is 1.4 times the radius and the vote dilation is
+    3 px. Every one of the ten survivors fits inside that blind zone, so the arc
+    fit cannot say what they are. This can, and it needs no new data.
+
+    Walk down-sun through the feature. A BOULDER is a lit protrusion with its
+    shadow behind it: bright, then dark, then ordinary ground. A CRATER has no
+    protrusion; the sunward rim is where the shadow starts and the far interior
+    wall faces the sun and is lit: ordinary ground, then dark, then bright.
+
+    So sample just up-sun of the vote and just beyond the far end of the shadow,
+    and take the difference. Positive means the caster is a protrusion. Summed
+    over frames, since one frame is noise and eight is a measurement.
+    """
+    tot, n = 0.0, 0
+    for f in frames:
+        ar = math.radians(f["az_map"])
+        srow, scol = -math.cos(ar), math.sin(ar)
+        dn = f["dn"]
+        H, W = dn.shape
+        near = [(br, bc, L) for (br, bc, _h, L) in f.get("_bases", [])
+                if (br - cy) ** 2 + (bc - cx) ** 2 <= reach * reach]
+        for br, bc, L in near:
+            up = (br + 2 * srow, bc + 2 * scol)                 # toward the sun
+            far = (br - (L + 2) * srow, bc - (L + 2) * scol)    # past the shadow
+            vals = []
+            for (pr, pc) in (up, far):
+                r0, r1 = int(pr) - patch, int(pr) + patch + 1
+                c0, c1 = int(pc) - patch, int(pc) + patch + 1
+                if r0 < 0 or c0 < 0 or r1 > H or c1 > W:
+                    vals.append(None)
+                    continue
+                sub = dn[r0:r1, c0:c1]
+                vals.append(float(np.nanmean(sub)) if np.isfinite(sub).any() else None)
+            if vals[0] is None or vals[1] is None:
+                continue
+            bg = np.nanmedian(dn)
+            tot += (vals[0] - vals[1]) / (bg if bg else 1.0)
+            n += 1
+    return (tot / n, n) if n else (float("nan"), 0)
 
 
 # --------------------------------------------------------------- injection
@@ -592,11 +637,13 @@ def main() -> None:
                     help="how close two frames must agree to count as agreeing, px. "
                          "0 means derive it from the measured closure in the manifest, "
                          "which is the real frame-to-frame alignment.")
-    ap.add_argument("--max-width-px", type=float, default=4.0,
-                    help="widest region allowed to vote, across the sun line. A "
-                         "boulder shadow is as wide as the boulder: 1 px under a "
-                         "metre. A crest or rim shadow is long AND wide and passes "
-                         "a pure ratio test, then votes at a fixed terrain corner.")
+    ap.add_argument("--max-width-px", type=float, default=8.0,
+                    help="widest region allowed to vote, across the sun line. "
+                         "Was 4 px on the reasoning that a shadow is as wide as "
+                         "its caster, which is wrong: a lunar rock is about twice "
+                         "as wide as it is tall, so a 2 m high boulder throws a "
+                         "4.4 px shadow and a 4 px cap rejected it. That was the "
+                         "recovery ceiling, self-inflicted.")
     ap.add_argument("--inject", type=int, default=60,
                     help="synthetic boulders planted per sensitivity trial. 0 skips it.")
     ap.add_argument("--inject-heights", default="0.3,0.5,1.0,2.0",
@@ -836,13 +883,22 @@ def main() -> None:
         nn = max(8, args.inject // 3)
         neg = np.column_stack([rr.integers(m, H - m, nn), rr.integers(m, W - m, nn)])
         tgt = [(int(p[0]), int(p[1])) for p in neg]
-        for rad, dep in ((6, 1.5), (14, 3.0), (30, 6.0)):
+        # Down to 2 m, because that is where the survivors are. My first pass
+        # started at 11 m across, and the arc test is blind below about 7 m, so
+        # the whole regime the ten detections occupy went untested. A 3 m crater
+        # at 4 degrees sun is a 3 px shadowed interior plus a 1 to 2 px rim
+        # shadow: a 4 to 5 px region, along the sun, under 4 px wide, voting at a
+        # point that moves less than the dilation. It passes every filter and
+        # reads as a 0.2 m boulder.
+        for diam in (2.0, 3.0, 5.0, 8.0, 11.0, 25.0, 54.0):
+            rad = max(1, int(round(0.5 * diam / RES)))
+            dep = 0.12 * diam                     # lunar depth to diameter
             cr = [(t[0], t[1], rad, dep) for t in tgt]
             ev = _run_injected(frames, shape, args,
                                lambda d, a, e, c=cr: inject_craters(d, c, a, e,
                                                                     args.bg_win))
             fp = hits_near(ev, tgt, kk, tol + rad)
-            lbl = f"crater {2 * rad * RES:.0f} m across"
+            lbl = f"crater {diam:.0f} m across"
             print(f"  {lbl:>24}{'':>18}{100 * fp / len(tgt):>17.0f}%")
         for ln, hh in ((30, 2.0), (80, 4.0)):
             rg = [(t[0], t[1], ln, float(rr.integers(0, 180)), hh) for t in tgt]
@@ -868,27 +924,41 @@ def main() -> None:
         print("  A boulder casts from one fixed base, so its votes fit a POINT. A rim's")
         print("  shadow end slides around the rim as the sun turns, so its votes fit an")
         print("  ARC of the rim's own radius. Fitting both is the actual test.\n")
+        print("  The arc test is blind below a rim radius of about 4 px, which is a")
+        print("  7 m crater, and that is where these sit. So also walk down-sun through")
+        print("  each one: a boulder is a lit protrusion with its shadow behind it, a")
+        print("  crater has no protrusion and a lit far wall past the shadow. Positive")
+        print("  sign means a protrusion.\n")
         print(f"  {'loc':>4}{'px':>5}{'frames':>8}{'rms point':>11}{'rms arc':>9}"
-              f"{'radius':>9}{'height':>8}   reading")
+              f"{'radius':>9}{'height':>8}{'sign':>8}   reading")
         for li in range(1, nloc + 1):
             ys, xs = np.nonzero(lab == li)
             cy, cx = float(ys.mean()), float(xs.mean())
             reach = args.vote_radius + 4
             votes = [(i, br, bc) for i, f in enumerate(frames)
-                     for (br, bc, _h) in f.get("_bases", [])
+                     for (br, bc, _h, _L) in f.get("_bases", [])
                      if (br - cy) ** 2 + (bc - cx) ** 2 <= reach * reach]
             cl = classify(votes, azs)
             hh = float(np.median(hmap[lab == li][hmap[lab == li] > 0])) \
                 if np.any(hmap[lab == li] > 0) else float("nan")
+            sgn, nsg = bright_side(frames, cy, cx, reach)
             if cl is None:
                 print(f"  {li:>4}{ys.size:>5}{'-':>8}{'-':>11}{'-':>9}{'-':>9}"
-                      f"{hh:>7.2f}m   too few votes to fit")
+                      f"{hh:>7.2f}m{sgn:>+8.3f}   too few votes to fit")
                 continue
             rad = cl["radius_px"]
-            verdict = ("consistent with a point caster" if rad <= args.vote_radius
-                       else f"walks {rad*RES:.1f} m: rim or crest, not a boulder")
+            if rad > args.vote_radius:
+                verdict = f"walks {rad*RES:.1f} m: rim or crest, not a boulder"
+            elif not (sgn == sgn):
+                verdict = "point-like, sign not measurable"
+            elif sgn > 0.02:
+                verdict = "point-like AND lit up-sun: boulder"
+            elif sgn < -0.02:
+                verdict = "point-like but lit BEYOND: pit or small crater"
+            else:
+                verdict = "point-like, sign flat: undetermined"
             print(f"  {li:>4}{ys.size:>5}{cl['n']:>8}{cl['rms_point']:>11.2f}"
-                  f"{cl['rms_arc']:>9.2f}{rad:>9.2f}{hh:>7.2f}m   {verdict}")
+                  f"{cl['rms_arc']:>9.2f}{rad:>9.2f}{hh:>7.2f}m{sgn:>+8.3f}   {verdict}")
 
     # ---- heights at the converged pixels
     hs = hmap[evidence >= need]
