@@ -44,12 +44,15 @@ WHAT WORKS RIGHT AWAY, AND WHAT DOES NOT
 THE ONE RESULT THAT MATTERS
 ---------------------------
 
-  After the ingest, before anything else, read:
+  The ingest prints its own verdict, as a  ##STAGE GATE  line. Read that.
 
-      data/sweep/coreg_report.csv
+  It passes on the RESIDUAL, the error left after the measured shift is
+  applied, at or below 1.00 px. NOT on the shift itself: that is the
+  spacecraft's pointing error, routinely 30 to 70 px, and removing it is
+  what co-registration is for. Gating on it fails every good run.
 
-  Median absolute shift at or below 1.00 px  ->  the gate passes.
-  Above 1.00 px  ->  stop, and report it. Do not run science on top of it.
+  Fail  ->  stop, and report it. The kinematics refuses to run on a failed
+  manifest anyway. Per-frame numbers are in data/sweep/coreg_report.csv.
 
 
 GETTING RESULTS OUT

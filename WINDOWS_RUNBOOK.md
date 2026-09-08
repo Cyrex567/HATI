@@ -276,25 +276,37 @@ The ingest produces one file that decides whether the science holds:
 column -s, -t data/sweep/coreg_report.csv
 ```
 
-Then compute the median shift:
+The run prints the verdict itself, as a `##STAGE GATE` line. Read that. If you want
+the numbers behind it:
 
 ```bash
 python3 - <<'PY'
 import csv, statistics
-rows=[r for r in csv.DictReader(open('data/sweep/coreg_report.csv')) if r['shift_row_px']]
-s=[(float(r['shift_row_px'])**2 + float(r['shift_col_px'])**2)**0.5 for r in rows]
-print(f"{len(rows)} frames co-registered")
-print(f"median |shift| = {statistics.median(s):.2f} px   (gate: <= 1.00 px)")
-print(f"worst  |shift| = {max(s):.2f} px")
+rows=[r for r in csv.DictReader(open('data/sweep/coreg_report.csv')) if r['residual_px']]
+res=[float(r['residual_px']) for r in rows]
+raw=[(float(r['shift_row_px'])**2 + float(r['shift_col_px'])**2)**0.5 for r in rows]
+clo=[float(r['closure_px']) for r in rows if r.get('closure_px')]
+print(f"{len(rows)} frames measured")
+print(f"median residual = {statistics.median(res):.2f} px   <-- THE GATE, passes at <= 1.00")
+print(f"median closure  = {statistics.median(clo):.2f} px   (passes at <= 8)" if clo else "")
+print(f"median |shift|  = {statistics.median(raw):.2f} px   (SPICE pointing error, NOT gated)")
 PY
 ```
 
-**Median at or below 1.00 px: the gate passes.** Height estimates are trustworthy and the
-real-data kinematics run is on.
+**Gate on the residual, never on the shift.** They are different numbers and confusing
+them was a real mistake in this project. The shift is the spacecraft's own pointing
+error, routinely 30 to 70 px, and removing it is the entire purpose of co-registration;
+gating on it would fail every run that ever succeeded. The residual is what survives the
+correction, and that is what has to be sub-pixel.
 
-**Median above 1.00 px: stop and say so.** Do not run the science on top of it. A
-mislocated shadow base blurs the confidence peak and biases every height. That is a
-result worth reporting honestly, not a problem to work around.
+**Closure is the second condition.** Frames aligned to the reference separately must also
+agree with each other, which nothing forces. A frame can show a clean residual on a shift
+that is simply wrong, and closure is the only thing that catches it.
+
+**If the GATE line says fail, stop.** Do not run the science on top of it. The manifest
+records the failure and the kinematics will refuse to run unless you pass `--ignore-gate`,
+at which point the output is not reportable. That is a result worth stating honestly, not
+a problem to work around.
 
 ---
 

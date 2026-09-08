@@ -35,10 +35,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output" / "athena"
 SWEEP_DIR = ROOT / "data" / "sweep"
-REF_ORTHO = ROOT / "data" / "athena" / "NAC_DTM_NOBILE03_M1101075756_90CM.IMG"
 ISIS_BIN = ["lronac2isis", "spiceinit", "lronaccal", "cam2map"]
 ALL_BY_PID: dict[str, dict] = {}      # every frame in the sweep CSV, filtered or not
 
+USED: dict[str, int] = {}         # what coregister actually used, for the manifest
 MOON_R = 1737400.0
 MAP_RES = 0.9                     # metres per pixel
 
@@ -68,6 +68,15 @@ def map_pvl(lat: float, lon: float, half_km: float, res: float = MAP_RES) -> str
             r = math.hypot(x, y)
             lats.append(math.degrees(2 * math.atan(r / (2 * MOON_R)) - math.pi / 2))
             lons.append(math.degrees(math.atan2(x, y)) % 360.0)
+    # A box straddling the prime meridian gives longitudes near 0.5 and 359.5.
+    # Taking the plain min and max then asks cam2map for a 359 degree swath of
+    # the Moon instead of a 5 km square, which is a terabyte-scale raster and an
+    # out-of-memory crash. Athena at 29 E never trips it; a site near 0 would.
+    if max(lons) - min(lons) > 180.0:
+        shifted = [(v - 360.0 if v > 180.0 else v) for v in lons]
+        lo, hi = min(shifted) % 360.0, max(shifted) % 360.0
+    else:
+        lo, hi = min(lons), max(lons)
     return f"""Group = Mapping
   ProjectionName     = PolarStereographic
   CenterLongitude    = 0.0
@@ -81,8 +90,8 @@ def map_pvl(lat: float, lon: float, half_km: float, res: float = MAP_RES) -> str
   PixelResolution    = {res} <meters/pixel>
   MinimumLatitude    = {min(lats):.4f}
   MaximumLatitude    = {max(lats):.4f}
-  MinimumLongitude   = {min(lons):.4f}
-  MaximumLongitude   = {max(lons):.4f}
+  MinimumLongitude   = {lo:.4f}
+  MaximumLongitude   = {hi:.4f}
 End_Group
 End
 """
@@ -125,6 +134,7 @@ def load_csv(min_margin_m: float = 600.0) -> list[dict]:
                     "pid": d["product"], "utc": d["utc"],
                     "elev": float(d["sun_elev_deg"]), "az": float(d["sun_az_deg"]),
                     "url": d["download_url"],
+                    "emi": float(d.get("emission_deg") or "nan"),
                     "margin": float(d.get("margin_m") or "nan")}
             except (KeyError, ValueError):
                 pass
@@ -150,7 +160,8 @@ def load_csv(min_margin_m: float = 600.0) -> list[dict]:
             try:
                 rows.append({"pid": d["product"], "utc": d["utc"],
                              "elev": float(d["sun_elev_deg"]), "az": float(d["sun_az_deg"]),
-                             "url": d["download_url"], "margin": margin})
+                             "url": d["download_url"], "margin": margin,
+                             "emi": float(d.get("emission_deg") or "nan")})
             except (KeyError, ValueError):
                 continue
     print(f"sweep CSV: {csvs[-1].name}  ({len(rows)} usable frames; "
@@ -166,7 +177,8 @@ def load_csv(min_margin_m: float = 600.0) -> list[dict]:
 
 
 def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: float,
-                  force: list[str] | None = None, alternates: int = 3) -> list[dict]:
+                  force: list[str] | None = None, alternates: int = 3,
+                  max_emission: float = 40.0) -> list[dict]:
     stage("SELECT", "run")
     if force:
         want = {f.strip().lower().lstrip("nac.") for f in force if f.strip()}
@@ -185,7 +197,22 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
             sys.exit("none of the requested frames are in the sweep CSV")
         return picked
 
-    lit = [r for r in rows if emin <= r["elev"] <= emax and r["url"].lower().endswith(".img")]
+    # Emission angle matters as much as sun angle, and was previously ignored.
+    # cam2map projects onto a sphere, because spiceinit web=yes attaches no DEM,
+    # so terrain relief is not removed. A knoll of height dh displaces by
+    # dh*tan(emission): at 67 degrees a 20 m rise moves 48 m, which is 53 px. No
+    # rigid translation can register that against a near-nadir reference, and the
+    # co-registration closure is where it shows up. Costs almost nothing here:
+    # capping at 40 degrees leaves 15 frames over 158 degrees of azimuth instead
+    # of 16 over 153, because the alternates absorb it.
+    steep = [r for r in rows if r.get("emi") == r.get("emi") and r["emi"] > max_emission]
+    lit = [r for r in rows
+           if emin <= r["elev"] <= emax and r["url"].lower().endswith(".img")
+           and not (r.get("emi") == r.get("emi") and r["emi"] > max_emission)]
+    if steep:
+        print(f"  {len(steep)} frames dropped for emission above {max_emission:.0f} deg "
+              f"(unremoved relief parallax; worst "
+              f"{max(r['emi'] for r in steep):.0f} deg)")
     picked = []
     for b in range(n):
         lo, hi = b * 360.0 / n, (b + 1) * 360.0 / n
@@ -207,10 +234,10 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
         head = dict(cand[0])
         head["alternates"] = [dict(c) for c in cand[1:1 + max(0, alternates)]]
         picked.append(head)
-    print(f"{'pid':<22}{'sun az':>10}{'elev':>7}{'margin':>11}{'alts':>6}   url")
+    print(f"{'pid':<22}{'sun az':>9}{'elev':>7}{'emis':>7}{'margin':>10}{'alts':>6}   url")
     for r in picked:
-        print(f"{r['pid']:<22}{r['az']:>10.1f}{r['elev']:>7.2f}"
-              f"{r['margin']:>9.0f} m{len(r.get('alternates', [])):>6}   {r['url'][-48:]}")
+        print(f"{r['pid']:<22}{r['az']:>9.1f}{r['elev']:>7.2f}{r.get('emi', float('nan')):>7.1f}"
+              f"{r['margin']:>8.0f} m{len(r.get('alternates', [])):>6}   {r['url'][-42:]}")
     # What kinematics needs is azimuth SPREAD, not a full set of bins. Four frames
     # across 150 degrees is workable; ten frames inside 15 degrees is not. Gate on
     # the spread and the count, and say which one failed.
@@ -412,6 +439,11 @@ def cube_dims(cub: Path) -> tuple[int, int]:
     return ns, (nl if nl > 100 else 0)
 
 
+def _num(txt: str, key: str):
+    m = re.search(rf"^\s*{key}\s*=\s*\(?\s*([-\d.]+)", txt, re.M)
+    return float(m.group(1)) if m else None
+
+
 def campt_covers(cub: Path, lat: float, lon: float, base: str,
                  edge_px: float = 400.0) -> str:
     """Ask the camera model where the site falls on this frame's detector.
@@ -461,6 +493,25 @@ def campt_covers(cub: Path, lat: float, lon: float, base: str,
         stage("CAMPT", "skip", f"{base}: campt gave no Sample/Line; using the footprint")
         return "unknown"
     s, l = float(m.group(1)), float(n.group(1))
+
+    # The same campt call already knows the sun geometry, so save it. Without
+    # this the kinematics has to rebuild a level-1 cube from the EDR and re-run
+    # spiceinit for every frame purely to ask campt again, which re-hits the
+    # USGS kernel server that rate-limited this pipeline once already.
+    try:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from shadow_kinematics_real import sun_azimuth
+        sub_lat = _num(txt, "SubSolarLatitude")
+        sub_lon = _num(txt, "SubSolarLongitude")
+        inc = _num(txt, "Incidence")
+        if None not in (sub_lat, sub_lon, inc):
+            (SWEEP_DIR / f"{base}.geom.json").write_text(json.dumps(
+                {"az": sun_azimuth(lat, lon, sub_lat, sub_lon), "elev": 90.0 - inc,
+                 "incidence": inc, "sub_lat": sub_lat, "sub_lon": sub_lon,
+                 "sample": s, "line": l}, indent=1), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
     ns, nl = cube_dims(cub)
     # the correlation window is 400 map pixels wide, so the site needs that much
     # detector either side of it, not merely a sample number inside the array
@@ -679,6 +730,7 @@ def coregister(frames: list[dict], half: int = 1200) -> list[dict]:
                   f"reference ortho has only {room} px below the touchdown")
         print(f"  co-registration window: {2*h} px = {2*h*MAP_RES/1000:.2f} km "
               f"(the kinematics reads the same)")
+        USED["half"] = h
         refc = ref[rr - h:rr + h, rc_ - h:rc_ + h]
         rows = ["pid,shift_row_px,shift_col_px,residual_px,ncc,skimage_error,note"]
         # closure is filled in after every frame is measured, so the CSV is
@@ -926,6 +978,7 @@ def coregister(frames: list[dict], half: int = 1200) -> list[dict]:
                   f"  median closure {cmed:.1f} px. Every frame aligned to the reference\n"
                   f"  separately, and those alignments are mutually inconsistent, so at\n"
                   f"  least some of them found the wrong peak. Do not run kinematics.")
+        USED["gate"] = 1 if gate else 0
         return ok_fr
     except ImportError as e:
         stage("COREGISTER", "fail", f"missing python dep: {e}")
@@ -956,6 +1009,11 @@ def main() -> None:
     ap.add_argument("--no-sibling", action="store_true",
                     help="do not retry the other NAC channel when the site lands "
                          "just past the sample edge of the one selected")
+    ap.add_argument("--max-emission", type=float, default=40.0,
+                    help="reject frames viewed more obliquely than this. cam2map "
+                         "projects onto a sphere, so relief is not removed and a "
+                         "knoll displaces by dh*tan(emission): 53 px at 67 degrees. "
+                         "No rigid shift can register that.")
     ap.add_argument("--half", type=int, default=1200,
                     help="half-window in pixels for co-registration AND for the "
                          "kinematics, which reads it back from the manifest. One "
@@ -973,7 +1031,7 @@ def main() -> None:
     forced = [s for s in args.frames.split(",") if s.strip()]
     frames = select_frames(load_csv(args.min_margin_m), args.n, args.min_elev,
                            args.max_elev, args.target_elev, force=forced,
-                           alternates=args.alternates)
+                           alternates=args.alternates, max_emission=args.max_emission)
 
     isis_problems = check_isis_env()
     have_isis = not isis_problems
@@ -1059,10 +1117,10 @@ def main() -> None:
 
     stage("MANIFEST", "run")
     man = [{"pid": f["pid"], "az_deg": f["az"], "az_source": "sslon-model",
-            "half_px": args.half, "elev": f["elev"],
+            "half_px": USED.get("half", args.half), "elev": f["elev"],
             "lev2": str(f["lev2"]), "shift_px": f.get("shift"),
-            "residual_px": f.get("residual_px"), "closure_px": f.get("closure_px")}
-           for f in kept]
+            "residual_px": f.get("residual_px"), "closure_px": f.get("closure_px"),
+            "gate_pass": bool(USED.get("gate", 0))} for f in kept]
     (SWEEP_DIR / "manifest.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
     stage("MANIFEST", "ok", f"{len(kept)}/{len(frames)} frames -> data/sweep/manifest.json"
           + (f" ({len(done) - len(kept)} dropped for not closing)" if len(kept) < len(done) else ""))

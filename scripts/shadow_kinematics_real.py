@@ -437,6 +437,9 @@ def main() -> None:
     ap.add_argument("--elongation", type=float, default=1.8,
                     help="how much longer than wide, along the sun line, to count as a "
                          "cast shadow rather than a blob")
+    ap.add_argument("--ignore-gate", action="store_true",
+                    help="run even though the ingest's co-registration gate failed. "
+                         "The output is then not reportable.")
     ap.add_argument("--no-rebuild", action="store_true",
                     help="do not regenerate a level-1 cube to measure sun geometry")
     ap.add_argument("--trials", type=int, default=200,
@@ -448,6 +451,16 @@ def main() -> None:
     import athena_counterfactual as ac
     man = json.loads(MANIFEST.read_text())
     OUT.mkdir(parents=True, exist_ok=True)
+
+    # A failed gate used to write a manifest and exit 0 like any other run, so
+    # the science could be run on frames the pipeline itself had judged
+    # misaligned. Refuse unless told otherwise, in as many words.
+    gated = [e for e in man if "gate_pass" in e]
+    if gated and not any(e["gate_pass"] for e in gated) and not args.ignore_gate:
+        sys.exit(
+            "\nThis manifest comes from an ingest whose GATE FAILED: the frames are\n"
+            "not aligned well enough for shadow motion to mean anything.\n"
+            "Fix the ingest, or pass --ignore-gate and do not report the result.")
 
     # One window for the whole project. Co-registration measured its shift and
     # closure on this exact ground, so reading a different amount here would put

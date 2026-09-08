@@ -28,6 +28,7 @@ WANTED = [
     ("output/athena/*.md",         "written reports"),
     ("output/heatmap/*.png",       "heatmap figures"),
     ("data/sweep/coreg_report.csv", "co-registration error budget"),
+    ("data/sweep/*.geom.json",     "measured sun geometry per frame"),
     ("data/sweep/manifest.json",   "ingested sweep manifest"),
     ("data/sweep/plan.json",       "ingest dry-run plan"),
     ("paper/*.pdf",                "compiled documents"),

@@ -305,23 +305,31 @@ column -s, -t data/sweep/coreg_report.csv
 Each row is one frame with its measured shift, in pixels, against the reference
 orthophoto. Compute the median absolute shift:
 
+The run prints the verdict itself, as a `##STAGE GATE` line. Read that. If you want
+the numbers behind it:
+
 ```bash
 python3 - <<'PY'
 import csv, statistics
-rows=[r for r in csv.DictReader(open('data/sweep/coreg_report.csv')) if r['shift_row_px']]
-s=[ (float(r['shift_row_px'])**2 + float(r['shift_col_px'])**2)**0.5 for r in rows]
-print(f"{len(rows)} frames co-registered")
-print(f"median |shift| = {statistics.median(s):.2f} px   (gate: <= 1.00 px)")
-print(f"worst  |shift| = {max(s):.2f} px")
+rows=[r for r in csv.DictReader(open('data/sweep/coreg_report.csv')) if r['residual_px']]
+res=[float(r['residual_px']) for r in rows]
+raw=[(float(r['shift_row_px'])**2 + float(r['shift_col_px'])**2)**0.5 for r in rows]
+print(f"{len(rows)} frames measured")
+print(f"median residual = {statistics.median(res):.2f} px   <-- THE GATE, passes at <= 1.00")
+print(f"median |shift|  = {statistics.median(raw):.2f} px   (SPICE pointing error, NOT gated)")
 PY
 ```
 
-**Median at or below 1.00 px: the gate passes.** The shadow height estimates are
-trustworthy and the real-data kinematics run is on.
+**Gate on the residual, never on the shift.** They are different numbers and confusing
+them was a real mistake in this project. The shift is the spacecraft's own pointing
+error, routinely 30 to 70 px, and removing it is the entire purpose of co-registration;
+gating on it would fail every run that ever succeeded. The residual is what survives the
+correction, and that is what has to be sub-pixel. Closure, which asks whether the frames
+agree with each other, is the second condition and catches a clean-looking residual on a
+shift that is simply wrong.
 
-**Median above 1.00 px: stop and say so.** Do not run the science on top of it. A
-mislocated shadow base blurs the confidence peak and biases every height. That is a
-result worth reporting honestly, not a problem to work around.
+**If the GATE line says fail, stop.** The manifest records the failure and the kinematics
+refuses to run on it unless forced, at which point the output is not reportable.
 
 ---
 
