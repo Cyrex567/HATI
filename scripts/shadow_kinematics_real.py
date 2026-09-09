@@ -480,6 +480,11 @@ def bright_side(frames, cy, cx, reach, patch=2):
 
 # --------------------------------------------------------------- injection
 def inject_shadows(dn, boulders, az_map_deg, elev_deg, bg_win, darkness=0.25):
+    # darkness is the shadow floor as a fraction of local background. detect()
+    # fires below 0.50, and injecting at 0.25 makes every planted shadow twice
+    # as deep as the threshold needs, which is the single most optimistic
+    # assumption in the whole sensitivity claim. A real polar shadow carries
+    # scattered light from surrounding slopes and may sit at 0.45 to 0.60.
     """Darken the ground where boulders of known height would cast, in one frame.
 
     Injected into the IMAGE, before detection, so the recovery number measures
@@ -500,17 +505,27 @@ def inject_shadows(dn, boulders, az_map_deg, elev_deg, bg_win, darkness=0.25):
     srow, scol = -math.cos(ar), math.sin(ar)
     cot = 1.0 / math.tan(math.radians(elev_deg))
     H, W = out.shape
+    # Float, not boolean. A shadow narrower than a pixel covers only part of that
+    # pixel and darkens it only by that fraction; rounding its width up to a whole
+    # pixel makes a 0.5 m boulder three pixels wide and three times too dark. That
+    # rounding, together with the missing point spread, is what made sub-metre
+    # recovery look like 77%.
+    mask = np.zeros(out.shape, np.float64)
     for br, bc, h in boulders:
         length_px = h * cot / RES
-        half_w = max(0, int(round(0.5 * h / RES)))
+        # a lunar rock is roughly twice as wide as it is tall, so the shadow
+        # it throws is about 2h across, not h.
+        width_px = 2.0 * h / RES
+        half_w = max(0, int((width_px - 1.0) // 2)) if width_px > 1.0 else 0
+        amp = min(1.0, width_px)          # sub-pixel shadows fill part of a pixel
         for t in range(int(round(length_px)) + 1):
             r = int(round(br - t * srow))
             c = int(round(bc - t * scol))
             r0, r1 = max(0, r - half_w), min(H, r + half_w + 1)
             c0, c1 = max(0, c - half_w), min(W, c + half_w + 1)
             if r0 < r1 and c0 < c1:
-                out[r0:r1, c0:c1] = darkness * bg[r0:r1, c0:c1]
-    return out
+                np.maximum(mask[r0:r1, c0:c1], amp, out=mask[r0:r1, c0:c1])
+    return apply_psf(mask, out, bg, darkness)
 
 
 def inject_craters(dn, craters, az_map_deg, elev_deg, bg_win, darkness=0.25):
@@ -545,6 +560,22 @@ def inject_craters(dn, craters, az_map_deg, elev_deg, bg_win, darkness=0.25):
         shadow = inside & (along > rad - reach)
         sub = out[lo:hi, cl:ch]
         sub[shadow] = darkness * bg[lo:hi, cl:ch][shadow]
+
+        # The raised rim also throws a shadow OUTSIDE the crater, down-sun, and
+        # that is the part that makes a small crater mimic a boulder: a round
+        # interior blob alone is rejected by the elongation filter, but the blob
+        # plus a tail is elongated along the sun exactly like a cast shadow.
+        # Leaving it out is why craters scored 0% at every size, including the
+        # 2 to 5 m range where the survivors live.
+        rim_h = 0.04 * (2.0 * rad * RES)          # rim height above surroundings
+        tail = int(round(rim_h * cot / RES))
+        for t in range(1, max(1, tail) + 1):
+            for w in range(-rad, rad + 1):
+                pr = r0 - t * srow + w * (-scol)
+                pc = c0 - t * scol + w * srow
+                ri, ci = int(round(pr)), int(round(pc))
+                if 0 <= ri < H and 0 <= ci < W:
+                    out[ri, ci] = darkness * bg[ri, ci]
     return out
 
 
@@ -578,6 +609,57 @@ def inject_ridges(dn, ridges, az_map_deg, elev_deg, bg_win, darkness=0.25):
     return out
 
 
+def apply_psf(mask, dn, bg, darkness, psf_px=1.2):
+    """Lay a shadow into an image the way an optical system would deliver it.
+
+    This is the assumption that carries the whole sensitivity claim, and it was
+    being made without justification. A hard-edged shadow stamped at 0.25 of
+    local background is deeper and sharper than anything the camera can produce.
+    Real imagery is convolved with a point spread function, so a shadow ONE pixel
+    wide never reaches its own floor: it is filled in by light from the lit ground
+    on either side. A large crater shadow does reach the floor, a sub-metre
+    boulder shadow does not, and that difference is exactly the regime this
+    detector claims to work in.
+
+    Blurring the shadow mask before applying it reproduces that dilution for free,
+    and it scales correctly with width: wide shadows keep their depth, one-pixel
+    shadows lose most of it.
+    """
+    from scipy import ndimage as ndi
+    soft = ndi.gaussian_filter(np.asarray(mask, np.float64), psf_px / 2.3548)
+    soft = np.clip(soft, 0.0, 1.0)
+    return dn * (1.0 - soft) + (darkness * bg) * soft
+
+
+def measured_darkness(frames, bg_win) -> float:
+    """How dark a real shadow actually is here, as a fraction of local background.
+
+    This is the most consequential number in the sensitivity claim and it was
+    being assumed rather than measured. detect() fires below 0.50 of local
+    background; injecting at 0.25 makes every planted shadow twice as deep as the
+    threshold needs, so it is always found. A real polar shadow is filled by light
+    scattered from surrounding slopes and sits much closer to the threshold, and
+    if it sits above it, the true recovery is far below what injection reports.
+
+    Measured as the median of the darkest 5% of pixels over local background,
+    across all frames, which is where a genuine shadow floor lives.
+    """
+    from scipy import ndimage as ndi
+    vals = []
+    for f in frames:
+        dn = f["dn"]
+        good = np.isfinite(dn)
+        if good.sum() < 1000:
+            continue
+        bg = ndi.uniform_filter(np.where(good, dn, np.nanmedian(dn)), bg_win)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ratio = np.where(good & (bg > 0), dn / bg, np.nan)
+        r = ratio[np.isfinite(ratio)]
+        if r.size:
+            vals.append(float(np.percentile(r, 2.5)))
+    return float(np.median(vals)) if vals else 0.25
+
+
 def _run_injected(frames, shape, args, render):
     """Detect and accumulate over frames with something rendered into them."""
     inj = []
@@ -602,11 +684,13 @@ def hits_near(ev, targets, k, tol) -> int:
     return n
 
 
-def recovery(frames, shape, boulders, args, k: int, tol: float) -> float:
+def recovery(frames, shape, boulders, args, k: int, tol: float,
+             darkness: float = 0.25) -> float:
     """Fraction of planted boulders the detector finds, on the real imagery."""
     inj = []
     for f in frames:
-        d = inject_shadows(f["dn"], boulders, f["az_map"], f["elev"], args.bg_win)
+        d = inject_shadows(f["dn"], boulders, f["az_map"], f["elev"], args.bg_win,
+                           darkness)
         inj.append({"mask": detect(d, args.shadow_frac, args.bg_win, args.min_area),
                     "az_map": f["az_map"], "elev": f["elev"]})
     _, ev, _, _, _ = accumulate(inj, shape, args.min_area, args.elongation,
@@ -867,13 +951,22 @@ def main() -> None:
         tol = 3.0 + args.vote_radius
         pos = np.column_stack([rr.integers(m, H - m, args.inject),
                                rr.integers(m, W - m, args.inject)])
-        print(f"  {'planted':>24}{'shadow at 3 deg':>18}{'called a caster':>18}")
+        dk = measured_darkness(frames, args.bg_win)
+        print(f"  Real shadow floor measured from these frames: {dk:.2f} of local")
+        print(f"  background. detect() fires below {args.shadow_frac:.2f}. Recovery is")
+        print("  reported at an optimistic 0.25 and at the measured value, because the")
+        print("  gap between them is how much the sensitivity claim is assumption.\n")
+        levels = sorted({0.25, round(dk, 2)})
+        hdr = "".join(f"{('at ' + format(v, '.2f')):>12}" for v in levels)
+        print(f"  {'planted':>24}{'shadow at 3 deg':>18}{hdr}")
         for h in [float(x) for x in args.inject_heights.split(",") if x.strip()]:
             b = [(int(p[0]), int(p[1]), h) for p in pos]
-            frac = recovery(frames, shape, b, args, kk, tol=tol)
+            cells = ""
+            for v in levels:
+                frac = recovery(frames, shape, b, args, kk, tol=tol, darkness=v)
+                cells += f"{100 * frac:>11.0f}%"
             lbl = f"boulder {h:.1f} m"
-            print(f"  {lbl:>24}{h / math.tan(math.radians(3.0)):>15.1f} m"
-                  f"{100 * frac:>17.0f}%")
+            print(f"  {lbl:>24}{h / math.tan(math.radians(3.0)):>15.1f} m{cells}")
 
         # The negative half. Positive injection alone is not a result: a detector
         # that fires on everything scores 100% recovery. Craters and ridges are

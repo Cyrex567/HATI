@@ -169,9 +169,14 @@ def main() -> None:
 
     planted = [(int(r), int(c), 0.5)
                for r, c in rng2.integers(110, 290, (25, 2))]
+    # A regression test that the machinery works, NOT a sensitivity claim. This
+    # scene is textured and includes a frame at cot(e) = 45.8, where a half-metre
+    # boulder casts 25 px. On flat ground at cot(e) = 14 the same boulder is
+    # fragmented below min_area and missed entirely. Real recovery is scene and
+    # elevation dependent and only the run on real frames can measure it.
     frac = K.recovery(real, (400, 400), planted, _A, k=3, tol=8.0)
-    check("half-metre boulders injected into the imagery are recovered",
-          frac >= 0.8, f"{100 * frac:.0f}% of {len(planted)}")
+    check("the injection-and-recovery chain runs end to end",
+          frac >= 0.8, f"{100 * frac:.0f}% of {len(planted)} on a favourable scene")
 
     # the agreement threshold must not get stricter as the sweep grows
     ev = np.zeros((50, 50), np.float32)
