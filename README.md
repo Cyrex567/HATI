@@ -1,4 +1,17 @@
-# HATI v1.5: Asymmetric Split-Segment Architecture for Lunar Hazard Detection
+# HATI v2.5 lunar polar hazard sensing
+
+The current scientific path combines deterministic DEM descriptors with an experimental multi-illumination shadow-root likelihood search. It uses no trained model weights. The target is subpixel relief sensing poleward of 70 degrees; lunar detection performance and landing clearance remain unvalidated.
+
+- [Scientific release assessment](Documents/V25_RELEASE.md)
+- [Adversarial audit and reproduced defects](Documents/AUDIT_2026-09-09.md)
+- [WSL ingestion and pilot runbook](Documents/WSL_AUDIT_RUN.md)
+- [Branded technical report](Documents/HATI_v25_Scientific_Audit_and_Release.docx)
+
+Install with `python -m pip install -r requirements-science.txt`. The root-search adapter reads audited products and never invokes ISIS itself. Actual ingestion belongs on the Linux/WSL host.
+
+The v1.5 and early v2.0 material below is project history. Its learned-model architecture, ten-channel fusion, probabilities and performance claims do not describe or validate the current scientific path.
+
+## Historical v1.5 architecture
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Models%20%26%20Data-blue)](https://huggingface.co/Cyrex567/HATI-Lunar-Models)
@@ -119,4 +132,3 @@ present; on CPU it still runs but expect ~30–60 min for the Titan survey.
 The last cell synthesizes a hazard map and runs a 5-mission LM-7 campaign
 in a few seconds. Use it to confirm your environment without the multi-GB
 DEM.
-

@@ -1,0 +1,617 @@
+{
+  "purpose": "Synthetic stress characterization only; no external ground truth",
+  "seeds": [
+    900,
+    901,
+    902,
+    903,
+    904,
+    905,
+    906,
+    907,
+    908,
+    909,
+    910,
+    911
+  ],
+  "config_hash": "dfaaaa77da62e865",
+  "assumptions": "56x56 pixels at 0.9 m; 7 azimuths spanning 310 degrees; independent tapered caster; anisotropic PSF; partly correlated noise",
+  "matching": "Highest ranked root within 2 pixels of (27.3,28.2); no score cutoff",
+  "scenarios": {
+    "static_albedo": {
+      "settings": {
+        "static": true
+      },
+      "trials": [
+        {
+          "seed": 900,
+          "top_score": 3.77978121763262,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 901,
+          "top_score": 3.670132331549503,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 902,
+          "top_score": 3.5202533346092895,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 903,
+          "top_score": 4.726796881447622,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 904,
+          "top_score": 4.632841512811032,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 905,
+          "top_score": 3.905078789017526,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 906,
+          "top_score": 4.280887378922396,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 907,
+          "top_score": 3.823471008543078,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 908,
+          "top_score": 5.859620691205594,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 909,
+          "top_score": 4.369800107919022,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 910,
+          "top_score": 4.68758561954812,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 911,
+          "top_score": 4.397899293877669,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        }
+      ],
+      "median_top_score": 4.325343743420708,
+      "localized_count": null
+    },
+    "subpixel_caster": {
+      "settings": {
+        "height": 0.3,
+        "width": 0.6
+      },
+      "trials": [
+        {
+          "seed": 900,
+          "top_score": 80.71107660545488,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 901,
+          "top_score": 80.69995485830619,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 902,
+          "top_score": 82.93385960460077,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 903,
+          "top_score": 80.30761891996491,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 904,
+          "top_score": 78.21733925094381,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 905,
+          "top_score": 81.16648198908783,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 906,
+          "top_score": 80.15668884670447,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 907,
+          "top_score": 80.03925883951986,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 908,
+          "top_score": 80.02516547096648,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 909,
+          "top_score": 79.36779622006364,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 910,
+          "top_score": 80.00359087603839,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 911,
+          "top_score": 81.2761457302976,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        }
+      ],
+      "median_top_score": 80.23215388333469,
+      "localized_count": 12
+    },
+    "metre_caster": {
+      "settings": {
+        "height": 1.0,
+        "width": 1.8
+      },
+      "trials": [
+        {
+          "seed": 900,
+          "top_score": 298.89820363080776,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": false
+        },
+        {
+          "seed": 901,
+          "top_score": 299.7170179087664,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 902,
+          "top_score": 302.75526645560075,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 903,
+          "top_score": 298.9740599635364,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": false
+        },
+        {
+          "seed": 904,
+          "top_score": 297.65865508068055,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 905,
+          "top_score": 299.6181924479828,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 906,
+          "top_score": 298.7740349319511,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 907,
+          "top_score": 298.88642410740067,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": false
+        },
+        {
+          "seed": 908,
+          "top_score": 298.1822119611057,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 909,
+          "top_score": 298.0135331786637,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 910,
+          "top_score": 298.87078719373517,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 911,
+          "top_score": 298.89873451691903,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        }
+      ],
+      "median_top_score": 298.8923138691042,
+      "localized_count": 12
+    },
+    "static_albedo_jitter": {
+      "settings": {
+        "static": true,
+        "jitter": 0.25
+      },
+      "trials": [
+        {
+          "seed": 900,
+          "top_score": 22.071088238992097,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 901,
+          "top_score": 4.1711128925944605,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 902,
+          "top_score": 26.004312658377582,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 903,
+          "top_score": 9.11293099388382,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 904,
+          "top_score": 19.91776771626436,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 905,
+          "top_score": 29.597917053131223,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 906,
+          "top_score": 19.835017281776896,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 907,
+          "top_score": 27.423327380684857,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 908,
+          "top_score": 22.75354917357935,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 909,
+          "top_score": 12.200626141199717,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 910,
+          "top_score": 16.460300254510752,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        },
+        {
+          "seed": 911,
+          "top_score": 15.582808629099082,
+          "localization_error_px": null,
+          "root_localized": null,
+          "search_truncated": true
+        }
+      ],
+      "median_top_score": 19.87639249902063,
+      "localized_count": null
+    },
+    "subpixel_caster_jitter": {
+      "settings": {
+        "height": 0.3,
+        "width": 0.6,
+        "jitter": 0.25
+      },
+      "trials": [
+        {
+          "seed": 900,
+          "top_score": 67.74234962243783,
+          "localization_error_px": 0.3605551275463991,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 901,
+          "top_score": 69.88373596734263,
+          "localization_error_px": 0.3605551275463991,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 902,
+          "top_score": 69.02442757824222,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 903,
+          "top_score": 71.66216719189345,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 904,
+          "top_score": 71.77782228761136,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 905,
+          "top_score": 71.0757669011387,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 906,
+          "top_score": 72.06569988856891,
+          "localization_error_px": 0.3605551275463991,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 907,
+          "top_score": 74.03348574842971,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 908,
+          "top_score": 69.29226935483645,
+          "localization_error_px": 0.3605551275463991,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 909,
+          "top_score": 69.06950769154109,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 910,
+          "top_score": 72.16451821425537,
+          "localization_error_px": 0.3605551275463991,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 911,
+          "top_score": 71.91812870073905,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        }
+      ],
+      "median_top_score": 71.36896704651608,
+      "localized_count": 12
+    },
+    "subpixel_caster_high_noise": {
+      "settings": {
+        "height": 0.3,
+        "width": 0.6,
+        "noise": 0.04
+      },
+      "trials": [
+        {
+          "seed": 900,
+          "top_score": 24.745189357111865,
+          "localization_error_px": 0.3605551275463991,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 901,
+          "top_score": 24.519709180643567,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 902,
+          "top_score": 26.753613926938154,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 903,
+          "top_score": 24.127373242302287,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 904,
+          "top_score": 22.185240282952606,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 905,
+          "top_score": 24.986236311425206,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 906,
+          "top_score": 23.97644316904187,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 907,
+          "top_score": 23.85901316185721,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 908,
+          "top_score": 23.844919793303866,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 909,
+          "top_score": 23.187550542401024,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 910,
+          "top_score": 23.823345198375783,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        },
+        {
+          "seed": 911,
+          "top_score": 25.095900052634978,
+          "localization_error_px": 0.282842712474618,
+          "root_localized": true,
+          "search_truncated": true
+        }
+      ],
+      "median_top_score": 24.051908205672078,
+      "localized_count": 12
+    }
+  },
+  "gaussian_null_smoke": {
+    "model": "Independent Gaussian noise with fixed known frame sigma and fixed mask",
+    "scope": "Global no-moving-shadow null; complete search rerun; not field calibration",
+    "trials": 19,
+    "seed": 12002,
+    "null_max_scores": [
+      2.4861549225160005,
+      0.7672651139721278,
+      2.343130964209311,
+      1.5032423703127635,
+      4.003231576797755,
+      2.6040246809157983,
+      2.5871354287993364,
+      1.4097619474501168,
+      1.3609517337319792,
+      1.3926865406531768,
+      3.058021151308675,
+      2.4072895412419233,
+      1.8715194844120735,
+      2.054624042010557,
+      1.1981553081988052,
+      1.9196606632290185,
+      2.0355478132769136,
+      1.3646419954003162,
+      1.5974355414239876
+    ],
+    "observed_max_score": 2.4656685309750626,
+    "global_p": 0.3,
+    "minimum_attainable_p": 0.05
+  }
+}

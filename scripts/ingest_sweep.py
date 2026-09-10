@@ -23,6 +23,7 @@ nothing. Pass --execute to actually run (GPU box). ISIS3 must be on PATH
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -31,11 +32,13 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
+from sweep_contract import DEFAULT_BEFORE, PROCESSING_VERSION, predates, utc_time
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output" / "athena"
 SWEEP_DIR = ROOT / "data" / "sweep"
-ISIS_BIN = ["lronac2isis", "spiceinit", "lronaccal", "cam2map"]
+ISIS_BIN = ["lronac2isis", "spiceinit", "campt", "getkey", "catlab",
+            "lronaccal", "lronacecho", "cam2map"]
 ALL_BY_PID: dict[str, dict] = {}      # every frame in the sweep CSV, filtered or not
 
 USED: dict[str, int] = {}         # what coregister actually used, for the manifest
@@ -101,7 +104,8 @@ def stage(name: str, state: str, detail: str = "") -> None:
     print(f"##STAGE {name} {state} {detail}".rstrip(), flush=True)
 
 
-def load_csv(min_margin_m: float = 600.0) -> list[dict]:
+def load_csv(min_margin_m: float = 600.0, before: str = DEFAULT_BEFORE,
+             catalog: Path | None = None) -> list[dict]:
     """Read the sweep CSV, keeping only frames that really image the touchdown.
 
     ODE's spatial query filters on the footprint BOUNDING BOX, which for a long
@@ -119,13 +123,18 @@ def load_csv(min_margin_m: float = 600.0) -> list[dict]:
     site is still useless.
     """
     import csv as _csv
-    csvs = sorted(OUT.glob("solar_sweep_*.csv"))
+    utc_time(before)
+    csvs = [catalog] if catalog else sorted(OUT.glob("solar_sweep_*.csv"))
     if not csvs:
         sys.exit("no solar_sweep CSV in output/athena -- run solar_sweep_query.py first")
+    if len(csvs) != 1:
+        sys.exit("multiple sweep catalogues found; specify --catalog explicitly")
     rows, missed, clipped, legacy = [], 0, 0, False
     ALL_BY_PID.clear()
     with open(csvs[-1], encoding="utf-8", errors="replace") as fh:
         for d in _csv.DictReader(fh):
+            if not predates(d.get("utc", ""), before):
+                continue  # also exclude from sibling lookup and forced selections
             # Keep an unfiltered index too. A frame rejected on its own footprint
             # can still be the sibling channel that rescues its partner, and the
             # footprint is per-product while the two optics share a swath.
@@ -197,9 +206,9 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
             sys.exit("none of the requested frames are in the sweep CSV")
         return picked
 
-    # Emission angle matters as much as sun angle, and was previously ignored.
-    # cam2map projects onto a sphere, because spiceinit web=yes attaches no DEM,
-    # so terrain relief is not removed. A knoll of height dh displaces by
+    # Selection heuristic for residual relief: inspect Kernels/ShapeModel to
+    # establish the camera's actual shape surface. Spherical map coordinates do
+    # not imply spherical ray intersections. Unmodelled relief dh displaces by
     # dh*tan(emission): at 67 degrees a 20 m rise moves 48 m, which is 53 px. No
     # rigid translation can register that against a near-nadir reference, and the
     # co-registration closure is where it shows up. Costs almost nothing here:
@@ -208,7 +217,8 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
     steep = [r for r in rows if r.get("emi") == r.get("emi") and r["emi"] > max_emission]
     lit = [r for r in rows
            if emin <= r["elev"] <= emax and r["url"].lower().endswith(".img")
-           and not (r.get("emi") == r.get("emi") and r["emi"] > max_emission)]
+            and math.isfinite(r.get("emi", float("nan")))
+            and 0 <= r["emi"] <= max_emission]
     if steep:
         print(f"  {len(steep)} frames dropped for emission above {max_emission:.0f} deg "
               f"(unremoved relief parallax; worst "
@@ -242,6 +252,8 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
     # across 150 degrees is workable; ten frames inside 15 degrees is not. Gate on
     # the spread and the count, and say which one failed.
     azs = sorted(r["az"] % 360 for r in picked)
+    if not azs:
+        sys.exit("no eligible frames after illumination, date and emission gates")
     span = (max(azs) - min(azs)) if len(azs) > 1 else 0.0
     gaps = [(azs[i + 1] - azs[i]) for i in range(len(azs) - 1)] + [360 - (azs[-1] - azs[0])]
     span = 360 - max(gaps)            # spread of the arc the frames actually occupy
@@ -261,13 +273,24 @@ def select_frames(rows: list[dict], n: int, emin: float, emax: float, target: fl
 def download(fr: dict, dest: Path) -> bool:
     f = dest / (fr["pid"].split(".")[-1].upper() + ".IMG")
     fr["img"] = f
-    if f.exists() and f.stat().st_size > 10_000_000:
+    def complete(path):
+        if not path.exists() or path.stat().st_size <= 0:
+            return False
+        with path.open("rb") as src:
+            header = src.read(65536).decode("ascii", "replace")
+        records = re.search(r"^\s*FILE_RECORDS\s*=\s*(\d+)", header, re.M)
+        size = re.search(r"^\s*RECORD_BYTES\s*=\s*(\d+)", header, re.M)
+        return bool(records and size and path.stat().st_size ==
+                    int(records[1]) * int(size[1]))
+    if complete(f):
         stage("DOWNLOAD", "ok", f"{f.name} cached ({f.stat().st_size/1e6:.0f} MB)")
         return True
     stage("DOWNLOAD", "run", f.name)
     try:
         req = urllib.request.Request(fr["url"], headers={"User-Agent": "HATI-ingest/1.0"})
-        with urllib.request.urlopen(req, timeout=300) as r, open(f, "wb") as fh:
+        part = f.with_suffix(".IMG.part")
+        with urllib.request.urlopen(req, timeout=300) as r, open(part, "wb") as fh:
+            expected = r.headers.get("Content-Length")
             got = 0
             while True:
                 b = r.read(1 << 22)
@@ -276,6 +299,11 @@ def download(fr: dict, dest: Path) -> bool:
                 fh.write(b); got += len(b)
                 if got % (1 << 26) < (1 << 22):
                     print(f"   ... {got/1e6:.0f} MB", flush=True)
+        if expected is not None and got != int(expected):
+            raise ValueError(f"truncated download: {got} of {expected} bytes")
+        if not complete(part):
+            raise ValueError("download does not match its PDS FILE_RECORDS/RECORD_BYTES")
+        part.replace(f)
         stage("DOWNLOAD", "ok", f"{f.name} ({got/1e6:.0f} MB)")
         return True
     except Exception as e:  # noqa: BLE001
@@ -445,7 +473,7 @@ def _num(txt: str, key: str):
 
 
 def campt_covers(cub: Path, lat: float, lon: float, base: str,
-                 edge_px: float = 400.0) -> str:
+                 edge_px: float = 400.0, max_emission: float = 40.0) -> str:
     """Ask the camera model where the site falls on this frame's detector.
 
     The ODE footprint is an index product: a coarse polygon, good enough to
@@ -493,6 +521,12 @@ def campt_covers(cub: Path, lat: float, lon: float, base: str,
         stage("CAMPT", "skip", f"{base}: campt gave no Sample/Line; using the footprint")
         return "unknown"
     s, l = float(m.group(1)), float(n.group(1))
+    emission, incidence = _num(txt, "Emission"), _num(txt, "Incidence")
+    if (emission is None or not 0 <= emission <= max_emission or
+            incidence is None or not 0 <= incidence < 90):
+        stage("CAMPT", "fail", f"{base}: invalid site geometry: "
+              f"emission={emission}, incidence={incidence}")
+        return "geometry_rejected"
 
     # The same campt call already knows the sun geometry, so save it. Without
     # this the kinematics has to rebuild a level-1 cube from the EDR and re-run
@@ -507,7 +541,9 @@ def campt_covers(cub: Path, lat: float, lon: float, base: str,
         if None not in (sub_lat, sub_lon, inc):
             (SWEEP_DIR / f"{base}.geom.json").write_text(json.dumps(
                 {"az": sun_azimuth(lat, lon, sub_lat, sub_lon), "elev": 90.0 - inc,
-                 "incidence": inc, "sub_lat": sub_lat, "sub_lon": sub_lon,
+                  "incidence": inc, "sub_lat": sub_lat, "sub_lon": sub_lon,
+                  "site_lat": lat, "site_lon": lon, "emission": emission,
+                  "processing_version": PROCESSING_VERSION,
                  "sample": s, "line": l}, indent=1), encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
@@ -567,32 +603,48 @@ def sibling_record(fr: dict, sib: str) -> dict:
 
 
 def process_frame(fr: dict, workdir: Path, mapfile: Path,
-                  skip_campt: bool = False) -> bool:
+                  skip_campt: bool = False, max_emission: float = 40.0,
+                  rebuild: bool = False) -> bool:
     base = fr["img"].stem
     cub, cal, prj = (workdir / f"{base}.cub", workdir / f"{base}.cal.cub",
                      workdir / f"{base}.lev2.cub")
     fr["lev2"] = prj
+    echo = workdir / f"{base}.echo.cub"
+    provenance = workdir / f"{base}.processing.json"
+    labels = workdir / f"{base}.isis-label.pvl"
+    contract = {"version": PROCESSING_VERSION,
+                "map_sha256": hashlib.sha256(mapfile.read_bytes()).hexdigest(),
+                "source_url": fr["url"], "utc": fr["utc"],
+                "max_emission": max_emission, "skip_campt": skip_campt}
+    try:
+        cached = json.loads(provenance.read_text())
+    except (OSError, ValueError):
+        cached = {}
     if prj.exists():
         # A cached cube skips campt, because the level-1 cube it needs is deleted
         # once the projection succeeds. That is how three known-empty products
         # survived a re-run untouched. Check the projection itself instead: if it
         # holds no data at the site, throw it away and rebuild from the EDR, which
         # is still on disk, so this costs ISIS time and no download.
-        if lev2_has_site(prj) is False:
-            print(f"   cached {prj.name} has no data at the touchdown; rebuilding it",
+        if (rebuild or cached != contract or not labels.exists()
+                or lev2_has_site(prj) is not True):
+            print(f"   rebuilding {prj.name}: requested, stale contract, or invalid coverage",
                   flush=True)
             prj.unlink(missing_ok=True)
         else:
-            for s in ("LRONAC2ISIS", "SPICEINIT", "LRONACCAL", "CAM2MAP"):
+            for s in ("LRONAC2ISIS", "SPICEINIT", "LRONACCAL", "LRONACECHO", "CAM2MAP"):
                 stage(s, "ok", f"{base} cached")
             return True
+    # A failed rebuild must not retain an earlier success marker for a partial cube.
+    provenance.unlink(missing_ok=True)
     early = [
         ("LRONAC2ISIS", ["lronac2isis", f"from={fr['img']}", f"to={cub}"]),
         ("SPICEINIT",   ["spiceinit", f"from={cub}", "web=yes"]),
     ]
     late = [
         ("LRONACCAL",   ["lronaccal", f"from={cub}", f"to={cal}"]),
-        ("CAM2MAP",     ["cam2map", f"from={cal}", f"map={mapfile}", f"to={prj}",
+        ("LRONACECHO",  ["lronacecho", f"from={cal}", f"to={echo}"]),
+        ("CAM2MAP",     ["cam2map", f"from={echo}", f"map={mapfile}", f"to={prj}",
                          "pixres=map", "defaultrange=map"]),
     ]
     for name, cmd in early:
@@ -606,11 +658,17 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path,
     if not skip_campt:
         sys.path.insert(0, str(ROOT / "scripts"))
         import athena_counterfactual as ac
-        verdict = campt_covers(cub, ac.TD_LAT, ac.TD_LON, base)
+        verdict = campt_covers(cub, ac.TD_LAT, ac.TD_LON, base,
+                               max_emission=max_emission)
         fr["campt"] = verdict
-        if verdict in ("off_sample", "off_line"):
+        if verdict != "inside":
             cub.unlink(missing_ok=True)
             return False
+
+    ok, tail = isis(["catlab", f"from={cub}", f"to={labels}", "append=false"])
+    if not ok or not labels.exists():
+        fr["fail"] = ("CATLAB", tail)
+        return False
 
     for name, cmd in late:
         stage(name, "run", base)
@@ -619,7 +677,9 @@ def process_frame(fr: dict, workdir: Path, mapfile: Path,
         if not ok:
             fr["fail"] = (name, tail)
             return False
-    cub.unlink(missing_ok=True); cal.unlink(missing_ok=True)   # keep only lev2
+    provenance.write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    cub.unlink(missing_ok=True); cal.unlink(missing_ok=True)
+    echo.unlink(missing_ok=True)  # keep projected cube plus measured geometry/labels
     return True
 
 
@@ -652,11 +712,14 @@ def bounded_shift(ref, mov, max_px, pcc, nd_shift, np, upsample=10):
     yy, xx = np.ogrid[:ny, :nx]
     cc[(yy - cy) ** 2 + (xx - cx) ** 2 > max_px * max_px] = -np.inf
     py, px = np.unravel_index(int(np.argmax(cc)), cc.shape)
-    coarse = (cy - py, cx - px)
+    coarse = (py - cy, px - cx)  # correlation lag is the shift to APPLY
     at_edge = math.hypot(*coarse) > 0.95 * max_px
     fine, err, _ = pcc(ref, nd_shift(mov, coarse, order=1, mode="nearest"),
                        upsample_factor=upsample, normalization=None)
-    return (np.array([coarse[0] + fine[0], coarse[1] + fine[1]]), err, at_edge)
+    total = np.asarray(coarse) + fine
+    if not np.isfinite(total).all() or np.linalg.norm(fine) > 2.0 or np.linalg.norm(total) > max_px:
+        raise ValueError("subpixel refinement left the bounded correlation peak")
+    return total, err, at_edge
 
 
 def where_is_the_data(fr: dict, np, rasterio, ac) -> str:
@@ -715,6 +778,7 @@ def coregister(frames: list[dict], half: int = 1200,
     """Phase-correlation shift of each projected cube vs the reference ortho.
     This CSV is the co-registration error budget the kinematics claim rests on."""
     stage("COREGISTER", "run")
+    USED.clear()
     try:
         import numpy as np
         import rasterio
@@ -824,8 +888,11 @@ def coregister(frames: list[dict], half: int = 1200,
                 #
                 # Mean-subtract first: unnormalised correlation is otherwise dominated
                 # by the DC term, and NAC DN values sit well above zero.
-                r0f = refc.astype("float64")
-                r0f = r0f - np.nanmean(r0f)
+                ref_valid = np.isfinite(refc) & (refc > 2) & (refc < 65534)
+                if ref_valid.sum() < .5 * refc.size:
+                    raise ValueError("reference window is mostly missing/saturated")
+                r0f = np.where(ref_valid, refc, np.mean(refc[ref_valid])).astype("float64")
+                r0f = r0f - np.mean(r0f)
                 filled = filled - np.nanmean(filled)
                 sh, err, at_edge = bounded_shift(r0f, filled, max_shift,
                                                  phase_cross_correlation,
@@ -853,7 +920,8 @@ def coregister(frames: list[dict], half: int = 1200,
                 sh2, _, _ = phase_cross_correlation(r0f, aligned, upsample_factor=20,
                                                     normalization=None)
                 resid = float(np.hypot(sh2[0], sh2[1]))
-                m = np.isfinite(r0f) & np.isfinite(aligned)
+                m = ref_valid & (nd_shift(finite.astype(float), sh, order=0,
+                                         mode="constant", cval=0) > .5)
                 if m.sum() > 100:
                     a, b = r0f[m], aligned[m]
                     sa, sb = a.std(), b.std()
@@ -999,8 +1067,11 @@ def coregister(frames: list[dict], half: int = 1200,
         # harder than aligning either to the reference, so it is held to a looser
         # bound than the residual rather than to the same one.
         res_ok = med <= 1.0
-        clo_ok = (not clo) or (cmed <= 8.0)
-        gate = res_ok and clo_ok
+        clo_ok = bool(clo) and math.isfinite(cmed) and cmed <= 8.0
+        gate = len(ok_fr) >= 3 and res_ok and clo_ok
+        (SWEEP_DIR / "closure_report.json").write_text(json.dumps([
+            {"a": a["pid"], "b": b["pid"], "closure_px": e, "az_separation_deg": az}
+            for e, az, a, b in clo], indent=2), encoding="utf-8")
         stage("GATE", "ok" if gate else "fail",
               f"median residual {med:.2f} px, closure {cmed:.2f} px over "
               f"{len(ok_fr)} frames")
@@ -1032,6 +1103,9 @@ def coregister(frames: list[dict], half: int = 1200,
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=10, help="azimuth bins / frames to ingest")
+    ap.add_argument("--before", default=DEFAULT_BEFORE, help="exclusive UTC acquisition cutoff")
+    ap.add_argument("--catalog", type=Path, help="explicit solar_sweep CSV")
+    ap.add_argument("--rebuild", action="store_true", help="reprocess cached EDRs through ISIS")
     ap.add_argument("--min-elev", type=float, default=1.5)
     ap.add_argument("--max-elev", type=float, default=7.5)
     ap.add_argument("--target-elev", type=float, default=5.0)
@@ -1077,7 +1151,7 @@ def main() -> None:
 
     SWEEP_DIR.mkdir(parents=True, exist_ok=True)
     forced = [s for s in args.frames.split(",") if s.strip()]
-    frames = select_frames(load_csv(args.min_margin_m), args.n, args.min_elev,
+    frames = select_frames(load_csv(args.min_margin_m, args.before, args.catalog), args.n, args.min_elev,
                            args.max_elev, args.target_elev, force=forced,
                            alternates=args.alternates, max_emission=args.max_emission)
 
@@ -1126,7 +1200,8 @@ def main() -> None:
                       f"trying {key}", flush=True)
             if not download(f, SWEEP_DIR):
                 break                      # a dead download is not a coverage problem
-            if process_frame(f, SWEEP_DIR, mapfile, skip_campt=args.no_campt):
+            if process_frame(f, SWEEP_DIR, mapfile, skip_campt=args.no_campt,
+                             max_emission=args.max_emission, rebuild=args.rebuild):
                 done.append(f)
                 break
             # Only a campt verdict justifies spending another quarter-gigabyte on the
@@ -1165,13 +1240,18 @@ def main() -> None:
 
     stage("MANIFEST", "run")
     man = [{"pid": f["pid"], "az_deg": f["az"], "az_source": "sslon-model",
+            "utc": f["utc"], "before": args.before, "source_url": f["url"],
+            "processing_version": PROCESSING_VERSION,
+            "isis_labels": str(SWEEP_DIR / (f["img"].stem + ".isis-label.pvl")),
             "half_px": USED.get("half", args.half), "elev": f["elev"],
             "lev2": str(f["lev2"]), "shift_px": f.get("shift"),
             "residual_px": f.get("residual_px"), "closure_px": f.get("closure_px"),
-            "gate_pass": bool(USED.get("gate", 0))} for f in kept]
+            "gate_pass": bool(USED.get("gate", 0)) and not args.no_campt} for f in kept]
     (SWEEP_DIR / "manifest.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
     stage("MANIFEST", "ok", f"{len(kept)}/{len(frames)} frames -> data/sweep/manifest.json"
           + (f" ({len(done) - len(kept)} dropped for not closing)" if len(kept) < len(done) else ""))
+    if not kept or not all(e["gate_pass"] for e in man):
+        sys.exit("ingest gate failed; manifest saved for diagnosis only")
     print("\nNEXT: the ##STAGE GATE line above is the verdict (median RESIDUAL <= 1 px, not "
           "the raw shift); coreg_report.csv holds the per-frame numbers behind it. Then run "
           "the real-data kinematics adapter on manifest.json.")

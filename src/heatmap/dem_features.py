@@ -216,6 +216,8 @@ def terrain_ruggedness_index(dem: np.ndarray, window_px: int = 3) -> np.ndarray:
     Wang 2024). Implemented by edge-padding and slicing rather than eight
     ``ndi.shift`` calls -- same result, a fraction of the cost.
     """
+    if window_px != 3:
+        raise ValueError("legacy TRI uses exactly the eight immediate neighbours; use tri_at_baseline")
     dem_f = dem.astype(np.float32)
     p = np.pad(dem_f, 1, mode="edge")
     acc = np.zeros_like(dem_f)
@@ -226,6 +228,26 @@ def terrain_ruggedness_index(dem: np.ndarray, window_px: int = 3) -> np.ndarray:
                 continue
             acc += np.abs(dem_f - p[dy:dy + h, dx:dx + w])
     return acc / 8.0
+
+
+def tri_at_baseline(dem: np.ndarray, scale_m: float, baseline_m: float) -> np.ndarray:
+    """Mean absolute elevation differences at eight directions, radius B/2.
+
+    B is a fixed physical diameter in metres. All eight samples have equal
+    radial distance (including diagonals), using bilinear interpolation. This
+    is a new scale-explicit descriptor, not the historical immediate-neighbour
+    TRI and not a sub-resolution measurement. Refit reference normalization
+    when switching descriptors; historical AUC values do not validate this one.
+    """
+    baseline_m = _check_baseline(baseline_m, scale_m, "TRI", True)
+    z = np.asarray(dem, float)
+    radius = baseline_m / (2*scale_m)
+    out = np.zeros_like(z)
+    for angle in np.arange(8)*np.pi/4:
+        sample = ndi.shift(z, (radius*np.sin(angle), radius*np.cos(angle)),
+                           order=1, mode="nearest", prefilter=False)
+        out += abs(z-sample)
+    return (out/8).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------

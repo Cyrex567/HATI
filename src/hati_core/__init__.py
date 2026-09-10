@@ -30,6 +30,7 @@ import json
 from dataclasses import dataclass, asdict, field
 
 import numpy as np
+from scipy import ndimage as ndi
 
 from src.heatmap import dem_features as _df
 from src.heatmap import fusion as _fusion
@@ -37,7 +38,7 @@ from src.heatmap import fusion as _fusion
 __all__ = ["Config", "channels", "gate", "fuse", "fit_baseline",
            "SURVIVING_CHANNELS", "CROSS_SITE_AUC", "__version__"]
 
-__version__ = "2.5.0"
+__version__ = "2.5.2"
 
 #: The channels that survived the cross-site control (mare_control_v3, 2026-06-15).
 #: Everything else scored below chance between sites and was removed.
@@ -64,13 +65,14 @@ class Config:
     bias: float = _fusion.DEFAULT_BIAS
     include_iqr_slope: bool = False      # explicit opt-in for a rejected channel
     mds_baselines_m: tuple[float, ...] = field(default_factory=tuple)
+    tri_baseline_m: float | None = None # explicit opt-in; refit baseline before comparing scores
 
     def weights(self) -> dict[str, float]:
         return _fusion.v25_weights(include_iqr_slope=self.include_iqr_slope)
 
     def hash(self) -> str:
         payload = json.dumps({**asdict(self), "version": __version__,
-                              "channels": sorted(self.weights())}, sort_keys=True)
+                              "weights": self.weights()}, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 
@@ -81,11 +83,33 @@ def channels(dem: np.ndarray, cfg: Config, valid: np.ndarray | None = None,
     Returns only the surviving channels unless ``all_channels`` is set, which is
     for diagnostics and for re-running the cross-site control, not for operations.
     """
+    observed = np.isfinite(dem)
+    if valid is not None:
+        observed &= np.asarray(valid, bool)
+    if not observed.any():
+        raise ValueError("DEM contains no valid terrain")
+    filled = np.asarray(dem)
+    if not observed.all():
+        idx = ndi.distance_transform_edt(~observed, return_distances=False, return_indices=True)
+        filled = filled[tuple(idx)]
     stack = _df.compute_tier1_stack(
-        dem, scale_m=cfg.scale_m, window_m=cfg.window_m,
+        filled, scale_m=cfg.scale_m, window_m=cfg.window_m,
         mds_baselines_m=cfg.mds_baselines_m or None,
         slope_baseline_m=cfg.slope_baseline_m,
         curvature_smooth_m=cfg.curvature_smooth_m, strict=True, verbose=False)
+    if cfg.tri_baseline_m is not None:
+        stack["tri"] = _df.tri_at_baseline(filled, cfg.scale_m, cfg.tri_baseline_m)
+    # Mask the support of every requested filter, not just the missing centre.
+    win = _df.px_for(cfg.window_m, cfg.scale_m) // 2
+    reach = max(1, win + int(np.ceil(4 * cfg.slope_baseline_m / cfg.scale_m / 2.3548)) + 1)
+    if cfg.tri_baseline_m is not None:
+        reach = max(reach, int(np.ceil(cfg.tri_baseline_m / (2*cfg.scale_m)))+1)
+    if all_channels:
+        reach = max(reach, 2 * win,
+                    win + int(np.ceil(4 * cfg.curvature_smooth_m / cfg.scale_m / 2.3548)) + 1,
+                    win + int(np.ceil(8 * max(cfg.mds_baselines_m or (0,)) / cfg.scale_m / 3)) + 1)
+    unsupported = ndi.maximum_filter((~observed).astype(np.uint8), size=2 * reach + 1) > 0
+    stack = {k: np.where(unsupported, np.nan, v) for k, v in stack.items()}
     if all_channels:
         return stack
     keep = set(cfg.weights())
@@ -107,9 +131,10 @@ def gate(dem_or_channels, cfg: Config | None = None, *, scale_m: float | None = 
         s = scale_m if scale_m is not None else (cfg.scale_m if cfg else None)
         if s is None:
             raise ValueError("gate() on a DEM needs cfg or scale_m")
-        base = cfg.slope_baseline_m if cfg else 2.0 * s
-        slope_rad = _df.slope_at_baseline(dem_or_channels, s, base, strict=True)
-    return np.degrees(slope_rad) > theta
+        effective = cfg or Config(scale_m=s, slope_baseline_m=2.0 * s)
+        slope_rad = channels(dem_or_channels, effective)["rms_slope"]
+    # True means excluded from clearance; unknown terrain must not appear safe.
+    return ~np.isfinite(slope_rad) | (np.degrees(slope_rad) > theta)
 
 
 def fuse(ch: dict[str, np.ndarray], cfg: Config | None = None, *,

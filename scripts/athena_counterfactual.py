@@ -89,9 +89,8 @@ def dtm_pixel() -> tuple[int, int]:
 
 def ortho_pixel() -> tuple[int, int]:
     x, y = touchdown_xy()
-    col = (x - ORTHO_ULX) / ORTHO_SCALE
-    row = (ORTHO_ULY - y) / ORTHO_SCALE
-    return int(round(row)), int(round(col))
+    with rasterio.open(ORTHO_IMG) as src:
+        return tuple(int(v) for v in src.index(x, y))
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from sweep_contract import DEFAULT_BEFORE, predates, utc_time
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output" / "athena"
@@ -61,15 +62,17 @@ def subsolar_longitude(t: dt.datetime) -> float:
     return (SSLON_AT_J2000 - SSLON_RATE * days) % 360.0
 
 
-def sun_azimuth_at(t: dt.datetime, site_lon: float) -> float:
+def sun_azimuth_at(t: dt.datetime, site_lon: float, site_lat: float = -90.0) -> float:
     """Ground bearing of the Sun from a polar site, degrees clockwise from north.
 
-    Near the pole the bearing is the difference in longitude to the sub-solar
-    point, to better than a quarter of a degree: the sub-solar latitude only
-    ranges over the Moon's 1.54 degree obliquity, which moves the bearing by
-    about a tenth of a degree.
+    Uses a zero-latitude sub-solar approximation for archive selection only.
+    The south-pole longitude-difference shortcut reverses north-pole geometry
+    and becomes less accurate away from the pole. Scientific bearings must
+    still come from measured campt sub-solar coordinates, including latitude.
     """
-    return (subsolar_longitude(t) - site_lon) % 360.0
+    dlon = math.radians(subsolar_longitude(t)-site_lon)
+    phi = math.radians(site_lat)
+    return math.degrees(math.atan2(math.sin(dlon),-math.sin(phi)*math.cos(dlon))) % 360.0
 
 
 def parse_utc(s: str):
@@ -233,6 +236,8 @@ def main():
                     help="ODE result cap. Most returned frames are bounding-box false "
                          "positives, so the cap has to be well above the number of "
                          "frames actually wanted.")
+    ap.add_argument("--before", default=DEFAULT_BEFORE,
+                    help="exclusive UTC acquisition cutoff; defaults to before the landing day")
     ap.add_argument("--all-frames", action="store_true",
                     help="keep frames whose footprint does NOT contain the site "
                          "(the old, over-permissive behaviour)")
@@ -241,6 +246,7 @@ def main():
                          "co-registration window is 400 m across at NAC scale, so a "
                          "frame that only clips the site is useless. Default 600 m.")
     args = ap.parse_args()
+    utc_time(args.before)
 
     dlat = args.halfwidth_km / (math.pi / 180 * R_MOON_KM)
     dlon = dlat / max(math.cos(math.radians(args.lat)), 1e-3)
@@ -286,11 +292,13 @@ def main():
         pha = to_float(get_any(p, "Phase_angle", "phase"))
         azf = to_float(get_any(p, "subsolar_azimuth", "solar_azimuth", "sun_azimuth", "azimuth"))
         t = parse_utc(get_any(p, "UTC_start_time", "Observation_time", "Start_time", "UTC_start"))
+        if t is None or not predates(t.isoformat(), args.before):
+            continue
         clat = to_float(get_any(p, "Center_latitude", "Centerlatitude"))
         clon = to_float(get_any(p, "Center_longitude", "Centerlongitude"))
         if azf is not None:
             az_real = True
-        az = sun_azimuth_at(t, args.lon) if t else azf
+        az = sun_azimuth_at(t, args.lon, args.lat) if t else azf
         elev = (90.0 - inc) if inc is not None else None
         mar = site_margin_m(p, args.lat, args.lon)
         rows.append(dict(pid=pid, utc=(t.isoformat() if t else ""), inc=inc, elev=elev,

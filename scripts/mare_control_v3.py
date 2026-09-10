@@ -60,14 +60,16 @@ TEXTURE = {"iqr_slope", "iqr_curvature", "rms_planar_dev", "tpi_abs"}
 
 def auc(score: np.ndarray, lab: np.ndarray) -> float:
     """P(random massif pixel scores above a random mare pixel)."""
+    from scipy.stats import rankdata
+    score = np.asarray(score, float)
     lab = np.asarray(lab, bool)
+    if score.shape != lab.shape or not np.isfinite(score).all():
+        raise ValueError("AUC requires aligned finite scores and labels")
     P, N = int(lab.sum()), int((~lab).sum())
     if P == 0 or N == 0:
         return float("nan")
-    t = lab[np.argsort(-np.asarray(score, float))]
-    tpr = np.concatenate([[0], np.cumsum(t) / P])
-    fpr = np.concatenate([[0], np.cumsum(~t) / N])
-    return float(np.sum(np.diff(fpr) * (tpr[:-1] + tpr[1:]) / 2))
+    ranks = rankdata(score, method="average")
+    return float((ranks[lab].sum() - P*(P+1)/2)/(P*N))
 
 
 def to_common(z: np.ndarray, nod: np.ndarray, native: float,

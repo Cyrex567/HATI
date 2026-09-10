@@ -167,13 +167,11 @@ def main() -> None:
     check("an empty scene produces no false convergence",
           int(K.hits_by_k(ev0, len(real))[2]) == 0, f"{sum(casts0)} votes cast")
 
-    planted = [(int(r), int(c), 0.5)
+    planted = [(int(r), int(c), 1.0)
                for r, c in rng2.integers(110, 290, (25, 2))]
-    # A regression test that the machinery works, NOT a sensitivity claim. This
-    # scene is textured and includes a frame at cot(e) = 45.8, where a half-metre
-    # boulder casts 25 px. On flat ground at cot(e) = 14 the same boulder is
-    # fragmented below min_area and missed entirely. Real recovery is scene and
-    # elevation dependent and only the run on real frames can measure it.
+    # A machinery check using resolved 1 m-high objects, NOT a sensitivity claim.
+    # The old half-metre expectation relied on the rounded pixel brush. The
+    # area-integrated renderer does not support that asserted recovery.
     frac = K.recovery(real, (400, 400), planted, _A, k=3, tol=8.0)
     check("the injection-and-recovery chain runs end to end",
           frac >= 0.8, f"{100 * frac:.0f}% of {len(planted)} on a favourable scene")
@@ -224,7 +222,7 @@ def main() -> None:
 
     spots = [(140, 140), (260, 280), (330, 130)]
     ev_b = K._run_injected(bare, (SS, SS), _B, lambda d, a, e: K.inject_shadows(
-        d, [(r, c, 0.5) for r, c in spots], a, e, 45))
+        d, [(r, c, 1.0) for r, c in spots], a, e, 45))
     ev_c = K._run_injected(bare, (SS, SS), _B, lambda d, a, e: K.inject_craters(
         d, [(r, c, 14, 3.0) for r, c in spots], a, e, 45))
     ev_r = K._run_injected(bare, (SS, SS), _B, lambda d, a, e: K.inject_ridges(
@@ -232,7 +230,7 @@ def main() -> None:
     tp = K.hits_near(ev_b, spots, 3, 20.0)
     fc = K.hits_near(ev_c, spots, 3, 20.0)
     fr = K.hits_near(ev_r, spots, 3, 20.0)
-    check("injected half-metre boulders are called casters", tp >= 2, f"{tp} of 3")
+    check("injected resolved one-metre boulders are called casters", tp >= 2, f"{tp} of 3")
     check("injected craters are NOT called casters", fc == 0, f"{fc} of 3")
     check("injected ridges are NOT called casters", fr == 0, f"{fr} of 3")
 

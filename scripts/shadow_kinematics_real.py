@@ -1,10 +1,10 @@
 """Shadow kinematics on the real ingested solar sweep.
 
-The detector is the one proven on synthetic ground truth in shadow_kinematics.py:
+The detector adapts the synthetic benchmark in shadow_kinematics.py:
 accumulate, over many illuminations, one vote at the up-sun base of every
 elongated dark region. A real obstacle casts from the same base every time, so
-its votes converge. A low-albedo patch is painted on the ground, so as the sun
-swings its assumed caster position swings with it and the votes smear.
+its votes can converge. Stationary albedo can also converge under a limited
+azimuth sweep: see the counterexample in tests/test_audit_regressions.py.
 
 This runs that detector on data/sweep/manifest.json, the co-registered stack the
 ingest produces. Three things had to be got right that the synthetic version
@@ -24,12 +24,9 @@ longitude lam, north in map coordinates is (sin lam, cos lam) and east is
 (sin(lam+A), cos(lam+A)). The voter therefore gets A + lam, a 29.2 degree
 correction at this site.
 
-THERE IS NO GROUND TRUTH. Athena has no boulder catalogue, so no AUC can be
-quoted and none is. What can be tested is whether convergence is driven by the
-sun at all: re-run the accumulation with the azimuths shuffled between frames,
-which keeps every image and every shadow and destroys only the correspondence
-between them. If the real run does not beat that null, the sweep is not adding
-anything.
+THERE IS NO GROUND TRUTH. Spatially shifted maps test correspondence only.
+They do not distinguish shadows from stationary albedo or establish safety.
+The proposed image-domain replacement is specified in Documents/AUDIT_2026-09-09.md.
 
     python scripts/shadow_kinematics_real.py
     python scripts/shadow_kinematics_real.py --half 500 --shadow-frac 0.55
@@ -44,6 +41,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from sweep_contract import DEFAULT_BEFORE, PROCESSING_VERSION, predates
 
 import numpy as np
 
@@ -71,8 +69,8 @@ def sun_azimuth(site_lat: float, site_lon: float,
     """Ground azimuth of the sun from the site, degrees clockwise from north.
 
     Standard bearing on a sphere, computed here rather than read from ISIS so the
-    convention is ours and unambiguous: ISIS reports image-plane azimuths, which
-    is not what a vote cast in a map projection needs.
+    convention is explicit. ISIS also supplies SubSolarGroundAzimuth, which can
+    independently check this bearing; SubSolarAzimuth is a different quantity.
     """
     phi, phis = math.radians(site_lat), math.radians(sub_lat)
     dlon = math.radians(sub_lon - site_lon)
@@ -94,6 +92,8 @@ def geometry_for(pid: str, lat: float, lon: float, rebuild: bool) -> dict | None
     if side.exists():
         try:
             g = json.loads(side.read_text())
+            if g.get("site_lat") != lat or g.get("site_lon") != lon:
+                raise ValueError("geometry sidecar is for an unknown/different site")
             g["source"] = "sidecar"
             return g
         except Exception:  # noqa: BLE001
@@ -138,6 +138,7 @@ def geometry_for(pid: str, lat: float, lon: float, rebuild: bool) -> dict | None
     if sub_lat is None or sub_lon is None or inc is None:
         return None
     g = {"az": sun_azimuth(lat, lon, sub_lat, sub_lon),
+         "site_lat": lat, "site_lon": lon,
          "elev": 90.0 - inc,
          "incidence": inc, "sub_lat": sub_lat, "sub_lon": sub_lon}
     side.write_text(json.dumps(g, indent=1), encoding="utf-8")
@@ -210,7 +211,7 @@ def detect(dn: np.ndarray, frac: float, bg_win: int, min_area: int = 4) -> np.nd
     # and its meaning changed in 0.26. The rule has to match the voter's exactly,
     # so it is spelled out: drop components smaller than min_area, keep the rest
     # however thin they are.
-    lab, n = ndi.label(mask)
+    lab, n = ndi.label(mask, structure=np.ones((3, 3), dtype=bool))
     if n == 0:
         return mask
     area = np.bincount(lab.ravel())
@@ -360,10 +361,14 @@ def accumulate(frames, shape, min_area, elong, radius=2, order=None,
             # destroys the correspondence without touching the estimator, so it
             # measures chance coincidence and nothing else.
             dy, dx = jitter[k]
-            bases = [(b[0] + dy, b[1] + dx, b[2], b[3]) for b in bases]
         if order is None and jitter is None:
             f["_bases"] = bases          # kept so each cluster can be classified
         v, h = stamp(shape, bases, radius)
+        if jitter is not None:
+            # Roll the FINISHED maps: preserve vote mass, including edge discs.
+            # This remains a correspondence diagnostic, not an albedo null.
+            v = np.roll(v, (dy, dx), axis=(0, 1))
+            h = np.roll(h, (dy, dx), axis=(0, 1))
         evidence += v
         height_acc += h
         dark += f["mask"]
@@ -428,7 +433,7 @@ def classify(votes, azs):
         A.append([0.0, 1.0, math.sin(a)]);  b.append(c)
     sol, *_ = np.linalg.lstsq(np.array(A), np.array(b), rcond=None)
     resid = np.array(b) - np.array(A) @ sol
-    rms_arc = float(np.sqrt(np.mean(resid.reshape(-1, 2).sum(axis=1) ** 2 / 2)))
+    rms_arc = float(np.sqrt(np.mean(np.sum(resid.reshape(-1, 2) ** 2, axis=1))))
     return {"rms_point": rms_point, "rms_arc": rms_arc, "radius_px": float(abs(sol[2])),
             "n": len(votes)}
 
@@ -516,15 +521,24 @@ def inject_shadows(dn, boulders, az_map_deg, elev_deg, bg_win, darkness=0.25):
         # a lunar rock is roughly twice as wide as it is tall, so the shadow
         # it throws is about 2h across, not h.
         width_px = 2.0 * h / RES
-        half_w = max(0, int((width_px - 1.0) // 2)) if width_px > 1.0 else 0
-        amp = min(1.0, width_px)          # sub-pixel shadows fill part of a pixel
-        for t in range(int(round(length_px)) + 1):
-            r = int(round(br - t * srow))
-            c = int(round(bc - t * scol))
-            r0, r1 = max(0, r - half_w), min(H, r + half_w + 1)
-            c0, c1 = max(0, c - half_w), min(W, c + half_w + 1)
-            if r0 < r1 and c0 < c1:
-                np.maximum(mask[r0:r1, c0:c1], amp, out=mask[r0:r1, c0:c1])
+        # Integrate a rotated rectangle over subpixels. The former square brush
+        # rendered every width from 1 to <3 px as exactly one pixel.
+        end_r, end_c = br - length_px * srow, bc - length_px * scol
+        pad = width_px / 2 + 1
+        r0, r1 = max(0, int(min(br, end_r) - pad)), min(H, int(max(br, end_r) + pad) + 1)
+        c0, c1 = max(0, int(min(bc, end_c) - pad)), min(W, int(max(bc, end_c) + pad) + 1)
+        if r0 >= r1 or c0 >= c1:
+            continue
+        yy, xx = np.mgrid[r0:r1, c0:c1]
+        coverage = np.zeros(yy.shape, float)
+        for dr in (np.arange(8) + 0.5) / 8 - 0.5:
+            for dc in (np.arange(8) + 0.5) / 8 - 0.5:
+                ry, cx = yy + dr - br, xx + dc - bc
+                along = -(ry * srow + cx * scol)
+                across = -ry * scol + cx * srow
+                coverage += ((along >= 0) & (along <= length_px) &
+                             (np.abs(across) <= width_px / 2)) / 64
+        np.maximum(mask[r0:r1, c0:c1], coverage, out=mask[r0:r1, c0:c1])
     return apply_psf(mask, out, bg, darkness)
 
 
@@ -694,7 +708,7 @@ def recovery(frames, shape, boulders, args, k: int, tol: float,
         inj.append({"mask": detect(d, args.shadow_frac, args.bg_win, args.min_area),
                     "az_map": f["az_map"], "elev": f["elev"]})
     _, ev, _, _, _ = accumulate(inj, shape, args.min_area, args.elongation,
-                                args.vote_radius)
+                                args.vote_radius, max_width_px=getattr(args, "max_width_px", 8.0))
     rr, cc = np.nonzero(ev >= k)
     if rr.size == 0:
         return 0.0
@@ -741,20 +755,25 @@ def main() -> None:
     ap.add_argument("--no-rebuild", action="store_true",
                     help="do not regenerate a level-1 cube to measure sun geometry")
     ap.add_argument("--trials", type=int, default=200,
-                    help="shuffled-azimuth null trials")
+                    help="spatial-correspondence diagnostic trials (not an albedo test)")
+    ap.add_argument("--before", default=DEFAULT_BEFORE, help="exclusive UTC acquisition cutoff")
     args = ap.parse_args()
 
     if not MANIFEST.exists():
         sys.exit(f"no manifest at {MANIFEST}; run scripts/ingest_sweep.py --execute first")
     import athena_counterfactual as ac
     man = json.loads(MANIFEST.read_text())
+    if not man or any(not predates(e.get("utc", ""), args.before) for e in man):
+        sys.exit("manifest has missing/post-cutoff acquisition times; rerun the audited ingest")
+    if any(e.get("processing_version") != PROCESSING_VERSION for e in man):
+        sys.exit("manifest predates the audited processing chain; rerun ingestion")
     OUT.mkdir(parents=True, exist_ok=True)
 
     # A failed gate used to write a manifest and exit 0 like any other run, so
     # the science could be run on frames the pipeline itself had judged
     # misaligned. Refuse unless told otherwise, in as many words.
     gated = [e for e in man if "gate_pass" in e]
-    if gated and not any(e["gate_pass"] for e in gated) and not args.ignore_gate:
+    if (len(gated) != len(man) or not all(e["gate_pass"] for e in gated)) and not args.ignore_gate:
         sys.exit(
             "\nThis manifest comes from an ingest whose GATE FAILED: the frames are\n"
             "not aligned well enough for shadow motion to mean anything.\n"
@@ -829,8 +848,8 @@ def main() -> None:
     # one another at a few pixels, and that is the number a vote has to tolerate.
     # Demanding 2 px agreement when the data only supports 4 finds nothing.
     #
-    # This cannot inflate a result: the shuffled-azimuth null is accumulated at
-    # the same radius, so a looser radius raises the null in step.
+    # Matching the diagnostic radius does not calibrate the scientific null.
+    # Closure is a consistency diagnostic, not a local alignment error bound.
     if args.vote_radius <= 0:
         clo = [e.get("closure_px") for e in man if e.get("closure_px")]
         base = (sorted(clo)[len(clo) // 2] if clo else 2.0)
@@ -841,7 +860,7 @@ def main() -> None:
               f"shadow-base scatter)")
     if spread < 40:
         sys.exit("under 40 degrees of spread; shadows barely move, so the kinematics "
-                 "cannot separate a caster from a stain.")
+                 "has too little directional diversity for this legacy heuristic.")
 
     # ---- detect
     print()
@@ -865,11 +884,9 @@ def main() -> None:
         print(f"  {f['pid']:<22}{c:>6}")
     print(f"  {'total':<22}{sum(casts):>6}")
     if silent:
-        print(f"\n  {silent} of {len(casts)} frames found no cast-shadow-shaped region at "
-              f"all, so\n  agreement by {need} frames is arithmetically impossible. That is "
-              f"a shortage of\n  obstacles in this window, not a threshold to tune. Search "
-              f"more ground with\n  --half, or point the run at terrain that has boulders "
-              f"in it.")
+        print(f"\n  {silent} of {len(casts)} frames cast no votes. At most "
+              f"{len(casts)-silent} frames can agree; this alone says nothing about "
+              "the abundance of physical obstacles.")
     if sum(casts) == 0:
         print("\n  No votes were cast anywhere. Nothing to test against a null.")
         write_products(conf, evidence, hmap, darkf, frames, ac, args, need)
@@ -896,10 +913,16 @@ def main() -> None:
     lo = max(40, 4 * args.vote_radius)
     null_curves = []
     for _ in range(args.trials):
-        jit = [(int(rng.integers(-shape[0] // 4, shape[0] // 4)),
-                int(rng.integers(-shape[1] // 4, shape[1] // 4))) for _ in range(n)]
-        jit = [(dy if abs(dy) > lo else lo, dx if abs(dx) > lo else lo)
-               for dy, dx in jit]
+        if min(shape) // 4 <= lo:
+            sys.exit("window too small for the spatial-shift diagnostic")
+        jit = []
+        for _frame in range(n):
+            while True:
+                dy = int(rng.integers(-shape[0] // 4, shape[0] // 4 + 1))
+                dx = int(rng.integers(-shape[1] // 4, shape[1] // 4 + 1))
+                if math.hypot(dy, dx) > lo:
+                    jit.append((dy, dx))
+                    break
         _, ev, _, _, _ = accumulate(frames, shape, args.min_area, args.elongation,
                                     args.vote_radius, None, args.max_width_px, jit)
         null_curves.append(hits_by_k(ev, n))
@@ -916,7 +939,8 @@ def main() -> None:
         k = i + 1
         r = int(real_curve[i])
         col = null_curves[:, i] if null_curves.size else np.zeros(1)
-        p = float((col >= r).mean()) if r > 0 else 1.0
+        p = min(1.0, (n - 1) * (1 + int((col >= r).sum())) /
+                (len(col) + 1)) if r > 0 and args.trials > 0 else 1.0
         p99 = float(np.percentile(col, 99))
         flag = ""
         if r > 0 and p < 0.05 and r > col.mean():
@@ -931,11 +955,17 @@ def main() -> None:
     need = best[0] if best else max(2, int(math.ceil(0.6 * n)))
     hits = int(real_curve[need - 1])
     if best:
-        print(f"\n  The sun drives convergence at k = {best[0]}: {best[1]} pixels, "
+        print(f"\n  Spatial correspondence exceeds shifted maps at k = {best[0]}: {best[1]} pixels, "
               f"p = {best[2]:.3f}.")
     else:
-        print("\n  No agreement threshold separates the real sweep from shuffled "
-              "azimuths.")
+        print("\n  No agreement threshold separates the sweep from spatially shifted maps.")
+    print("  p includes a finite-trial correction and Bonferroni over k. This is NOT")
+    print("  a shadow-versus-albedo test, a detection probability, or a safety certificate.")
+    (OUT / "shadow_kinematics_real_run.json").write_text(json.dumps({
+        "arguments": vars(args), "manifest": man, "k": need,
+        "real_curve": real_curve.tolist(), "null_curves": null_curves.tolist(),
+        "interpretation": "exploratory spatial correspondence only; albedo not rejected",
+        "ignore_gate": args.ignore_gate}, indent=2), encoding="utf-8")
 
     # ---- sensitivity: what could this sweep have found if it were there?
     if args.inject:
@@ -1002,7 +1032,8 @@ def main() -> None:
             lbl = f"ridge {ln * RES:.0f} m, {hh:.0f} m high"
             print(f"  {lbl:>24}{'':>18}{100 * fp / len(tgt):>17.0f}%")
         print(f"\n  Boulder rows are recovery, crater and ridge rows are the FALSE")
-        print("  POSITIVE rate. Anything above a few percent there means a converged")
+        print("  association rate for these synthetic shapes, not a field false-positive rate.")
+        print("  Anything above a few percent there means a converged")
         print("  pixel is not on its own evidence of a boulder.")
         print(f"\n  All measured at k = {kk}, the threshold the real")
         print("  result is reported at, and on the same frames.")
@@ -1028,9 +1059,13 @@ def main() -> None:
             ys, xs = np.nonzero(lab == li)
             cy, cx = float(ys.mean()), float(xs.mean())
             reach = args.vote_radius + 4
-            votes = [(i, br, bc) for i, f in enumerate(frames)
-                     for (br, bc, _h, _L) in f.get("_bases", [])
-                     if (br - cy) ** 2 + (bc - cx) ** 2 <= reach * reach]
+            votes = []
+            for i, f in enumerate(frames):
+                near = [b for b in f.get("_bases", [])
+                        if (b[0] - cy) ** 2 + (b[1] - cx) ** 2 <= reach * reach]
+                if near:
+                    b = min(near, key=lambda b: (b[0] - cy) ** 2 + (b[1] - cx) ** 2)
+                    votes.append((i, b[0], b[1]))
             cl = classify(votes, azs)
             hh = float(np.median(hmap[lab == li][hmap[lab == li] > 0])) \
                 if np.any(hmap[lab == li] > 0) else float("nan")
@@ -1045,7 +1080,7 @@ def main() -> None:
             elif not (sgn == sgn):
                 verdict = "point-like, sign not measurable"
             elif sgn > 0.02:
-                verdict = "point-like AND lit up-sun: boulder"
+                verdict = "point-like, lit up-sun: unvalidated protrusion candidate"
             elif sgn < -0.02:
                 verdict = "point-like but lit BEYOND: pit or small crater"
             else:
@@ -1071,11 +1106,9 @@ def main() -> None:
               f"convergence result and\nnot a validated detection rate: the AUC of 0.990 in "
               f"the papers is the synthetic\nbenchmark and stays labelled that way.")
     else:
-        print("No detection. Read that against the sensitivity table above: if injected\n"
-              "boulders of a given size are recovered and no real ones converge, the\n"
-              "statement is that nothing that size is there, which is a result. If the\n"
-              "injected ones are not recovered either, the sweep is simply not sensitive\n"
-              "enough yet, and the answer is more frames rather than a looser threshold.")
+        print("No convergence at the reporting threshold. Non-detection does not establish\n"
+              "absence or safe ground; a population bound needs validated completeness\n"
+              "and the spatially varying observable area.")
 
 
 def write_products(conf, evidence, hmap, darkf, frames, ac, args, need) -> None:
@@ -1083,19 +1116,25 @@ def write_products(conf, evidence, hmap, darkf, frames, ac, args, need) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import rasterio
-    from rasterio.transform import from_origin
 
     half = args.half
     rr, cc = ac.ortho_pixel()
-    x0 = ac.ORTHO_ULX + (cc - half) * RES
-    y0 = ac.ORTHO_ULY - (rr - half) * RES
-    tr = from_origin(x0, y0, RES, RES)
-    for name, arr in (("confidence", conf), ("height", hmap)):
+    with rasterio.open(ac.ORTHO_IMG) as reference:
+        tr = reference.window_transform(rasterio.windows.Window(cc - half, rr - half,
+                                                               2 * half, 2 * half))
+        crs = reference.crs
+    coverage = np.sum([np.isfinite(f["dn"]) for f in frames], axis=0)
+    for name, arr in (("confidence", conf), ("height", hmap),
+                      ("coverage", coverage), ("votes", evidence)):
         path = OUT / f"shadow_kinematics_real_{name}.tif"
         with rasterio.open(path, "w", driver="GTiff", height=arr.shape[0],
                            width=arr.shape[1], count=1, dtype="float32",
-                           crs=MAP_CRS, transform=tr, nodata=0.0) as dst:
-            dst.write(arr.astype("float32"), 1)
+                            crs=crs, transform=tr, nodata=float("nan")) as dst:
+            values = np.where(coverage > 0, arr, np.nan).astype("float32")
+            if name == "height":
+                values[evidence < need] = np.nan
+            dst.write(values, 1)
+            dst.update_tags(interpretation="exploratory evidence; not calibrated safety probability")
         print(f"  -> {path}")
 
     # Report LOCATIONS, not pixels. Each converged caster is stamped as a disc of
@@ -1109,7 +1148,8 @@ def write_products(conf, evidence, hmap, darkf, frames, ac, args, need) -> None:
           f"{'' if nloc == 1 else 's'} once the vote discs are merged")
     rows = ["row,col,x_m,y_m,votes,height_m,location_id"]
     for r, c in zip(ys, xs):
-        rows.append(f"{r},{c},{x0 + c*RES:.1f},{y0 - r*RES:.1f},"
+        x, y = rasterio.transform.xy(tr, int(r), int(c), offset="center")
+        rows.append(f"{r},{c},{x:.2f},{y:.2f},"
                     f"{evidence[r,c]:.0f},{hmap[r,c]:.2f},{lab[r,c]}")
     csv = OUT / "shadow_kinematics_real_detections.csv"
     csv.write_text("\n".join(rows), encoding="utf-8")

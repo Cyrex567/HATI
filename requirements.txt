@@ -21,5 +21,6 @@ matplotlib
 seaborn
 tqdm
 scipy
+scikit-image
 psutil
 huggingface_hub
