@@ -1,5 +1,7 @@
 # HATI v2.5 WSL runbook
 
+**Completed the audited ingestion already?** Use the [2.5.3 three-map postprocessing runbook](V253_LANDING_MAPS.md) and `bash scripts/run_landing_maps_wsl.sh`. It reuses those products and does not run ISIS. The full ingestion runner below now also invokes that postprocessing step after its legacy pilots.
+
 Run on the Linux/WSL GPU box with the existing reference data. No ISIS ingestion was run on the Windows audit machine. This updates the checkout, tests the deterministic Python path, ingests a pre-landing sweep and produces experimental root rankings for a central 512-pixel pilot under three registration-blur assumptions.
 
 ```bash

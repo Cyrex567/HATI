@@ -87,11 +87,41 @@ class NuisanceProjector:
         self.u /= np.linalg.norm(self.u)
 
     def apply(self, stack):
-        a = np.asarray(stack, float)[:, self.common] / self.sigma[:, None]
+        a = np.asarray(stack, float)[..., self.common] / self.sigma[:, None]
         if not np.isfinite(a).all():
             raise ValueError("nonfinite sample on declared common support")
-        a = a - self.u[:, None] * (self.u @ a)[None, :]
+        a = a - self.u[:, None] * (self.u @ a)[..., None, :]
         return a - (a @ self.q) @ self.q.T
+
+
+class RegistrationProjector(NuisanceProjector):
+    """Whiten a first-order static-albedo displacement covariance.
+
+    A small shift delta changes albedo by G*delta. With isotropic registration
+    sigma s, spatial covariance in normalized noise units is I+s^2*G*G'/sigma^2.
+    Two singular modes implement its inverse square root without a dense matrix.
+    Identical noise scales are required so whitening commutes with removal of
+    static albedo. This marginalizes a Gaussian displacement approximation;
+    it cannot repair wrong registration peaks or large nonlinear displacements.
+    """
+    def __init__(self,common,sigma,static_image,registration_sigma_px):
+        super().__init__(common,sigma)
+        if not np.isfinite(registration_sigma_px) or registration_sigma_px<0:
+            raise ValueError('registration sigma must be finite and nonnegative')
+        if not np.allclose(self.sigma,self.sigma[0]):
+            raise ValueError('registration covariance currently requires equal frame noise')
+        static = np.asarray(static_image,float)
+        if static.shape != common.shape or not np.isfinite(static).all():
+            raise ValueError('static covariance reference must be finite and match the patch')
+        gr,gc = np.gradient(ndi.gaussian_filter(static,.6))
+        g = np.stack([gr[common],gc[common]],axis=1)*registration_sigma_px/self.sigma[0]
+        g -= self.q@(self.q.T@g)
+        self.modes,singular,_ = np.linalg.svd(g,full_matrices=False)
+        self.attenuation = 1-1/np.sqrt(1+singular**2)
+
+    def apply(self,stack):
+        a = super().apply(stack)
+        return a-((a@self.modes)*self.attenuation)@self.modes.T
 
 
 def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
@@ -136,7 +166,7 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
             length = height_m / denom
             er, ec = root[0] + dr * length / cfg.pixel_m, root[1] + dc * length / cfg.pixel_m
             censored |= not (1 <= er < shape[0] - 2 and 1 <= ec < shape[1] - 2)
-            censored |= np.hypot(er-root[0],ec-root[1]) > cfg.root_support_px - 0.75
+            censored |= np.hypot(er-(shape[0]-1)/2,ec-(shape[1]-1)/2) > cfg.root_support_px - 0.75
             cover += weight * ((along >= 0) & (along <= length) & (abs(across) <= width_m / 2))
         # Render beyond the patch so a censored shadow does not acquire a false
         # blurred endpoint at the crop boundary.

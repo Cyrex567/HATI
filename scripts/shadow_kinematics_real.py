@@ -171,10 +171,12 @@ def frame_window(lev2: Path, shift, half: int, ac) -> np.ndarray | None:
     a[a <= ac.NODATA_BELOW] = np.nan
     if shift:
         good = np.isfinite(a)
-        filled = np.where(good, a, np.nanmedian(a))
+        filled = np.where(good, a, np.median(a[good]) if good.any() else 0.)
         a = nd_shift(filled, shift, order=1, mode="nearest")
-        keep = nd_shift(good.astype(float), shift, order=0, mode="constant", cval=0)
-        a[keep < 0.5] = np.nan
+        # The radiance interpolation uses every contributing neighbour. A
+        # nearest-neighbour mask could accept a blend containing invented fill.
+        keep = nd_shift(good.astype(float), shift, order=1, mode="constant", cval=0)
+        a[keep < 1-1e-8] = np.nan
     return a
 
 

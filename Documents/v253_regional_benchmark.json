@@ -1,0 +1,996 @@
+{
+  "purpose": "Independent tapered-caster synthetic stress test; not field calibration",
+  "seeds": [
+    1400,
+    1401,
+    1402,
+    1403,
+    1404,
+    1405,
+    1406,
+    1407
+  ],
+  "shape": [
+    40,
+    40
+  ],
+  "root": [
+    20.3,
+    20.2
+  ],
+  "regional": {
+    "cell_px": 4,
+    "tile_px": 64,
+    "heights_m": [
+      0.3,
+      0.6,
+      1.2
+    ],
+    "widths_m": [
+      0.6,
+      1.2
+    ],
+    "root_contrast": 0.6,
+    "score_scale": 8.0,
+    "min_frame_fraction": 0.85,
+    "min_common_fraction": 0.8,
+    "slope_bin": 0.005,
+    "cache_banks": 8
+  },
+  "matching": "Any retained score >=8 root within 2 px; false roots beyond 3 px of the injected root",
+  "registration_assumption": "Template blur and first-order albedo covariance vary together; not an isolated covariance ablation",
+  "dem_scope": "Flat receiving plane and fully observed visibility; DEM model tested separately",
+  "renderer_sha256": "b6d4a60480e32a825545e8c2d9871d935ffaad282a09f46b8e37cafbb007a6cd",
+  "scenarios": {
+    "static": {
+      "0.0": {
+        "settings": {
+          "static": true
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "ecc01de07657f033",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 4.580290462800293,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 5.130779404842615,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 4.357259189433352,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 4.815265728239931,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 4.003669541802839,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 4.034690675371414,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 3.740105002382776,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 4.593975635749797,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 4.468774826116823,
+        "detection_count": null,
+        "false_root_total": 0
+      },
+      "0.25": {
+        "settings": {
+          "static": true
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "05667b3d025a402f",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 4.153678224548311,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 5.749686254457466,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 4.174849185378248,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 4.563893251576699,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 4.354952644361942,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 4.0502656733760265,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 3.7416277865640373,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 3.941831286488692,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 4.164263704963279,
+        "detection_count": null,
+        "false_root_total": 0
+      }
+    },
+    "small_caster": {
+      "0.0": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "ecc01de07657f033",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 76.56501462370743,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 76.93311769648425,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 77.8564149429249,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 77.7218672968069,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 78.83857193238401,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 75.53441291003342,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 77.37351630693502,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 76.77744181804253,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 77.15331700170964,
+        "detection_count": 8,
+        "false_root_total": 0
+      },
+      "0.25": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "05667b3d025a402f",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 68.8470277642825,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 70.35808393477309,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 71.07343087832413,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 69.26468532049314,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 72.37429400263589,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 69.28701019429641,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 72.23390645559017,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 70.38160638992892,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 70.369845162351,
+        "detection_count": 8,
+        "false_root_total": 0
+      }
+    },
+    "static_jitter": {
+      "0.0": {
+        "settings": {
+          "static": true,
+          "jitter": 0.25
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "ecc01de07657f033",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 27.877201558707426,
+            "detected": null,
+            "false_roots": 4,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 12.182454567981264,
+            "detected": null,
+            "false_roots": 3,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 24.09102561203238,
+            "detected": null,
+            "false_roots": 3,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 14.934311692526041,
+            "detected": null,
+            "false_roots": 6,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 19.76982564016797,
+            "detected": null,
+            "false_roots": 7,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 19.481112797017573,
+            "detected": null,
+            "false_roots": 4,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 24.065560491295514,
+            "detected": null,
+            "false_roots": 4,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 16.335780630253417,
+            "detected": null,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 19.62546921859277,
+        "detection_count": null,
+        "false_root_total": 32
+      },
+      "0.25": {
+        "settings": {
+          "static": true,
+          "jitter": 0.25
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "05667b3d025a402f",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 5.978985470745862,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 8.31505354493295,
+            "detected": null,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 7.236031430368933,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 8.735475478753667,
+            "detected": null,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 8.463689500477846,
+            "detected": null,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 6.133096497818221,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 8.57553152015438,
+            "detected": null,
+            "false_roots": 2,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 6.850443852190208,
+            "detected": null,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 7.775542487650942,
+        "detection_count": null,
+        "false_root_total": 5
+      }
+    },
+    "small_caster_jitter": {
+      "0.0": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6,
+          "jitter": 0.25
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "ecc01de07657f033",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 58.644643177305255,
+            "detected": true,
+            "false_roots": 2,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 70.40703430741847,
+            "detected": true,
+            "false_roots": 2,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 62.7815332600308,
+            "detected": true,
+            "false_roots": 3,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 58.730786206468274,
+            "detected": true,
+            "false_roots": 5,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 77.04729485764449,
+            "detected": true,
+            "false_roots": 6,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 66.0213374343644,
+            "detected": true,
+            "false_roots": 3,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 60.05346300971793,
+            "detected": true,
+            "false_roots": 2,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 62.962072196090375,
+            "detected": true,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 62.87180272806059,
+        "detection_count": 8,
+        "false_root_total": 24
+      },
+      "0.25": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6,
+          "jitter": 0.25
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "05667b3d025a402f",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 61.28613279447203,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 63.850877366397214,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 60.958399739651455,
+            "detected": true,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 55.63842421073165,
+            "detected": true,
+            "false_roots": 2,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 68.13570420717963,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 62.68376988420932,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 61.28282937838826,
+            "detected": true,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 56.586026793329125,
+            "detected": true,
+            "false_roots": 1,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 61.28448108643015,
+        "detection_count": 8,
+        "false_root_total": 5
+      }
+    },
+    "small_caster_narrow_sweep": {
+      "0.0": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6
+        },
+        "frames": 4,
+        "azimuth_span_deg": 160.0,
+        "shadow_config_hash": "ecc01de07657f033",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 52.696680210075634,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 52.26719624223571,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 52.2877833313548,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 54.084648715727056,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 53.9327076538264,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 51.138052210019424,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 54.25368087245469,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 54.61129324412098,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 53.31469393195101,
+        "detection_count": 8,
+        "false_root_total": 0
+      },
+      "0.25": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6
+        },
+        "frames": 4,
+        "azimuth_span_deg": 160.0,
+        "shadow_config_hash": "05667b3d025a402f",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 44.29433717679344,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 44.2208317837008,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 44.04371591221419,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 45.684266215065385,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 46.52931729568692,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 43.65661963521884,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 46.68746891945592,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 48.68040014101971,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 44.98930169592941,
+        "detection_count": 8,
+        "false_root_total": 0
+      }
+    },
+    "small_caster_high_noise": {
+      "0.0": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6,
+          "noise": 0.04
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "ecc01de07657f033",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 22.1398156770109,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 22.696249745408608,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 23.606606440285617,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 23.296668350110362,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 24.414252610331992,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 21.297544958957793,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 22.9483173602385,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 22.352242871346004,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 22.822283552823556,
+        "detection_count": 8,
+        "false_root_total": 0
+      },
+      "0.25": {
+        "settings": {
+          "height": 0.3,
+          "width": 0.6,
+          "noise": 0.04
+        },
+        "frames": 7,
+        "azimuth_span_deg": 310.0,
+        "shadow_config_hash": "05667b3d025a402f",
+        "trials": [
+          {
+            "seed": 1400,
+            "maximum_score": 21.412494836365216,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1401,
+            "maximum_score": 21.525187770524,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1402,
+            "maximum_score": 22.693087866254192,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1403,
+            "maximum_score": 22.08252411054521,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1404,
+            "maximum_score": 23.489339366544765,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1405,
+            "maximum_score": 20.96361820799393,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1406,
+            "maximum_score": 22.056684176318395,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          },
+          {
+            "seed": 1407,
+            "maximum_score": 21.690248066604543,
+            "detected": true,
+            "false_roots": 0,
+            "cells_visited": 16,
+            "cells_assessed": 16
+          }
+        ],
+        "median_maximum_score": 21.87346612146147,
+        "detection_count": 8,
+        "false_root_total": 0
+      }
+    }
+  }
+}

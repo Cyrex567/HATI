@@ -1,0 +1,13 @@
+{
+  "label": "illustrative_limits_not_Athena_specifications",
+  "baselines_m": [16.0, 32.0, 64.0],
+  "footprint_diameter_m": 8.0,
+  "navigation_margin_m": 5.0,
+  "slope_limit_deg": 8.0,
+  "rms_limit_m": 0.5,
+  "relief_limit_m": 1.0,
+  "shadow_score_scale": 8.0,
+  "horizon_distance_m": 400.0,
+  "dem_vertical_sigma_m": 0.5,
+  "horizon_sigma_multiplier": 2.0
+}

@@ -36,3 +36,6 @@ for sigma in 0.25 0.5 1.0; do
 done
 echo "Finished ingestion and v2.5 pilot rankings. Run ID: $RUN"
 echo 'Registration/noise/flat-plane values are assumptions; inspect run.json before interpretation.'
+# The additional DEM-shadow model consumes the products just ingested.
+# Existing users with a completed ingest can run this script directly:
+bash scripts/run_landing_maps_wsl.sh

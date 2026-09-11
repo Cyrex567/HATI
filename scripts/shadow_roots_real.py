@@ -18,8 +18,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from src.hati_core.shadow_likelihood import (
-    ShadowConfig, gaussian_search_calibration, map_sun_azimuth, search_stack)
-from sweep_contract import DEFAULT_BEFORE, PROCESSING_VERSION, predates
+    ShadowConfig, gaussian_search_calibration, search_stack)
+from sweep_contract import DEFAULT_BEFORE
 
 
 def main():
@@ -40,52 +40,12 @@ def main():
     ap.add_argument("--slope-col", type=float, default=0., help="local receiving-plane dz/dcolumn-distance in m/m")
     args = ap.parse_args()
     import rasterio
-    import athena_counterfactual as ac
-    from shadow_kinematics_real import frame_window, geometry_for
-    man = json.loads(args.manifest.read_text())
-    if len(man) < 3 or any(e.get("processing_version") != PROCESSING_VERSION or
-                           not e.get("gate_pass") or not predates(e.get("utc", ""), args.before)
-                           for e in man):
-        sys.exit("requires >=3 audited, pre-cutoff, gate-passing manifest frames")
-    if args.half < 16 or any(args.half > int(e.get("half_px", 0)) for e in man):
-        sys.exit("pilot must fit inside the ingested registration window")
-    # The fitted translation was estimated on each frame's site-centred pixel
-    # window, which is the read convention retained here. It is not proof of
-    # spatially uniform subpixel accuracy inside that window.
-    with rasterio.open(ac.ORTHO_IMG) as reference:
-        rr, cc = ac.ortho_pixel()
-        transform = reference.window_transform(rasterio.windows.Window(
-            cc-args.half, rr-args.half, 2*args.half, 2*args.half))
-        crs = reference.crs
-        sx = np.hypot(transform.a, transform.d)
-        sy = np.hypot(transform.b, transform.e)
-        if not np.isclose(sx, sy) or abs(transform.a*transform.b+transform.d*transform.e) > 1e-8:
-            sys.exit("template geometry requires square orthogonal pixels")
-    frames, azimuths, elevations, provenance = [], [], [], []
-    for e in man:
-        pid = e["pid"]
-        g = geometry_for(pid, ac.TD_LAT, ac.TD_LON, rebuild=False)
-        if g is None or e.get("shift_px") is None:
-            sys.exit(f"missing measured geometry/alignment for {pid}; rebuild on ISIS host")
-        lev2 = Path(e["lev2"])
-        if not lev2.exists():
-            lev2 = args.manifest.parent / lev2.name
-        # Read the same full window used to estimate the shift, then crop. This
-        # avoids introducing fresh interpolation boundaries in the pilot area.
-        half = int(e["half_px"])
-        frame = frame_window(lev2, e["shift_px"], half, ac)
-        if frame is None:
-            sys.exit(f"unreadable projected frame: {pid}")
-        frame = frame[half-args.half:half+args.half, half-args.half:half+args.half]
-        good = np.isfinite(frame) & (frame > 0)
-        if good.mean() < 0.8:
-            sys.exit(f"{pid}: less than 80% positive radiance in pilot; no silent frame dropping")
-        scale = float(np.median(frame[good]))
-        frames.append(np.where(good, frame / scale, np.nan))
-        azimuths.append(map_sun_azimuth(crs, transform, ac.TD_LAT, ac.TD_LON, g["az"]))
-        elevations.append(g["elev"])
-        provenance.append(dict(pid=pid, utc=e["utc"], measured_geometry=g,
-                               normalization_median=scale, shift_px=e["shift_px"]))
+    from sweep_products import load_sweep
+    sweep = load_sweep(args.manifest,args.half,args.before)
+    frames = sweep['stack']
+    azimuths,elevations = sweep['azimuths'].tolist(),sweep['elevations'].tolist()
+    transform,crs,sx = sweep['transform'],sweep['crs'],sweep['pixel_m']
+    provenance = sweep['frames']
     cfg = ShadowConfig(pixel_m=float(sx), psf_sigma_px=args.psf_sigma_px,
                        registration_sigma_px=args.registration_sigma_px,
                        max_candidates=args.max_candidates)
