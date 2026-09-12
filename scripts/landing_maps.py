@@ -13,9 +13,11 @@ import numpy as np
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
 from src.hati_core.landing_terrain import LandingConfig,terrain_assessment,buffer_evidence,fuse_landing
+from src.hati_core import __version__
 from src.hati_core.dem_shadow import predict_visibility
 from src.hati_core.shadow_likelihood import ShadowConfig
 from src.hati_core.regional_shadow import RegionalConfig,assess_regions
+from src.hati_core.warning_attribution import describe_warning
 from sweep_products import load_sweep,load_dem_context,on_reference
 from sweep_contract import DEFAULT_BEFORE
 
@@ -38,7 +40,7 @@ def write_tif(path,array,transform,crs,meaning):
                        dtype='float32',crs=crs,transform=transform,nodata=np.nan,
                        compress='deflate') as dst:
         dst.write(a,1)
-        dst.update_tags(meaning=meaning,software='HATI 2.5.3',index_is_probability='false')
+        dst.update_tags(meaning=meaning,software=f'HATI {__version__}',index_is_probability='false')
 
 
 def counterfactual(maps,status,row,col,*,is_demo=False):
@@ -103,13 +105,13 @@ def make_previews(output,maps,status,pixel,row,col,label):
     for key,a in maps.items():
         fig,ax=plt.subplots(figsize=(7,6))
         im=panel(ax,key,a); fig.colorbar(im,ax=ax,label='Configured index; 0.5 = threshold')
-        fig.suptitle('HATI 2.5.3 | '+label,fontsize=13)
+        fig.suptitle(f'HATI {__version__} | '+label,fontsize=13)
         fig.text(.05,.015,'Grey = unavailable. Low index is not a landing clearance.',fontsize=9)
         fig.tight_layout(rect=(0,.04,1,.94)); fig.savefig(output/(key+'_hazard.png'),dpi=160); plt.close(fig)
     fig,axes=plt.subplots(1,3,figsize=(17,6),layout='constrained')
     for ax,(key,a) in zip(axes,maps.items()): im=panel(ax,key,a)
     fig.colorbar(im,ax=axes,shrink=.72,label='Configured index (not probability)')
-    fig.suptitle('HATI 2.5.3  |  '+label+'\nSeparate modules + conservative fusion; white cross = fixed test location',fontsize=16)
+    fig.suptitle(f'HATI {__version__}  |  '+label+'\nSeparate modules + conservative fusion; white cross = fixed test location',fontsize=16)
     fig.savefig(output/'three_maps.png',dpi=160); plt.close(fig)
     fig,ax=plt.subplots(figsize=(7,6))
     im=ax.imshow(status,vmin=0,vmax=2,cmap=ListedColormap(['#455567','#4cadb8','#e79536']),extent=extent)
@@ -170,7 +172,8 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
         write_tif(output/(name+'_hazard.tif'),a,transform,crs,
                   'Configured regional hazard index, not probability; 0.5 threshold; use observability layers')
     write_tif(output/'fusion_status.tif',status,transform,crs,'0 unknown; 1 both qualified; 2 high evidence incomplete')
-    for key in ('score','required_contrast','common_fraction','status','frame_count','envelope_ok','sensitivity_ok'):
+    for key in ('score','required_contrast','common_fraction','status','frame_count','envelope_ok','sensitivity_ok',
+                'best_root_row_px','best_root_col_px'):
         write_tif(output/('shadow_'+key+'.tif'),regional[key],transform,crs,key+'; conditional template/noise model')
     write_tif(output/'terrain_qualified.tif',tq,transform,crs,'Native footprint resolution and navigation support')
     write_tif(output/'shadow_qualified.tif',sq_buffer,transform,crs,'Buffered model sensitivity and DEM envelope support')
@@ -183,6 +186,11 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
         writer=csv.DictWriter(f,fieldnames=fields); writer.writeheader(); writer.writerows(candidates)
     row,col=sweep.get('test_pixel',(shape[0]/2,shape[1]/2))
     cf=counterfactual(maps,status,row,col,is_demo=is_demo)
+    attribution=describe_warning(maps,regional['score'],regional['status'],regional['common_fraction'],
+        row,col,pixel,shadow_radius,threshold=cfg.shadow_score_scale,
+        root_row=regional['best_root_row_px'],root_col=regional['best_root_col_px'])
+    cf['warning_attribution']=attribution
+    cf['assessment']=attribution['warning_origin'] if maps['fused'][int(row),int(col)]>=.5 else cf['assessment']
     ranking=rank_centres(maps,status,pixel,transform,cfg)
     with (output/'site_ranking.csv').open('w',newline='',encoding='utf-8') as f:
         names=['row_px','col_px','x_m','y_m','terrain_index','shadow_index','nominal_maximum_index',
@@ -190,7 +198,7 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
         writer=csv.DictWriter(f,fieldnames=names); writer.writeheader(); writer.writerows(ranking)
     label='SYNTHETIC DEMONSTRATION' if is_demo else 'ATHENA / PRELANDING RESEARCH'
     make_previews(output,maps,status,pixel,row,col,label)
-    report=dict(version='2.5.3',status='experimental_unvalidated',demo=is_demo,landing=asdict(cfg),
+    report=dict(version=__version__,status='experimental_unvalidated',demo=is_demo,landing=asdict(cfg),
         landing_config_hash=cfg.hash(),shadow_configuration=regional['configuration'],
         shadow_config_hash=regional['config_hash'],frames=sweep.get('frames',[]),
         azimuths_map=sweep['azimuths'],elevations=sweep['elevations'],crs=crs.to_wkt(),transform=list(transform),
@@ -219,6 +227,7 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
             'Low module indices are descriptive; fused low indices require the recorded model qualifications.'])
     (output/'run.json').write_text(json.dumps(clean_json(report),indent=2,allow_nan=False),encoding='utf-8')
     (output/'counterfactual.json').write_text(json.dumps(cf,indent=2,allow_nan=False),encoding='utf-8')
+    (output/'warning_attribution.json').write_text(json.dumps(clean_json(attribution),indent=2,allow_nan=False),encoding='utf-8')
     print(f'Saved three separate heatmaps and fusion to {output}',flush=True)
     print(f'Fixed-location result: {cf["assessment"]}; common qualified area {cf["eligible_common_fraction"]:.1%}',flush=True)
     return report
@@ -268,7 +277,8 @@ def main():
     from importlib.metadata import version
     source_files=['scripts/landing_maps.py','scripts/sweep_products.py','scripts/shadow_kinematics_real.py',
                   'src/hati_core/landing_terrain.py','src/hati_core/dem_shadow.py',
-                  'src/hati_core/regional_shadow.py','src/hati_core/shadow_likelihood.py']
+                  'src/hati_core/regional_shadow.py','src/hati_core/shadow_likelihood.py',
+                  'src/hati_core/warning_attribution.py']
     provenance=dict(revision=rev.stdout.strip(),arguments=vars(args),
                     source_sha256={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in source_files},
                     python_version=sys.version,packages={p:version(p) for p in ('numpy','scipy','rasterio','pyproj','matplotlib')},

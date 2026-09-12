@@ -104,7 +104,7 @@ class RegistrationProjector(NuisanceProjector):
     static albedo. This marginalizes a Gaussian displacement approximation;
     it cannot repair wrong registration peaks or large nonlinear displacements.
     """
-    def __init__(self,common,sigma,static_image,registration_sigma_px):
+    def __init__(self,common,sigma,static_image,registration_sigma_px,*,albedo_gain=False):
         super().__init__(common,sigma)
         if not np.isfinite(registration_sigma_px) or registration_sigma_px<0:
             raise ValueError('registration sigma must be finite and nonnegative')
@@ -113,6 +113,15 @@ class RegistrationProjector(NuisanceProjector):
         static = np.asarray(static_image,float)
         if static.shape != common.shape or not np.isfinite(static).all():
             raise ValueError('static covariance reference must be finite and match the patch')
+        # Optional diagnostic null: each frame may scale a frozen reference
+        # texture as well as add a brightness plane. Project both hypotheses
+        # identically; never subtract this nuisance from data alone.
+        if albedo_gain:
+            texture=static[self.common]
+            texture=texture-self.q@(self.q.T@texture)
+            norm=np.linalg.norm(texture)
+            if norm>1e-10:
+                self.q=np.column_stack([self.q,texture/norm])
         gr,gc = np.gradient(ndi.gaussian_filter(static,.6))
         g = np.stack([gr[common],gc[common]],axis=1)*registration_sigma_px/self.sigma[0]
         g -= self.q@(self.q.T@g)

@@ -71,7 +71,8 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
     offsets = np.arange(cfg.cell_px)-(cfg.cell_px-1)/2
     bank_cache = OrderedDict()
     fields = {key:np.full((h,w),np.nan) for key in (
-        'score','index','required_contrast','common_fraction','slope_row','slope_col')}
+        'score','index','required_contrast','common_fraction','slope_row','slope_col',
+        'best_root_row_px','best_root_col_px')}
     status = np.zeros((h,w),dtype='uint8')
     # 0 unvisited/border, 1 assessed, 2 unavailable, 3 nonidentifiable
     frames_map = np.zeros((h,w),dtype='uint8')
@@ -164,6 +165,8 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                     scores=np.where(eligible,np.sqrt(improvement),-np.inf)
                     best=int(np.argmax(scores))
                     score=float(scores[best]); param=parameters[best]
+                    fields['best_root_row_px'][out]=cr+param[0]
+                    fields['best_root_col_px'][out]=cc+param[1]
                     # Model sensitivity for the smallest template, worst sampled
                     # root position. This is an expected signal calculation,
                     # not a recovered-object completeness estimate.

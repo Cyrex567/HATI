@@ -1,7 +1,8 @@
 # HATI v2.5 lunar polar hazard sensing
 
-The current scientific path (core 2.5.3) produces separate terrain and multi-illumination shadow heatmaps, a conservative fused map, and observability layers. Native DEM plane/relief measurements and downstream DEM shadow prediction complement an uncapped regional shadow search. It uses no trained model weights. The target is subpixel relief sensing poleward of 70 degrees; lunar detection performance and landing clearance remain unvalidated.
+The current scientific path (core 2.5.4) produces separate terrain and multi-illumination shadow heatmaps, a conservative fused map, and observability layers. Native DEM plane/relief measurements and downstream DEM shadow prediction complement an uncapped regional shadow search. It uses no trained model weights. The target is subpixel relief sensing poleward of 70 degrees; lunar detection performance and landing clearance remain unvalidated.
 
+- [Real-run warning attribution and shadow diagnostics (2.5.4)](Documents/V254_DIAGNOSTICS.md)
 - [Three-map development, evidence and stationary-machine runbook](Documents/V253_LANDING_MAPS.md)
 - [Previous scientific release assessment (2.5.2)](Documents/V25_RELEASE.md)
 - [Adversarial audit and reproduced defects](Documents/AUDIT_2026-09-09.md)

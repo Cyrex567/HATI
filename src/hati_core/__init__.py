@@ -38,7 +38,7 @@ from src.heatmap import fusion as _fusion
 __all__ = ["Config", "channels", "gate", "fuse", "fit_baseline",
            "SURVIVING_CHANNELS", "CROSS_SITE_AUC", "__version__"]
 
-__version__ = "2.5.3"
+__version__ = "2.5.4"
 
 #: The channels that survived the cross-site control (mare_control_v3, 2026-06-15).
 #: Everything else scored below chance between sites and was removed.

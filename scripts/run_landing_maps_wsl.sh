@@ -7,7 +7,7 @@ mkdir -p logs
 RUN=$(date -u +%Y%m%dT%H%M%SZ)
 git rev-parse HEAD | tee "logs/landing-maps-revision-$RUN.txt"
 python -m pip freeze > "logs/landing-maps-python-$RUN.txt"
-for test in channels footprint coreg kinematics audit_regressions shadow_likelihood landing_maps; do
+for test in channels footprint coreg kinematics audit_regressions shadow_likelihood landing_maps shadow_diagnostics; do
   python "tests/test_$test.py" 2>&1 | tee "logs/test-$test-$RUN.log"
 done
 # These are sensitivity assumptions, NOT measurements of local registration.
