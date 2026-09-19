@@ -18,6 +18,8 @@ from src.hati_core.dem_shadow import predict_visibility
 from src.hati_core.shadow_likelihood import ShadowConfig
 from src.hati_core.regional_shadow import RegionalConfig,assess_regions
 from src.hati_core.warning_attribution import describe_warning
+from src.hati_core.root_footprint import buffer_roots
+from src.hati_core.scene_diagnostics import SceneConfig,broad_dark_discrepancy,local_registration
 from sweep_products import load_sweep,load_dem_context,on_reference
 from sweep_contract import DEFAULT_BEFORE
 
@@ -95,7 +97,7 @@ def make_previews(output,maps,status,pixel,row,col,label):
     h,w=next(iter(maps.values())).shape
     extent=(-col*pixel,(w-col)*pixel,(row-h)*pixel,row*pixel)
     cmap=plt.get_cmap('YlOrRd').copy(); cmap.set_bad('#455567')
-    titles={'terrain':'Terrain / fitted plane','shadow':'Shadow sweep / regional evidence','fused':'Fused / qualified evidence'}
+    titles={'terrain':'Terrain / fitted plane','shadow':'Shadow sweep / sampled-root evidence','fused':'Fused / see observability'}
     def panel(ax,key,a):
         im=ax.imshow(a,vmin=0,vmax=1,cmap=cmap,extent=extent,interpolation='nearest')
         ax.scatter([0],[0],marker='+',s=160,c='white',linewidths=2)
@@ -120,7 +122,7 @@ def make_previews(output,maps,status,pixel,row,col,label):
     fig.tight_layout(); fig.savefig(output/'observability.png',dpi=160); plt.close(fig)
 
 
-def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=False,provenance=None):
+def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=False,provenance=None,scene_cfg=None):
     started=time.monotonic(); output=Path(output); output.mkdir(parents=True,exist_ok=True)
     transform,crs=sweep['transform'],sweep['crs']; shape=sweep['stack'].shape[1:]; pixel=sweep['pixel_m']
     def project(a): return on_reference(a,context,transform,crs,shape,nearest=True)
@@ -154,14 +156,20 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
             slope_row=project(primary['slope_row']),slope_col=project(primary['slope_col']),progress=progress)
     terrain_index,terrain_complete=buffer_evidence(project(terrain['score']),pixel,cfg.navigation_margin_m)
     shadow_radius=cfg.footprint_diameter_m/2+cfg.navigation_margin_m
-    shadow_index,shadow_complete=buffer_evidence(regional['index'],pixel,shadow_radius)
+    footprint=buffer_roots(regional['root_evidence'],regional['status']==1,pixel,shadow_radius,cfg.shadow_score_scale)
+    shadow_index,shadow_complete=footprint['index'],footprint['complete']
+    scene_cfg=scene_cfg or SceneConfig()
+    discrepancy=broad_dark_discrepancy(sweep['stack'],np.asarray(nominal),scene_cfg)
+    registration=local_registration(sweep['stack'],sweep['azimuths'],sweep['elevations'],scene_cfg)
+    # Broad unexplained darkness blocks a low-evidence interpretation. It does
+    # not become a calibrated hazard or erase an existing high warning.
+    model_support=discrepancy['assessed'] & ~discrepancy['flag']
     # Separate maps retain measured evidence. Only qualified low evidence can
     # enter fusion. Strong evidence remains an exclusion even with missing data.
     tq=terrain_complete & terrain['footprint_resolved']
-    sq=regional['sensitivity_ok']&regional['envelope_ok']&(regional['status']==1)
-    qualified_shadow=np.where(sq|(regional['index']>=.5),regional['index'],np.nan)
-    qualified_shadow,_=buffer_evidence(qualified_shadow,pixel,shadow_radius)
+    sq=regional['sensitivity_ok']&regional['envelope_ok']&(regional['status']==1)&model_support
     _,sq_buffer=buffer_evidence(np.where(sq,0.,np.nan),pixel,shadow_radius)
+    qualified_shadow=np.where(sq_buffer|(shadow_index>=.5),shadow_index,np.nan)
     qualified_terrain=np.where(tq|(terrain_index>=.5),terrain_index,np.nan)
     fused,status=fuse_landing(qualified_terrain,qualified_shadow)
     # An available high value does not itself establish complete assessment.
@@ -173,8 +181,16 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
                   'Configured regional hazard index, not probability; 0.5 threshold; use observability layers')
     write_tif(output/'fusion_status.tif',status,transform,crs,'0 unknown; 1 both qualified; 2 high evidence incomplete')
     for key in ('score','required_contrast','common_fraction','status','frame_count','envelope_ok','sensitivity_ok',
-                'best_root_row_px','best_root_col_px'):
+                'best_root_row_px','best_root_col_px','null_energy_per_dof','best_contrast','endpoint_censored'):
         write_tif(output/('shadow_'+key+'.tif'),regional[key],transform,crs,key+'; conditional template/noise model')
+    np.savez_compressed(output/'shadow_root_evidence.npz',roots=regional['root_evidence'])
+    for key in ('root_row','root_col','score'):
+        write_tif(output/f'shadow_buffer_{key}.tif',footprint[key],transform,crs,
+                  'Controlling sampled root at its true distance from output pixel centre; no cell replication')
+    for key in ('flag','assessed','fraction','discrepant_frames','lit_frames'):
+        write_tif(output/f'scene_dark_{key}.tif',discrepancy[key],transform,crs,
+                  'Broad dark structure despite nominal DEM illumination; possible albedo/relief/registration discrepancy, not object identification')
+    (output/'local_registration.json').write_text(json.dumps(clean_json(registration),indent=2,allow_nan=False),encoding='utf-8')
     write_tif(output/'terrain_qualified.tif',tq,transform,crs,'Native footprint resolution and navigation support')
     write_tif(output/'shadow_qualified.tif',sq_buffer,transform,crs,'Buffered model sensitivity and DEM envelope support')
     candidates=regional['candidates']
@@ -188,7 +204,12 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
     cf=counterfactual(maps,status,row,col,is_demo=is_demo)
     attribution=describe_warning(maps,regional['score'],regional['status'],regional['common_fraction'],
         row,col,pixel,shadow_radius,threshold=cfg.shadow_score_scale,
-        root_row=regional['best_root_row_px'],root_col=regional['best_root_col_px'])
+        root_row=regional['best_root_row_px'],root_col=regional['best_root_col_px'],
+        buffered_source=footprint)
+    attribution['scene_discrepancy_at_sampled_pixel']=dict(
+        broad_dark_flag=bool(discrepancy['flag'][int(row),int(col)]),
+        assessed=bool(discrepancy['assessed'][int(row),int(col)]),
+        meaning='Image/DEM discrepancy diagnostic; absence is not proof of model adequacy')
     cf['warning_attribution']=attribution
     cf['assessment']=attribution['warning_origin'] if maps['fused'][int(row),int(col)]>=.5 else cf['assessment']
     ranking=rank_centres(maps,status,pixel,transform,cfg)
@@ -206,6 +227,12 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
         image_posting_m=pixel,dem_posting_m=context['pixel_m'],dem_source=context['source'],
         dem_halo_m=context['halo_m'],effective_terrain_diameter_m=terrain['effective_diameter_m'],
         footprint_resolved=terrain['footprint_resolved'],cells_visited=regional['cells_visited'],
+        shadow_buffer_method='all_sampled_roots_exact_distance_v1',
+        scene_diagnostics=dict(configuration=asdict(scene_cfg),
+            assessed_fraction=float(discrepancy['assessed'].mean()),
+            broad_dark_flag_fraction=float(discrepancy['flag'].mean()),
+            normalization_medians=discrepancy['normalization_medians'],
+            interpretation='Broad image/DEM discrepancy blocks qualified low shadow evidence; no object classification or calibrated model adequacy.'),
         cells_assessed=regional['cells_assessed'],candidate_count=len(candidates),search_truncated=False,
         coverage={k:float(np.isfinite(a).mean()) for k,a in maps.items()},
         fusion_status_fractions={str(i):float((status==i).mean()) for i in range(3)},counterfactual=cf,
@@ -223,6 +250,8 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
             'Sensitivity is expected template signal under assumed noise, not injection-recovery completeness.',
             'First-order albedo-gradient covariance does not repair incorrect or spatially varying registration.',
             'Footprint and navigation buffers use map metres and discrete pixel-centre disks.',
+            'Shadow maxima use every sampled root at exact distance; unsampled positions and unresolved extent are not completeness guarantees.',
+            'Broad-darkness diagnostics can respond to albedo, unresolved terrain modelling or registration; absence is not model validation.',
             'No global multiple-search false-alarm or empirical detection calibration is claimed.',
             'Low module indices are descriptive; fused low indices require the recorded model qualifications.'])
     (output/'run.json').write_text(json.dumps(clean_json(report),indent=2,allow_nan=False),encoding='utf-8')
@@ -253,10 +282,11 @@ def demo_inputs():
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--manifest',type=Path,default=ROOT/'data/sweep/manifest.json')
-    ap.add_argument('--output',type=Path,default=ROOT/'output/athena/landing_maps_v253')
+    ap.add_argument('--output',type=Path,default=ROOT/'output/athena/landing_maps_v255')
     ap.add_argument('--before',default=DEFAULT_BEFORE)
     ap.add_argument('--half',type=int,default=256,help='half-width within already ingested window; systematic within this region')
     ap.add_argument('--config',type=Path,help='JSON object of LandingConfig fields')
+    ap.add_argument('--scene-config',type=Path,help='JSON SceneConfig research settings; saved in run provenance')
     ap.add_argument('--registration-sigma-px',type=float,required=True)
     ap.add_argument('--noise-sigma',type=float,default=.03)
     ap.add_argument('--demo',action='store_true',help='synthetic offline exercise; no real-site inference')
@@ -278,12 +308,14 @@ def main():
     source_files=['scripts/landing_maps.py','scripts/sweep_products.py','scripts/shadow_kinematics_real.py',
                   'src/hati_core/landing_terrain.py','src/hati_core/dem_shadow.py',
                   'src/hati_core/regional_shadow.py','src/hati_core/shadow_likelihood.py',
-                  'src/hati_core/warning_attribution.py']
+                  'src/hati_core/warning_attribution.py','src/hati_core/root_footprint.py',
+                  'src/hati_core/scene_diagnostics.py']
     provenance=dict(revision=rev.stdout.strip(),arguments=vars(args),
                     source_sha256={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in source_files},
                     python_version=sys.version,packages={p:version(p) for p in ('numpy','scipy','rasterio','pyproj','matplotlib')},
                     manifest_sha256=None if args.demo else hashlib.sha256(args.manifest.read_bytes()).hexdigest())
-    run(sweep,context,args.output,cfg,sc,rc,args.noise_sigma,is_demo=args.demo,provenance=provenance)
+    scene_cfg=SceneConfig(**json.loads(args.scene_config.read_text())) if args.scene_config else SceneConfig()
+    run(sweep,context,args.output,cfg,sc,rc,args.noise_sigma,is_demo=args.demo,provenance=provenance,scene_cfg=scene_cfg)
 
 
 if __name__=='__main__': main()

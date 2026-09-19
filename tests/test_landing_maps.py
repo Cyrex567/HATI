@@ -121,6 +121,10 @@ class LandingTests(unittest.TestCase):
                 contrast=np.clip(-inner/energy,0,1)
                 scores.append(np.sqrt(max(0,-2*contrast*inner-contrast**2*energy)))
         self.assertAlmostEqual(out['score'][12,12],max(scores),places=6)
+        saved=out['root_evidence']
+        first=saved[(saved[:,0]>=12.5)&(saved[:,0]<=15.5)&(saved[:,1]>=12.5)&(saved[:,1]<=15.5)]
+        first=first[np.lexsort((first[:,1],first[:,0]))]
+        np.testing.assert_allclose(first[:,2],scores,atol=1e-6)
 
     def test_counterfactual_keeps_ties_and_unknown(self):
         from landing_maps import counterfactual
@@ -153,6 +157,10 @@ class LandingTests(unittest.TestCase):
             report=compare(folders,root/'comparison')
             self.assertEqual(report['threshold_disagreement_fraction'],1)
             self.assertEqual(report['candidate_spatial_comparisons'][0]['first_with_neighbour_in_second'],0)
+            changed=json.loads((folders[1]/'run.json').read_text())
+            changed['shadow_buffer_method']='all_sampled_roots_exact_distance_v1'
+            (folders[1]/'run.json').write_text(json.dumps(changed))
+            with self.assertRaises(ValueError):compare(folders,root/'mixed-comparison')
 
     def test_translated_radiance_does_not_accept_nodata_blends(self):
         import rasterio
@@ -239,6 +247,10 @@ class LandingTests(unittest.TestCase):
                 self.assertTrue((folder/'out'/(name+'_hazard.png')).exists())
             self.assertTrue((folder/'out/three_maps.png').exists())
             self.assertTrue((folder/'out/site_ranking.csv').exists())
+            self.assertTrue((folder/'out/shadow_root_evidence.npz').exists())
+            self.assertTrue((folder/'out/scene_dark_flag.tif').exists())
+            self.assertTrue((folder/'out/local_registration.json').exists())
+            self.assertEqual(report['shadow_buffer_method'],'all_sampled_roots_exact_distance_v1')
 
 
 if __name__=='__main__': unittest.main()

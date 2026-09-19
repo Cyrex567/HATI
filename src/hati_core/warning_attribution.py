@@ -4,7 +4,7 @@ import numpy as np
 
 def describe_warning(maps,raw_score,raw_status,common_fraction,row,col,pixel_m,radius_m,
                      *,threshold=8.,required_common=.8,candidates=(),root_row=None,root_col=None,
-                     cell_px=4,patch_radius=12):
+                     cell_px=4,patch_radius=12,buffered_source=None):
     shape=raw_score.shape
     rr,cc=int(np.floor(row)),int(np.floor(col))
     if not (0<=rr<shape[0] and 0<=cc<shape[1]):
@@ -56,6 +56,21 @@ def describe_warning(maps,raw_score,raw_status,common_fraction,row,col,pixel_m,r
     result['buffer']=dict(nominal_radius_m=radius_m,
         meaning='Disk centred on sampled map pixel, applied to four-pixel regional maxima; not an exact root-distance test',
         cell_diagonal_m=float(np.sqrt(2)*cell_px*pixel_m))
+    if buffered_source is not None:
+        result['source']=None
+        sr,sc,maximum=(float(buffered_source[k][rr,cc]) for k in ('root_row','root_col','score'))
+        if np.isfinite([sr,sc,maximum]).all():
+            distance=float(np.hypot(sr-rr,sc-cc)*pixel_m)
+            test_distance=float(np.hypot(sr+.5-row,sc+.5-col)*pixel_m)
+            result['source']=dict(score=maximum,regional_index=maximum/(maximum+threshold),
+                root_resolution='all sampled roots, exact disk at sampled map centre',
+                root=dict(row_px=sr,col_px=sc,distance_from_test_location_m=test_distance,
+                          within_nominal_radius=bool(test_distance<=radius_m+1e-10),
+                          distance_from_sampled_map_centre_m=distance,
+                          within_map_disk=bool(distance<=radius_m+1e-10)))
+        result['buffer'].update(meaning='Maximum over all sampled roots inside the exact disk centred on the sampled map pixel; no cell replication.',
+            sampled_map_centre_row_px=rr+.5,sampled_map_centre_col_px=cc+.5,
+            test_to_map_centre_distance_m=float(np.hypot(rr+.5-row,cc+.5-col)*pixel_m))
     result['warning_origin']='unavailable'
     if maps['fused'][rr,cc]>=.5:
         result['warning_origin']='regional_warning_direct_cell_unassessed' if raw_status[rr,cc]!=1 and maps['shadow'][rr,cc]>=.5 else 'configured_regional_warning'

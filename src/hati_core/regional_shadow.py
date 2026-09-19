@@ -72,13 +72,13 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
     bank_cache = OrderedDict()
     fields = {key:np.full((h,w),np.nan) for key in (
         'score','index','required_contrast','common_fraction','slope_row','slope_col',
-        'best_root_row_px','best_root_col_px')}
+        'best_root_row_px','best_root_col_px','null_energy_per_dof','best_contrast','endpoint_censored')}
     status = np.zeros((h,w),dtype='uint8')
     # 0 unvisited/border, 1 assessed, 2 unavailable, 3 nonidentifiable
     frames_map = np.zeros((h,w),dtype='uint8')
     envelope_ok = np.zeros((h,w),bool)
     sensitivity_ok = np.zeros((h,w),bool)
-    roots=[]
+    roots=[]; sampled_roots=[]
     cell_count=assessed=0
     def bank(selected,slopes):
         key=(tuple(selected),*slopes)
@@ -163,10 +163,21 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                     contrast=np.clip(-inner/np.maximum(energy,1e-30),0,shadow_cfg.max_contrast)
                     improvement=np.maximum(0,-2*contrast*inner-contrast**2*energy)
                     scores=np.where(eligible,np.sqrt(improvement),-np.inf)
+                    # Retain the best template at EVERY sampled root, before
+                    # cell maxima or candidate deduplication. Footprints must
+                    # not borrow the cell winner from outside their radius.
+                    root_scores=scores.reshape(cfg.cell_px**2,-1).max(axis=1)
+                    for (dy,dx),root_score in zip(((dy,dx) for dy in offsets for dx in offsets),root_scores):
+                        if np.isfinite(root_score):
+                            sampled_roots.append((cr+dy,cc+dx,float(root_score)))
                     best=int(np.argmax(scores))
                     score=float(scores[best]); param=parameters[best]
                     fields['best_root_row_px'][out]=cr+param[0]
                     fields['best_root_col_px'][out]=cc+param[1]
+                    dof=(len(selected)-1)*(common.sum()-projector.q.shape[1])
+                    fields['null_energy_per_dof'][out]=float(np.sum(residual**2)/max(dof,1))
+                    fields['best_contrast'][out]=contrast[best]
+                    fields['endpoint_censored'][out]=float(param[4])
                     # Model sensitivity for the smallest template, worst sampled
                     # root position. This is an expected signal calculation,
                     # not a recovered-object completeness estimate.
@@ -202,6 +213,7 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
             buckets.setdefault(key,[]).append(root)
     payload=dict(regional=asdict(cfg),shadow=asdict(shadow_cfg),noise_sigma=float(sigma))
     return dict(**fields,status=status,frame_count=frames_map,envelope_ok=envelope_ok,
+                root_evidence=np.asarray(sampled_roots,float).reshape(-1,3),
                 sensitivity_ok=sensitivity_ok,candidates=distinct,cells_visited=cell_count,
                 cells_assessed=assessed,search_truncated=False,configuration=payload,
                 config_hash=hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()[:16])

@@ -31,9 +31,12 @@ def inspect_run(folder):
     with (folder/'candidates.csv').open() as f: candidates=list(csv.DictReader(f))
     roots={k:read('shadow_best_root_'+k+'_px') if (folder/('shadow_best_root_'+k+'_px.tif')).exists() else None for k in ('row','col')}
     cf=run['counterfactual']; cfg=run['landing']
+    buffered=None
+    if run.get('shadow_buffer_method')=='all_sampled_roots_exact_distance_v1':
+        buffered={k:read('shadow_buffer_'+k) for k in ('root_row','root_col','score')}
     report=describe_warning(maps,raw,status,common,cf['row_px'],cf['col_px'],run['image_posting_m'],
         cfg['footprint_diameter_m']/2+cfg['navigation_margin_m'],threshold=cfg['shadow_score_scale'],
-        candidates=candidates,root_row=roots['row'],root_col=roots['col'])
+        candidates=candidates,root_row=roots['row'],root_col=roots['col'],buffered_source=buffered)
     report['qualification']=dict(footprint_resolved=run['footprint_resolved'],
         shadow_envelope_qualified_fraction=float(np.mean(read('shadow_envelope_ok')>=1)),
         both_modules_qualified_fraction=float(np.mean(read('fusion_status')==1)))

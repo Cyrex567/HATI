@@ -23,8 +23,11 @@ def compare(folders,output):
             roots.append(np.array([[float(r['row_px']),float(r['col_px'])] for r in csv.DictReader(f)]).reshape(-1,2))
     # Geometry, radiometry and masks must represent the same input window.
     if any(r.get('provenance',{}).get('manifest_sha256')!=runs[0].get('provenance',{}).get('manifest_sha256')
-           or r.get('landing_config_hash')!=runs[0].get('landing_config_hash') for r in runs[1:]):
-        raise ValueError('comparison requires matching manifest and landing configuration')
+           or r.get('landing_config_hash')!=runs[0].get('landing_config_hash')
+           or r.get('shadow_buffer_method')!=runs[0].get('shadow_buffer_method')
+           or r.get('scene_diagnostics',{}).get('configuration')!=runs[0].get('scene_diagnostics',{}).get('configuration')
+           for r in runs[1:]):
+        raise ValueError('comparison requires matching manifest, landing configuration, buffer method and scene settings')
     stack=np.array(arrays); common=np.isfinite(stack).all(axis=0)
     span=np.where(common,np.max(stack,axis=0)-np.min(stack,axis=0),np.nan)
     disagreement=np.where(common,(np.any(stack>=.5,axis=0)&~np.all(stack>=.5,axis=0)).astype(float),np.nan)
