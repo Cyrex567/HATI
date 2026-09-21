@@ -1,6 +1,6 @@
 # Sequential saturation campaign
 
-The runner follows T1-T8 in `Documents/report/HATI_saturation_analysis.pdf`. It executes all ten offline software suites first, then the map replay and scientific stages one at a time. It uses the verified diagnostic ZIP already produced on the stationary machine. It does not download images, call ISIS, change the saved inputs or tune production thresholds. Numerical computation currently uses CPU NumPy/SciPy, including when run on the GPU workstation.
+The runner follows T1-T8 in `Documents/report/HATI_saturation_analysis.pdf`. It executes all offline software suites first, then the map replay and scientific stages one at a time. It uses the verified diagnostic ZIP already produced on the stationary machine. It does not download images, call ISIS, change the saved inputs or tune production thresholds. Numerical computation currently uses CPU NumPy/SciPy, including when run on the GPU workstation.
 
 ## Run on the stationary WSL machine
 
@@ -23,6 +23,29 @@ Do not run this in a `set -e` chain that treats all nonzero results as missing o
 
 The campaign includes a full regional baseline, every leave-one-frame-out replay, two declared frame-group removals, three full geometry reassignments, an expanded-width regional replay and independent synthetic controls for those variants. Allow a long workstation session. No local timing estimate is used as a promise for another machine.
 
+### Denser workstation campaign
+
+For the eight-frame Athena stack, add `--config configs/saturation_campaign_workstation.json` and use a new output directory, for example `output/athena/saturation_campaign/athena-watch-01`. The denser preset changes diagnostic coverage:
+
+| Measurement | Standard | Workstation |
+|---|---:|---:|
+| Synthetic locations | 3 | 9 |
+| Noise seeds per location | 4 | 8 |
+| Trials per synthetic scenario and variant, before exclusions | 12 | 72 |
+| Nonidentity cyclic geometry shifts | 3 | 7 |
+| Height grid values | 9 | 17 |
+| Height-profile sampling step | 64 px | 32 px |
+| Registration tile sizes | 64, 96, 128 px | 48, 64, 96, 128, 192 px |
+| Planted integer shifts per eligible pair and tile size | 3 | 7 |
+
+The production search grid, score threshold and held-out acceptance criteria stay fixed. The height profile is a diagnostic grid; it does not replace the production height bank. Trials with unavailable support remain recorded as unavailable. Locations share one scene and can overlap; seeds repeat deliberately across matched variants. Treat these as conditional stress trials, not independent lunar validation scenes. Seven cyclic shifts exhaust the nonidentity cyclic shifts of eight frames, not all frame permutations.
+
+These workers use one numerical thread and run sequentially for reproducibility. They do not use GPU VRAM. The preset spends more time on checks rather than changing numerical execution order. It can take substantially longer; a runtime estimate requires timing it on the workstation. No award, detection rate or mission-loss reduction follows from a larger test count alone.
+
+### Watch the run
+
+In a second WSL terminal, run `python dashboard/hati_watch.py --run-dir output/athena/saturation_campaign/athena-watch-01`, using the exact campaign output directory. Open `http://localhost:8765` in the stationary machine's browser. [HATI Watch instructions](HATI_WATCH.md) describe the images, intermediate calculations, maps and saved-stage inspection. Watching is optional and cannot control the computation.
+
 ## Resume after interruption
 
 Run the same command with the same output directory and add `--resume`. Inputs, configuration, Python/platform and scientific source hashes must match. Completed stage artifacts are hash-checked before reuse; completed regional subruns are also reusable inside an interrupted stage. Failed steps rerun. Changed inputs or code require a new output directory. Missing external data can be added to a new campaign, with a new frozen configuration.
@@ -43,6 +66,7 @@ The archive contains:
 - Raw regional arrays, root coordinates and scores, signed candidate frame contributions, complete cell height/width profiles, paired comparisons, synthetic-control records and local registration outputs under the corresponding test folders.
 - A log for every software suite and scientific stage, including errors.
 - The frozen campaign configuration, verified source input ZIP, software environment and source snapshot under `inputs/`.
+- The final display snapshots and source-frame previews under `live/`. These are rounded or subsampled display products; use stage arrays for numerical analysis. The source snapshot includes the watch server and its assets.
 
 ## What each stage measures
 

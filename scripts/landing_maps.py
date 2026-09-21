@@ -122,13 +122,18 @@ def make_previews(output,maps,status,pixel,row,col,label):
     fig.tight_layout(); fig.savefig(output/'observability.png',dpi=160); plt.close(fig)
 
 
-def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=False,provenance=None,scene_cfg=None):
+def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=False,provenance=None,scene_cfg=None,live=None):
     started=time.monotonic(); output=Path(output); output.mkdir(parents=True,exist_ok=True)
     transform,crs=sweep['transform'],sweep['crs']; shape=sweep['stack'].shape[1:]; pixel=sweep['pixel_m']
     def project(a): return on_reference(a,context,transform,crs,shape,nearest=True)
     print('Measuring native-posting DEM planes and relief',flush=True)
     terrain=terrain_assessment(context['dem'],context['pixel_m'],cfg)
     primary=terrain['primary']
+    if live:
+        live.terrain(terrain, cfg, context['pixel_m'], project,
+                     sweep.get('test_pixel',(shape[0]/2,shape[1]/2)))
+        live.field('Terrain slope (degrees)', project(primary['slope_deg']),
+                   native_posting_m=context['pixel_m'], diameter_m=terrain['effective_diameter_m'])
     for diameter,metrics in terrain['measurements'].items():
         for key,a in metrics.items():
             if isinstance(a,np.ndarray):
@@ -141,6 +146,9 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
                 vertical_sigma_m=cfg.dem_vertical_sigma_m,sigma_multiplier=cfg.horizon_sigma_multiplier,
                 solar_radius_deg=shadow_cfg.solar_radius_deg)
         nominal.append(project(prediction['visible'])); conservative.append(project(prediction['visible_conservative']))
+        if live:
+            live.field('Predicted DEM illumination', nominal[-1], frame=i, azimuth_deg=float(az),
+                       elevation_deg=float(el), frames_done=i+1, frames_total=len(sweep['stack']))
         for key,a in prediction.items():
             if isinstance(a,np.ndarray):
                 write_tif(output/f'dem_frame_{i:02d}_{key}.tif',project(a),transform,crs,
@@ -153,7 +161,8 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
             last[0]=time.monotonic()
     regional=assess_regions(sweep['stack'],sweep['azimuths'],sweep['elevations'],noise_sigma,
             shadow_cfg,regional_cfg,visible=np.asarray(nominal),conservative_visible=np.asarray(conservative),
-            slope_row=project(primary['slope_row']),slope_col=project(primary['slope_col']),progress=progress)
+            slope_row=project(primary['slope_row']),slope_col=project(primary['slope_col']),progress=progress,
+            observer=(lambda info: live.regional(info, 'three-map shadow search')) if live else None)
     terrain_index,terrain_complete=buffer_evidence(project(terrain['score']),pixel,cfg.navigation_margin_m)
     shadow_radius=cfg.footprint_diameter_m/2+cfg.navigation_margin_m
     footprint=buffer_roots(regional['root_evidence'],regional['status']==1,pixel,shadow_radius,cfg.shadow_score_scale)
@@ -176,6 +185,8 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
     both_qualified=tq & sq_buffer
     status=np.where(both_qualified&np.isfinite(fused),1,np.where(fused>=.5,2,0)).astype('uint8')
     maps=dict(terrain=terrain_index,shadow=shadow_index,fused=fused)
+    if live:
+        live.field('Fused hazard index', fused, qualified_fraction=float(both_qualified.mean()))
     for name,a in maps.items():
         write_tif(output/(name+'_hazard.tif'),a,transform,crs,
                   'Configured regional hazard index, not probability; 0.5 threshold; use observability layers')

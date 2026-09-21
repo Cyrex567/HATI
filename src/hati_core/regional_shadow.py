@@ -39,7 +39,7 @@ class RegionalConfig:
 
 def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,*,
                    visible=None,conservative_visible=None,slope_row=None,slope_col=None,
-                   progress=None, frame_indices=None, audit_callback=None):
+                   progress=None, frame_indices=None, audit_callback=None, observer=None):
     cfg = regional_cfg or RegionalConfig()
     stack = np.asarray(stack,float)
     azimuths,elevations = np.asarray(azimuths,float),np.asarray(elevations,float)
@@ -85,6 +85,7 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
     sensitivity_ok = np.zeros((h,w),bool)
     roots=[]; sampled_roots=[]
     cell_count=assessed=0
+    last_observation=None
     def bank(selected,slopes):
         key=(tuple(selected),*slopes)
         if key in bank_cache:
@@ -206,6 +207,14 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                     fields['slope_row'][out],fields['slope_col'][out]=slopes
                     envelope_ok[out]=bool(strong_support[patch_sl][selected][:,common].all())
                     status[out]=1; assessed+=1
+                    if observer is not None:
+                        last_observation=dict(row_px=cr,col_px=cc,root_row_px=cr+param[0],root_col_px=cc+param[1],
+                            score=score,index=fields['index'][row,col],height_m=param[2],width_m=param[3],
+                            contrast=float(contrast[best]),identifiability=float(ident[best]),
+                            common_fraction=fraction,endpoint_censored=bool(param[4]),frames=selected.copy(),
+                            slope_rc=slopes,patch=patch,common=common,
+                            template=templates[best],residual_null=residual,
+                            projected_template=rt[best],score_scale=cfg.score_scale)
                     if score>=cfg.score_scale:
                         amplitude=float(contrast[best])
                         frame_delta=np.sum(residual**2-(residual+amplitude*rt[best])**2,axis=1)
@@ -216,6 +225,11 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                                           frame_delta_chi2=frame_delta.tolist()))
             if progress:
                 progress(dict(tile_row=tr,tile_col=tc,cells_visited=cell_count,cells_assessed=assessed))
+            if observer is not None:
+                observer(dict(tile_row=tr,tile_col=tc,cells_visited=cell_count,cells_assessed=assessed,
+                              cells_total=len(range(radius,h-radius,cfg.cell_px))*len(range(radius,w-radius,cfg.cell_px)),
+                              score=fields['score'],status=status,common_fraction=fields['common_fraction'],
+                              last_fit=last_observation))
     roots.sort(key=lambda p:(-p['score'],p['row_px'],p['col_px']))
     distinct=[]; buckets={}; sep=shadow_cfg.min_separation_px
     for root in roots:

@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from live_feedback import Heartbeat
 
 ROOT = Path(__file__).resolve().parent.parent
 STAGES = [('maps', 'Replay terrain, shadow and fused maps'),
@@ -255,7 +256,9 @@ def main():
     os.environ['PYTHONIOENCODING'] = 'utf-8'
     os.environ['PYTHONHASHSEED'] = '0'
     sources = [*sorted((ROOT/'src').rglob('*.py')), *sorted((ROOT/'scripts').glob('*.py')),
-               *sorted((ROOT/'scripts').glob('*.sh')), *sorted((ROOT/'tests').glob('test_*.py'))]
+               *sorted((ROOT/'scripts').glob('*.sh')), *sorted((ROOT/'tests').glob('test_*.py')),
+               ROOT/'dashboard/hati_watch.py', *sorted((ROOT/'dashboard/watch').glob('*')),
+               ROOT/'dashboard/static/assets/hati_logo.png']
     inputs = dict(bundle=str(args.bundle.resolve()), bundle_sha256=digest(args.bundle), config_sha256=digest(args.config))
     for key in ('dem', 'thermal', 'held_out'):
         p = getattr(args, key)
@@ -298,10 +301,13 @@ def main():
     write_json(output/'inputs/environment.json', environment)
     software_ok = True
     current = None
+    heartbeat = Heartbeat(output)
+    heartbeat.start()
     try:
         for i, record in enumerate(records):
             current = record
             stage = record['id']
+            heartbeat.stage = stage
             if args.resume and stage_cached(output, record):
                 print(f'Reusing verified stage {stage}', flush=True)
                 continue
@@ -349,6 +355,7 @@ def main():
             current.update(status='FAILED', reason=f'{type(exc).__name__}: {exc}')
         print(f'Campaign error: {exc}', file=sys.stderr)
     finally:
+        heartbeat.close('interrupted' if current and current['status'] == 'INTERRUPTED' else 'finished')
         archive = package(output, records, provenance)
         if args.export_dir:
             try:

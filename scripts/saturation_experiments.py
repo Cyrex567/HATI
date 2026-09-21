@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from review_shadow_bundle import read_bundle
 from landing_maps import clean_json, write_tif
+from live_feedback import LiveFeedback
 from src.hati_core.regional_shadow import RegionalConfig, assess_regions
 from src.hati_core.shadow_likelihood import ShadowConfig, RegistrationProjector, shadow_template
 from src.hati_core.scene_diagnostics import SceneConfig, local_registration
@@ -90,18 +91,30 @@ class Experiment:
         self.rc = RegionalConfig(**source['regional'])
         self.noise = source['noise_sigma']
         self.baseline_dir = args.campaign/'stages/T1/baseline'
+        self.live = LiveFeedback(args.campaign, args.stage)
+        self.live.inputs(self.data, self.run)
+        self.live.update(force=True, kind='stage', message='Preparing '+args.stage, subrun=None)
 
     def result(self, status, reason, **details):
         result = dict(test=self.args.stage, status=status, reason=reason, provenance=self.proof, input_demo=bool(self.run.get('demo', False)),
                       configuration=self.cfg, **details)
         save_json(self.out/'result.json', result)
+        self.live.update(force=True, message=reason, result_status=status)
         print(f'{self.args.stage}: {status}: {reason}', flush=True)
         return result
 
     def regional(self, name, *, indices=None, order=None, rc=None, sc=None, data=None, profiles=False, input_proof=None):
         d = data or self.data; rc = rc or self.rc; sc = sc or self.sc
+        # Held-out scenes use a different grid and must never be overlaid on the development image.
+        watch = self.live if data is None else None
+        if watch:
+            watch.last_region = -float('inf')
+            watch.update(force=True, subrun=name, kind='stage', message='Preparing regional search', fit=None, score=None)
         folder = self.out/name; folder.mkdir(parents=True, exist_ok=True)
         geometry = np.arange(len(d['stack'])) if order is None else np.asarray(order)
+        if watch:
+            watch.update(force=True, model_azimuths=d['azimuths'][geometry].tolist(),
+                         model_elevations=d['elevations'][geometry].tolist(), geometry_order=geometry.tolist())
         setup = dict(shadow=asdict(sc), regional=asdict(rc), frame_indices=indices,
                      geometry_order=geometry.tolist(), noise_sigma=self.noise,
                      input_provenance=input_proof or self.proof, profiles=profiles)
@@ -113,6 +126,8 @@ class Experiment:
             if old['signature'] == signature and all((folder/p).is_file() and
                     hashlib.sha256((folder/p).read_bytes()).hexdigest() == h for p, h in old['files'].items()):
                 print(f'Reusing {name}', flush=True)
+                if watch:
+                    watch.update(force=True, kind='stage', message='Reusing verified regional results', subrun=name)
                 with np.load(folder/'regional.npz', allow_pickle=False) as n:
                     return {k: n[k] for k in n.files}
         profile_rows, profile_scores, profile_ident = [], [], []
@@ -130,7 +145,8 @@ class Experiment:
                                 self.noise, sc, rc, visible=d['visibility'],
                                 slope_row=d['slope_row'], slope_col=d['slope_col'],
                                 frame_indices=indices, progress=progress,
-                                audit_callback=audit if profiles else None)
+                                audit_callback=audit if profiles else None,
+                                observer=(lambda info: watch.regional(info, name)) if watch else None)
         arrays = {k: v for k, v in result.items() if isinstance(v, np.ndarray)}
         np.savez_compressed(folder/'regional.npz', **arrays)
         save_json(folder/'candidates.json', result['candidates'])
@@ -236,6 +252,10 @@ class Experiment:
                     except ValueError as exc:
                         entry.update(status='invalid_geometry', reason=str(exc))
                     rows.append(entry)
+                    self.live.update(kind='controls', message='Testing independent synthetic scenes',
+                                     control=dict(location=location, kind=kind, height_m=height, seed=seed,
+                                                  status=entry['status'], maximum_score=entry.get('maximum_score'),
+                                                  recovered=entry.get('recovered_within_2px')))
             print(f'Independent synthetic location {location+1}/{len(self.cfg["synthetic_locations"])} done', flush=True)
         return rows
 
@@ -256,7 +276,7 @@ def maps(ex):
                  site_lat=ex.run.get('site_lat'), site_lon=ex.run.get('site_lon'),
                  test_pixel=(ex.run['counterfactual']['row_px'], ex.run['counterfactual']['col_px']))
     report = run(sweep, context, ex.out/'maps', cfg, ex.sc, ex.rc, ex.noise,
-                 provenance=dict(**ex.proof, purpose='cached campaign replay; no ISIS'), is_demo=bool(ex.run.get('demo', False)))
+                 provenance=dict(**ex.proof, purpose='cached campaign replay; no ISIS'), is_demo=bool(ex.run.get('demo', False)), live=ex.live)
     return ex.result('COMPLETE', 'Separate terrain, shadow and fused maps regenerated with observability and touchdown attribution.',
                      counterfactual=report['counterfactual'], qualification=report['fusion_status_fractions'])
 
@@ -460,6 +480,11 @@ def t6(ex):
                                   (d['slope_row'][r, c], d['slope_col'][r, c]), cfg,
                                   ex.cfg['profile_heights_m'], ex.rc.widths_m, ex.noise, ex.cfg['profile_delta_chi2'])
                 profiles.append(dict(row_px=r, col_px=c, support_px=cfg.root_support_px, **fit))
+                ex.live.update(kind='height', message='Comparing height hypotheses',
+                               height_profile=dict(row_px=r, col_px=c, support_px=cfg.root_support_px,
+                                   status=fit['status'], heights_m=ex.cfg['profile_heights_m'],
+                                   scores=[p.get('score') for p in fit.get('profiles', [])],
+                                   delta_set_m=fit.get('descriptive_delta_set_m', [])))
             if len(profiles) % 10 == 0:
                 print(f'Height profiles: {len(profiles)} support/position combinations', flush=True)
     save_json(ex.out/'real_height_profiles.json', profiles)
@@ -503,6 +528,9 @@ def t7(ex):
     for tile in ex.cfg['registration_tiles_px']:
         cfg = SceneConfig(tile_px=tile)
         real[str(tile)] = local_registration(d['stack'], d['azimuths'], d['elevations'], cfg)
+        ex.live.update(force=True, kind='registration', message='Checking local registration',
+                       registration=dict(tile_px=tile, pairs=len(real[str(tile)]['pairs']),
+                                         measured_tiles=sum(r['status'] == 'measured_apparent_offset' for p in real[str(tile)]['pairs'] for r in p['tiles'])))
         for pair in real[str(tile)]['pairs']:
             i, j = pair['frames']
             for shift in ex.cfg['registration_planted_shifts_px']:

@@ -109,6 +109,9 @@ class CampaignTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root/'tests').mkdir(); (root/'scripts').mkdir(); (root/'src').mkdir()
+            for name in ('dashboard/hati_watch.py', 'dashboard/watch/index.html', 'dashboard/watch/watch.js',
+                         'dashboard/watch/watch.css', 'dashboard/static/assets/hati_logo.png'):
+                p=root/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_text('viewer fixture')
             for name in ('a', 'b'):
                 (root/'tests'/f'test_{name}.py').write_text('test fixture')
             bundle = root/'bundle.zip'; bundle.write_text('input fixture')
@@ -133,6 +136,9 @@ class CampaignTests(unittest.TestCase):
                 self.assertEqual(campaign.main(), 1)
                 self.assertEqual(calls, ['test_a', 'test_b']+[s for s, _ in campaign.STAGES])
                 self.assertTrue((export/'run_results.zip').exists())
+                with zipfile.ZipFile(output/'inputs/source_code.zip') as z:
+                    self.assertIn('dashboard/hati_watch.py',z.namelist())
+                    self.assertIn('dashboard/watch/watch.js',z.namelist())
                 fail[0] = False; calls.clear()
                 with patch.object(sys, 'argv', [*argv, '--resume']):
                     self.assertEqual(campaign.main(), 0)
