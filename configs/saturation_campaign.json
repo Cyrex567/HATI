@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "seed": 260921,
+  "synthetic_seeds": 4,
+  "synthetic_locations": [[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]],
+  "geometry_shifts": [1, 2, 3],
+  "drop_frame_groups": {
+    "without_RE": ["m1433043518re"],
+    "without_low_NCC": ["m1169496158le", "m1138847117le"]
+  },
+  "expanded_width_m": 2.4,
+  "profile_heights_m": [0.1, 0.2, 0.3, 0.45, 0.6, 0.9, 1.2, 1.8, 2.4],
+  "profile_step_px": 64,
+  "larger_support_px": 10.0,
+  "profile_delta_chi2": 1.0,
+  "registration_tiles_px": [64, 96, 128],
+  "registration_planted_shifts_px": [[0, 0], [1, -2], [-3, 2]],
+  "thermal_min_coverage": 0.8,
+  "held_out_min_recall": 0.9,
+  "held_out_max_false_alarm_fraction": 0.1
+}

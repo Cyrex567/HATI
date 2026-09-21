@@ -31,6 +31,7 @@ output/landing_maps_demo/
 output/athena/landing_maps_v253/
 output/athena/landing_maps_v255/
 output/athena/scene_diagnostics_v255/
+output/athena/saturation_campaign/
 output/athena/athena_conf_categories.json
 
 # Keep the folder structure, but ignore files inside (Optional)

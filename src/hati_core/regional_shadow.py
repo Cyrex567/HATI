@@ -39,7 +39,7 @@ class RegionalConfig:
 
 def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,*,
                    visible=None,conservative_visible=None,slope_row=None,slope_col=None,
-                   progress=None):
+                   progress=None, frame_indices=None, audit_callback=None):
     cfg = regional_cfg or RegionalConfig()
     stack = np.asarray(stack,float)
     azimuths,elevations = np.asarray(azimuths,float),np.asarray(elevations,float)
@@ -48,6 +48,11 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
     if not np.isfinite(sigma) or sigma<=0 or not np.isfinite(azimuths).all() or not np.isfinite(elevations).all():
         raise ValueError('invalid noise or geometry')
     n,h,w = stack.shape
+    # Diagnostic ablations retain the parent stack's eligibility/common mask.
+    # Frame selection changes the fit, never the coordinates or observed pixels.
+    retained = np.arange(n) if frame_indices is None else np.asarray(frame_indices)
+    if retained.ndim != 1 or len(retained) < 3 or not np.issubdtype(retained.dtype, np.integer) or len(np.unique(retained)) != len(retained) or np.any((retained < 0) | (retained >= n)):
+        raise ValueError('frame_indices must contain >=3 unique valid frame indices')
     radius = shadow_cfg.radius_px
     if min(h,w)<2*radius+cfg.cell_px:
         raise ValueError('window too small for root support')
@@ -134,6 +139,10 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                     if len(selected)<3:
                         continue
                     common=local_usable[selected].all(axis=0)&support
+                    selected=selected[np.isin(selected,retained)]
+                    frames_map[out]=len(selected)
+                    if len(selected)<3:
+                        continue
                     fraction=common.sum()/support.sum()
                     fields['common_fraction'][out]=fraction
                     if fraction<cfg.min_common_fraction:
@@ -163,6 +172,11 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                     contrast=np.clip(-inner/np.maximum(energy,1e-30),0,shadow_cfg.max_contrast)
                     improvement=np.maximum(0,-2*contrast*inner-contrast**2*energy)
                     scores=np.where(eligible,np.sqrt(improvement),-np.inf)
+                    if audit_callback is not None:
+                        audit_callback(dict(row_px=cr,col_px=cc,frames=selected.copy(),
+                            parameters=np.asarray(parameters,float),scores=scores.copy(),
+                            identifiability=ident.copy(),energy=energy.copy(),
+                            common_fraction=fraction))
                     # Retain the best template at EVERY sampled root, before
                     # cell maxima or candidate deduplication. Footprints must
                     # not borrow the cell winner from outside their radius.
@@ -212,6 +226,9 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
             distinct.append(root)
             buckets.setdefault(key,[]).append(root)
     payload=dict(regional=asdict(cfg),shadow=asdict(shadow_cfg),noise_sigma=float(sigma))
+    if frame_indices is not None:
+        payload['diagnostic_retained_frames']=retained.tolist()
+        payload['diagnostic_support']='eligibility and common pixels frozen to full parent stack'
     return dict(**fields,status=status,frame_count=frames_map,envelope_ok=envelope_ok,
                 root_evidence=np.asarray(sampled_roots,float).reshape(-1,3),
                 sensitivity_ok=sensitivity_ok,candidates=distinct,cells_visited=cell_count,
