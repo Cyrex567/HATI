@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -26,7 +27,10 @@ STAGES = [('maps', 'Replay terrain, shadow and fused maps'),
           ('T4', 'Independent thermal comparison'), ('T5', 'Expanded width profiles'),
           ('T6', 'Height profiles and endpoint support'),
           ('T7', 'Local registration and planted shifts'),
-          ('T8', 'Held-out annotated scenes')]
+          ('T8', 'Held-out annotated scenes'),
+          ('T9', 'Adaptive context and joint dimension refinement'),
+          ('T10', 'Independent 3D rocks and adaptive controls'),
+          ('T11', 'Withheld illumination and changing-background alternatives')]
 
 
 def digest(path):
@@ -59,14 +63,24 @@ def run_logged(command, log):
         stream.write(json.dumps(command)+'\n'); stream.flush()
         process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True,
-                                   encoding='utf-8', errors='replace', bufsize=1)
+                                   encoding='utf-8', errors='replace', bufsize=1,
+                                   start_new_session=os.name != 'nt',
+                                   creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0)
         try:
             for line in process.stdout:
                 print(line, end='', flush=True)
                 stream.write(line); stream.flush()
             return process.wait()
         except BaseException:
-            process.terminate()
+            # T9 has child workers: interrupt the whole owned process tree.
+            # Never leave them consuming resources after the campaign packages.
+            if os.name == 'nt':
+                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True)
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
             try:
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
@@ -128,6 +142,10 @@ def evidence_summary(output, records):
     if static:
         findings.append(f'Static no-caster controls: {sum(r["warning_roots"] > 0 for r in static)}/{len(static)} '
                         'assessed trials contain warning roots. These synthetic cases do not calibrate the lunar false-alarm rate.')
+    structured = [r for r in controls if r.get('kind') == 'structured_null' and r['status'] == 'assessed']
+    if structured:
+        findings.append(f'Changing no-caster controls: {sum(r["warning_roots"] > 0 for r in structured)}/{len(structured)} '
+                        'assessed trials contain warning roots. These are a direct test of background-model selectivity.')
     for row in read('T2').get('comparisons', []):
         delta = row.get('median_paired_score_change')
         if delta is not None:
@@ -158,6 +176,19 @@ def evidence_summary(output, records):
         count = sum(s['meets_declared_targets'] for s in held['scenes'])
         findings.append(f'Held-out scenes: {count}/{len(held["scenes"])} meet the declared research recall/false-alarm targets. '
                         'Annotations, unknown coverage and scene dependence still require review.')
+    adaptive = read('T9')
+    if adaptive:
+        findings.append(f'Adaptive context: {adaptive.get("processed", 0)}/{adaptive.get("requested", 0)} requested cells processed; '
+                        f'{adaptive.get("unprocessed", 0)} remain queued. States: {adaptive.get("state_counts", {})}. '
+                        'Equivalent dimensions and scores are experimental; baseline fusion is unchanged.')
+    for row in read('T10').get('controls', []):
+        findings.append(f'3D/control {row["kind"]}: {row["trials_with_warning"]}/{row["trials"]} trials contain adaptive warnings in fixed ROIs; '
+                        f'{row["dimension_trials"]} trials provide central dimension estimates; '
+                        f'{row.get("trials_with_unresolved_cells", 0)} contain unresolved cells. These are ROI diagnostics, not field false-alarm rates.')
+    prediction = read('T11')
+    if prediction:
+        findings.append(f'Withheld illumination: {sum(r["assessed"] for r in prediction.get("predictions", []))}/{prediction.get("trials", 0)} '
+                        'declared trials assessed. Predictive errors compare correct geometry, rotated geometry and static background at fixed scales.')
     return findings
 
 
@@ -241,6 +272,7 @@ def main():
     ap.add_argument('--dem', type=Path, help='native DEM; defaults to the existing Athena asset path')
     ap.add_argument('--thermal', type=Path, help='independent footprint CSV; see campaign runbook')
     ap.add_argument('--held-out', type=Path, help='independent annotated scene manifest')
+    ap.add_argument('--rock-catalog', type=Path, help='verified local OBJ manifest; defaults to the bundled Apollo shape proxies')
     ap.add_argument('--resume', action='store_true')
     ap.add_argument('--export-dir', type=Path, help='also copy ZIP/checksum here, e.g. a Windows /mnt/c/... folder')
     args = ap.parse_args()
@@ -260,7 +292,11 @@ def main():
                ROOT/'dashboard/hati_watch.py', *sorted((ROOT/'dashboard/watch').glob('*')),
                ROOT/'dashboard/static/assets/hati_logo.png']
     inputs = dict(bundle=str(args.bundle.resolve()), bundle_sha256=digest(args.bundle), config_sha256=digest(args.config))
-    for key in ('dem', 'thermal', 'held_out'):
+    if args.rock_catalog is None:
+        default_catalog = ROOT/'data/rock_shapes/apollo_proxy_v1/catalog.json'
+        if default_catalog.is_file():
+            args.rock_catalog = default_catalog
+    for key in ('dem', 'thermal', 'held_out', 'rock_catalog'):
         p = getattr(args, key)
         inputs[key] = dict(path=str(p.resolve()), sha256=digest(p)) if p else None
     # Resolve/hash the default DEM too: a changed raster must invalidate resume.
@@ -273,6 +309,14 @@ def main():
         manifest = json.loads(args.held_out.read_text(encoding='utf-8'))
         inputs['held_out_payloads'] = [{k: digest(args.held_out.parent/scene[k]) for k in ('bundle', 'labels')}
                                       for scene in manifest['scenes']]
+    catalog_payloads = []
+    if args.rock_catalog:
+        sys.path.insert(0, str(ROOT))
+        from src.hati_core.rock_scenes import load_catalog
+        load_catalog(args.rock_catalog)  # validate hashes, path containment and split identities
+        catalog = json.loads(args.rock_catalog.read_text(encoding='utf-8'))
+        catalog_payloads = [(args.rock_catalog.parent/row['path']).resolve() for row in catalog['meshes']]
+        inputs['rock_payloads'] = {p.relative_to(args.rock_catalog.parent.resolve()).as_posix(): digest(p) for p in catalog_payloads}
     environment = capture([sys.executable, '-m', 'pip', 'freeze'])
     provenance = dict(started=utc(), inputs=inputs, packages=sorted(environment['stdout'].splitlines()),
                       source_sha256={p.relative_to(ROOT).as_posix(): digest(p) for p in sources},
@@ -295,6 +339,12 @@ def main():
         (output/sub).mkdir(exist_ok=True)
     shutil.copy2(args.config, output/'inputs/campaign_config.json')
     shutil.copy2(args.bundle, output/'inputs/hati_diagnostic_bundle.zip')
+    if args.rock_catalog:
+        dest = output/'inputs/rock_catalog'; dest.mkdir(exist_ok=True)
+        shutil.copy2(args.rock_catalog, dest/'catalog.json')
+        for p in catalog_payloads:
+            target = dest/p.relative_to(args.rock_catalog.parent.resolve())
+            target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(p, target)
     with zipfile.ZipFile(output/'inputs/source_code.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
         for p in sources:
             archive.write(p, p.relative_to(ROOT).as_posix())
@@ -326,14 +376,14 @@ def main():
                 software_ok &= code == 0
             elif not software_ok:
                 record.update(status='BLOCKED', reason='A software check failed; science results withheld')
-            elif stage in ('T2', 'T3', 'T4', 'T5') and not any(r['id'] == 'T1' and r['status'] in ('COMPLETE', 'PARTIAL') for r in records):
+            elif stage in ('T2', 'T3', 'T4', 'T5', 'T9') and not any(r['id'] == 'T1' and r['status'] in ('COMPLETE', 'PARTIAL') for r in records):
                 record.update(status='BLOCKED', reason='T1 baseline prerequisite failed or is unavailable')
             else:
                 command = [sys.executable, str(ROOT/'scripts/saturation_experiments.py'),
                            '--stage', stage, '--bundle', str(args.bundle.resolve()),
                            '--config', str(args.config.resolve()), '--output', str(folder),
                            '--campaign', str(output)]
-                for key in ('dem', 'thermal', 'held_out'):
+                for key in ('dem', 'thermal', 'held_out', 'rock_catalog'):
                     value = getattr(args, key.replace('-', '_'))
                     if value:
                         command.extend(['--'+key.replace('_', '-'), str(value.resolve())])

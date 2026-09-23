@@ -192,7 +192,8 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
                   'Configured regional hazard index, not probability; 0.5 threshold; use observability layers')
     write_tif(output/'fusion_status.tif',status,transform,crs,'0 unknown; 1 both qualified; 2 high evidence incomplete')
     for key in ('score','required_contrast','common_fraction','status','frame_count','envelope_ok','sensitivity_ok',
-                'best_root_row_px','best_root_col_px','null_energy_per_dof','best_contrast','endpoint_censored'):
+                'best_root_row_px','best_root_col_px','null_energy_per_dof','best_contrast','endpoint_censored',
+                'best_height_m','best_width_m','dimension_at_boundary','endpoint_censored_count','endpoint_missing_count'):
         write_tif(output/('shadow_'+key+'.tif'),regional[key],transform,crs,key+'; conditional template/noise model')
     np.savez_compressed(output/'shadow_root_evidence.npz',roots=regional['root_evidence'])
     for key in ('root_row','root_col','score'):

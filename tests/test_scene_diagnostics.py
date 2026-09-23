@@ -109,7 +109,8 @@ class SceneTests(unittest.TestCase):
         shape=(80,80);yy,xx=np.indices(shape)
         scores=np.ones(shape);scores[40,40]=16
         regional={k:np.ones(shape) for k in ('required_contrast','common_fraction','status','frame_count',
-                  'envelope_ok','sensitivity_ok','null_energy_per_dof','best_contrast','endpoint_censored')}
+                  'envelope_ok','sensitivity_ok','null_energy_per_dof','best_contrast','endpoint_censored',
+                  'best_height_m','best_width_m','dimension_at_boundary','endpoint_censored_count','endpoint_missing_count')}
         regional['envelope_ok']=np.ones(shape,bool);regional['sensitivity_ok']=np.ones(shape,bool)
         regional.update(score=scores,index=scores/(scores+8),best_root_row_px=yy,best_root_col_px=xx,
                         root_evidence=np.column_stack([yy.ravel(),xx.ravel(),scores.ravel()]),candidates=[],

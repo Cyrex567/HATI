@@ -1,4 +1,4 @@
-"""Workers for T1-T8 in the saturation report; all inputs are local cached data."""
+"""Workers for T1-T11; all scientific inputs are local cached data."""
 import argparse
 import csv
 from dataclasses import asdict, replace
@@ -24,6 +24,7 @@ from src.hati_core.regional_shadow import RegionalConfig, assess_regions
 from src.hati_core.shadow_likelihood import ShadowConfig, RegistrationProjector, shadow_template
 from src.hati_core.scene_diagnostics import SceneConfig, local_registration
 from src.hati_core.campaign_controls import render_control
+from adaptive_experiments import t9, t10, t11
 
 
 def save_json(path, value):
@@ -76,6 +77,15 @@ def validate_config(cfg):
     for name, frames in cfg['drop_frame_groups'].items():
         if not re.fullmatch(r'[A-Za-z0-9_-]+', name) or not frames or any(not isinstance(p, str) for p in frames):
             raise ValueError('group names must be plain directory names with a nonempty frame list')
+    from src.hati_core.adaptive_shadow import AdaptiveConfig
+    AdaptiveConfig(**cfg.get('adaptive', {}))
+    for key in ('rock_seeds', 'rock_supersample', 'rock_roi_cells', 'prediction_step_px'):
+        if key in cfg and (type(cfg[key]) is not int or cfg[key] < 1):
+            raise ValueError('positive integer required: '+key)
+    if cfg.get('rock_roi_cells', 3) % 2 != 1:
+        raise ValueError('rock_roi_cells must be odd')
+    if 'rock_heights_m' in cfg and (not cfg['rock_heights_m'] or any(not np.isfinite(v) or v <= 0 for v in cfg['rock_heights_m'])):
+        raise ValueError('rock heights must be finite and positive')
 
 
 class Experiment:
@@ -618,7 +628,7 @@ def t8(ex):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8'], required=True)
+    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11'], required=True)
     ap.add_argument('--bundle', type=Path, required=True)
     ap.add_argument('--config', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
@@ -626,6 +636,7 @@ def main():
     ap.add_argument('--dem', type=Path)
     ap.add_argument('--thermal', type=Path)
     ap.add_argument('--held-out', type=Path)
+    ap.add_argument('--rock-catalog', type=Path)
     args = ap.parse_args()
     ex = Experiment(args)
     globals()['maps' if args.stage == 'maps' else args.stage.lower()](ex)

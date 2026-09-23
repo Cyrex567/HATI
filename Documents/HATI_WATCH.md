@@ -1,5 +1,7 @@
 # HATI Watch
 
+For the adaptive campaign, follow [the new workstation command](ADAPTIVE_SHADOW_PLAN.md) and point the viewer at `output/athena/saturation_campaign/athena-adaptive-01`. T9 shows expanding extraction patches, per-frame endpoint support reasons and uncalibrated dimension compatibility. The adaptive state legend differs from the baseline assessment legend and is shown in the viewer. T10 uses synthetic coordinates and therefore shows its scene figures separately; T11 reports progress through fixed withheld-frame tests. The original three maps remain available as separate products.
+
 HATI Watch is a local browser window for observing a saturation campaign. It shows the aligned image frames, Sun geometry, intermediate shadow fits, developing maps, saved scientific figures and test logs. The campaign runs independently. Frame playback, stage selection and plot selection affect only the display.
 
 ## Run on the stationary WSL machine

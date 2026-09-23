@@ -9,7 +9,7 @@ from dataclasses import dataclass,asdict
 import hashlib
 import json
 import numpy as np
-from .shadow_likelihood import ShadowConfig,RegistrationProjector,shadow_template
+from .shadow_likelihood import ShadowConfig,RegistrationProjector,shadow_template,endpoint_support
 
 
 @dataclass(frozen=True)
@@ -77,13 +77,14 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
     bank_cache = OrderedDict()
     fields = {key:np.full((h,w),np.nan) for key in (
         'score','index','required_contrast','common_fraction','slope_row','slope_col',
-        'best_root_row_px','best_root_col_px','null_energy_per_dof','best_contrast','endpoint_censored')}
+        'best_root_row_px','best_root_col_px','null_energy_per_dof','best_contrast','endpoint_censored',
+        'best_height_m','best_width_m','dimension_at_boundary','endpoint_censored_count','endpoint_missing_count')}
     status = np.zeros((h,w),dtype='uint8')
     # 0 unvisited/border, 1 assessed, 2 unavailable, 3 nonidentifiable
     frames_map = np.zeros((h,w),dtype='uint8')
     envelope_ok = np.zeros((h,w),bool)
     sensitivity_ok = np.zeros((h,w),bool)
-    roots=[]; sampled_roots=[]
+    roots=[]; sampled_roots=[]; cell_table=[]
     cell_count=assessed=0
     last_observation=None
     def bank(selected,slopes):
@@ -132,6 +133,7 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                     # a radius halo even at tile seams.
                     cr=min(row+cfg.cell_px//2,h-radius-1)
                     cc=min(col+cfg.cell_px//2,w-radius-1)
+                    cell_table.append((row,endr,col,endc,cr,cc))
                     patch_sl=np.s_[:,cr-radius:cr+radius+1,cc-radius:cc+radius+1]
                     status[out]=2; cell_count+=1
                     local_usable=usable[patch_sl]
@@ -193,6 +195,15 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                     fields['null_energy_per_dof'][out]=float(np.sum(residual**2)/max(dof,1))
                     fields['best_contrast'][out]=contrast[best]
                     fields['endpoint_censored'][out]=float(param[4])
+                    fields['best_height_m'][out]=param[2]
+                    fields['best_width_m'][out]=param[3]
+                    fields['dimension_at_boundary'][out]=float(param[2] in (min(cfg.heights_m),max(cfg.heights_m)) or
+                                                               param[3] in (min(cfg.widths_m),max(cfg.widths_m)))
+                    endpoints=endpoint_support(shape,(radius+param[0],radius+param[1]),
+                        azimuths[selected],elevations[selected],param[2],shadow_cfg,slopes,
+                        valid=local_usable[selected],common=common)
+                    fields['endpoint_censored_count'][out]=sum(p['censored'] for p in endpoints)
+                    fields['endpoint_missing_count'][out]=sum(not p['endpoint_supported'] for p in endpoints)
                     # Model sensitivity for the smallest template, worst sampled
                     # root position. This is an expected signal calculation,
                     # not a recovered-object completeness estimate.
@@ -244,6 +255,7 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
         payload['diagnostic_retained_frames']=retained.tolist()
         payload['diagnostic_support']='eligibility and common pixels frozen to full parent stack'
     return dict(**fields,status=status,frame_count=frames_map,envelope_ok=envelope_ok,
+                cell_table=np.asarray(cell_table,dtype=int).reshape(-1,6),
                 root_evidence=np.asarray(sampled_roots,float).reshape(-1,3),
                 sensitivity_ok=sensitivity_ok,candidates=distinct,cells_visited=cell_count,
                 cells_assessed=assessed,search_truncated=False,configuration=payload,

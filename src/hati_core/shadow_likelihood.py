@@ -68,7 +68,7 @@ class NuisanceProjector:
     commute on common support. Subtract both projections, adding their overlap
     implicitly through sequential application. No alternating-fit tolerance.
     """
-    def __init__(self, common, sigma):
+    def __init__(self, common, sigma, *, spatial_degree=1):
         self.common = np.asarray(common, bool)
         self.sigma = np.asarray(sigma, float)
         if self.common.ndim != 2 or self.common.sum() < 12:
@@ -80,7 +80,12 @@ class NuisanceProjector:
         design = np.stack([np.ones(self.common.sum()),
                            rr[self.common] - rr[self.common].mean(),
                            cc[self.common] - cc[self.common].mean()], axis=1)
-        if np.linalg.matrix_rank(design) != 3:
+        if spatial_degree not in (1, 2):
+            raise ValueError('spatial degree must be one or two')
+        if spatial_degree == 2:
+            r, c = design[:, 1], design[:, 2]
+            design = np.column_stack([design, r*r, r*c, c*c])
+        if np.linalg.matrix_rank(design) != design.shape[1]:
             raise ValueError("common support cannot identify an illumination plane")
         self.q = np.linalg.qr(design, mode="reduced")[0]
         self.u = 1 / self.sigma
@@ -104,8 +109,8 @@ class RegistrationProjector(NuisanceProjector):
     static albedo. This marginalizes a Gaussian displacement approximation;
     it cannot repair wrong registration peaks or large nonlinear displacements.
     """
-    def __init__(self,common,sigma,static_image,registration_sigma_px,*,albedo_gain=False):
-        super().__init__(common,sigma)
+    def __init__(self,common,sigma,static_image,registration_sigma_px,*,albedo_gain=False,spatial_degree=1):
+        super().__init__(common,sigma,spatial_degree=spatial_degree)
         if not np.isfinite(registration_sigma_px) or registration_sigma_px<0:
             raise ValueError('registration sigma must be finite and nonnegative')
         if not np.allclose(self.sigma,self.sigma[0]):
@@ -200,6 +205,56 @@ def fit_template(projector, residual, template, cfg):
     frame_delta = np.sum(residual**2 - (residual + amplitude * rt)**2, axis=1)
     return dict(score=float(np.sqrt(delta)), delta_chi2=delta, contrast=amplitude,
                 identifiability=ident, frame_delta_chi2=frame_delta.tolist())
+
+
+def endpoint_support(shape, root, azimuths, elevations, height_m, cfg,
+                     slope_rc=(0., 0.), *, valid=None, common=None, beyond_px=2.):
+    """Per-frame *predicted* endpoint support, never an observed edge claim.
+
+    Check both extreme solar strips and background beyond the longest shadow.
+    Coordinates use the original patch grid, with no clipping or extrapolation.
+    """
+    if valid is None:
+        valid = np.ones((len(azimuths), *shape), bool)
+    if common is None:
+        common = np.ones(shape, bool)
+    centre = (np.asarray(shape)-1)/2
+    rows = []
+    for i, (az, el) in enumerate(zip(azimuths, elevations)):
+        direction = np.array([np.cos(np.radians(az)), -np.sin(np.radians(az))])
+        beta = np.dot(slope_rc, direction)
+        denom = np.tan(np.radians(el + np.array([-.8, .8])*cfg.solar_radius_deg))+beta
+        if not np.isfinite(denom).all() or np.any(denom <= 0):
+            rows.append(dict(frame=i, reason='invalid_geometry', censored=True,
+                             endpoint_supported=False, background_supported=False))
+            continue
+        ends = np.asarray(root)+height_m/denom[:, None]/cfg.pixel_m*direction
+        beyond = ends[0]+beyond_px*direction
+        def check(pos):
+            r, c = np.rint(pos).astype(int)
+            inside = 1 <= r < shape[0]-2 and 1 <= c < shape[1]-2
+            in_fit = np.linalg.norm(pos-centre) <= cfg.root_support_px-.75
+            observed = inside and bool(valid[i, r, c] and common[r, c])
+            return inside, in_fit, observed
+        checks = [check(p) for p in ends]
+        bg = check(beyond)
+        if not all(p[0] for p in checks):
+            reason = 'patch_cutoff'
+        elif not all(p[1] for p in checks):
+            reason = 'support_cutoff'
+        elif not all(p[2] for p in checks):
+            reason = 'endpoint_missing'
+        elif not all(bg):
+            reason = 'background_missing_or_cutoff'
+        else:
+            reason = 'supported_prediction'
+        rows.append(dict(frame=i, reason=reason,
+                         censored=not all(p[0] and p[1] for p in checks),
+                         endpoint_supported=all(all(p) for p in checks),
+                         background_supported=all(bg),
+                         longest_endpoint_row_px=float(ends[0, 0]),
+                         longest_endpoint_col_px=float(ends[0, 1])))
+    return rows
 
 
 def propose_roots(stack, azimuths, sigma, cfg):

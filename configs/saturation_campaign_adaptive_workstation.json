@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "seed": 260923,
+  "synthetic_seeds": 8,
+  "synthetic_locations": [[0.25, 0.25], [0.25, 0.5], [0.25, 0.75], [0.5, 0.25], [0.5, 0.5], [0.5, 0.75], [0.75, 0.25], [0.75, 0.5], [0.75, 0.75]],
+  "geometry_shifts": [1, 2, 3, 4, 5, 6, 7],
+  "drop_frame_groups": {
+    "without_RE": ["m1433043518re"],
+    "without_low_NCC": ["m1169496158le", "m1138847117le"]
+  },
+  "expanded_width_m": 2.4,
+  "profile_heights_m": [0.1, 0.15, 0.2, 0.25, 0.3, 0.375, 0.45, 0.525, 0.6, 0.75, 0.9, 1.05, 1.2, 1.5, 1.8, 2.1, 2.4],
+  "profile_step_px": 32,
+  "larger_support_px": 10.0,
+  "profile_delta_chi2": 1.0,
+  "registration_tiles_px": [48, 64, 96, 128, 192],
+  "registration_planted_shifts_px": [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, -2], [-3, 2]],
+  "thermal_min_coverage": 0.8,
+  "held_out_min_recall": 0.9,
+  "held_out_max_false_alarm_fraction": 0.1,
+  "adaptive": {
+    "scale_factors": [1, 2, 4],
+    "heights_m": [0.1, 0.3, 0.6, 1.2, 2.4],
+    "widths_m": [0.2, 0.6, 1.2, 2.4],
+    "fine_step_m": 0.1,
+    "delta_chi2": 4.0,
+    "warning_score": 8.0,
+    "region_cutoff_fraction": 0.25,
+    "max_plane_departure_m": 0.15,
+    "stability_m": 0.2,
+    "max_compatibility_span_m": 0.4,
+    "spatial_degree": 2,
+    "max_cells": 0,
+    "workers": 4
+  },
+  "rock_seeds": 2,
+  "rock_heights_m": [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2],
+  "rock_supersample": 6,
+  "rock_roi_cells": 3,
+  "prediction_step_px": 128
+}

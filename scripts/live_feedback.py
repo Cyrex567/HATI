@@ -180,6 +180,48 @@ class LiveFeedback:
         except Exception as exc:
             self.failure(exc)
 
+    def adaptive(self, info):
+        """A pass snapshot, including the actual larger extraction patch."""
+        try:
+            import numpy as np
+            result = info['pass_result']; sample = info['sample']; fit = None
+            if sample is not None:
+                best = result['best']; row, col = info['centre']
+                null = sample['residual_null']; after = null+best['contrast']*sample['projected_template']
+                residual = np.full(sample['patch'].shape, np.nan); residual[:, sample['common']] = after
+                fit = dict(row_px=row, col_px=col, root_row_px=row+best['root_offset'][0],
+                    root_col_px=col+best['root_offset'][1], score=best['score'], index=None,
+                    score_scale=None, height_m=best['height_m'], width_m=best['width_m'],
+                    contrast=best['contrast'], identifiability=best['identifiability'],
+                    common_fraction=result['common_fraction'], endpoint_censored=result['endpoint_censored'],
+                    frames=result['frames'], slope_rc=list(sample['slope_rc']),
+                    frame_delta_chi2=best['frame_delta_chi2'], null_energy=result['null_energy'],
+                    fitted_energy=result['fitted_energy'], patch_size_px=sample['patch'].shape[1],
+                    observed=display_array(sample['patch']), template=display_array(sample['template']),
+                    residual=display_array(residual), common_mask=sample['common'].tolist(),
+                    meaning='Experimental adaptive pass. Equivalent shadow dimensions and uncalibrated score; no hazard-probability or measured dimension-accuracy claim.')
+            self.update(force=True, kind='adaptive', subrun='adaptive context', fit=fit,
+                regional_updated=timestamp(), message=f'Adaptive pass {result["scale"]}x at {info["centre"]}',
+                adaptive=dict(centre=info['centre'], scale=result['scale'], radius_px=result['radius_px'],
+                    support_px=result['support_px'], status=result['status'],
+                    height_range_m=result.get('height_range_m'), width_range_m=result.get('width_range_m'),
+                    endpoint_reasons=[v['reason'] for v in result.get('endpoints', [])],
+                    spatial_degree=result.get('spatial_degree')))
+        except Exception as exc:
+            self.failure(exc)
+
+    def adaptive_progress(self, info):
+        try:
+            last = info['last']; fields = {}
+            if self.state.get('adaptive', {}).get('centre') != last['centre']:
+                fields['fit'] = None  # a cached cell has no current fit snapshot
+            self.update(kind='adaptive', cells_visited=info['processed'], cells_total=info['requested'],
+                cells_assessed=info['processed'], score=display_array(info['score']),
+                assessment=display_array(info['status']),
+                message=f'Adaptive context: {info["processed"]}/{info["requested"]}; {last["status"]}', **fields)
+        except Exception as exc:
+            self.failure(exc)
+
     def field(self, title, array, **metrics):
         try:
             self.update(force=True, kind='field', message=title, field=display_array(array), field_title=title,

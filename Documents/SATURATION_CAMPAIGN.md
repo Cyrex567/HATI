@@ -1,5 +1,7 @@
 # Sequential saturation campaign
 
+The adaptive extension adds T9 (context and joint dimensions), T10 (independent 3D rock controls) and T11 (withheld illumination). Use the new preset and command in [Adaptive shadow development and workstation run](ADAPTIVE_SHADOW_PLAN.md) for `athena-adaptive-01`. The original T1–T8 protocol below remains the baseline comparison. Campaign stages remain sequential; the new preset uses four deterministic CPU workers within T9 and includes attributed Apollo shape proxies in the result bundle.
+
 The runner follows T1-T8 in `Documents/report/HATI_saturation_analysis.pdf`. It executes all offline software suites first, then the map replay and scientific stages one at a time. It uses the verified diagnostic ZIP already produced on the stationary machine. It does not download images, call ISIS, change the saved inputs or tune production thresholds. Numerical computation currently uses CPU NumPy/SciPy, including when run on the GPU workstation.
 
 ## Run on the stationary WSL machine

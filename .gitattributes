@@ -1,2 +1,5 @@
 *.sh text eol=lf
 *.pdf binary
+# Preserve frozen mesh and source metadata checksums across Windows/WSL.
+data/rock_shapes/**/*.obj -text
+data/rock_shapes/**/*_metadata.json -text whitespace=cr-at-eol

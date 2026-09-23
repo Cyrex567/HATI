@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "created": "2026-09-23T08:12:11.185526+00:00",
+  "meshes": [
+    {
+      "id": "10017-15_convex_proxy",
+      "parent_rock": "10017",
+      "split": "development",
+      "path": "10017-15_proxy.obj",
+      "sha256": "7ed99c4fd052ec209257f84e9491048b0dfaebc9dd596bebac0ddb4202910b81",
+      "source_url": "https://ares.jsc.nasa.gov/astromaterials3d/sample-details.htm?sample=10017-15",
+      "archive_url": "https://ares-a3d.s3.us-gov-east-1.amazonaws.com/samples/10017-15/2b_10017-15_SFM_Web-Resolution-Model_Coordinate-Registered/10017-15_SFM_Web-Resolution-Model_Coordinate-Registered.zip",
+      "archive_sha256": "7d9123c2175da3822e92c82774538774a9b24364da4380cfa561f35c0e0202ad",
+      "source_obj_sha256": "8319b763e33dbb470e283ec6568e38d90f64408bfd0a073568b86506af79c9b6",
+      "metadata_url": "https://ares-a3d.s3.us-gov-east-1.amazonaws.com/samples/10017-15/10017-15_A3D_EXPLORER_metadata.json",
+      "metadata_sha256": "2fcda028d5fb26df9d96b26865c01c39e9d4dbb7d4e2cbd96ddba6f8099261a2",
+      "source_vertices": 100002,
+      "source_triangles": 200000,
+      "proxy_vertices": 94,
+      "proxy_triangles": 184,
+      "credit": "NASA/These 3D reconstructed image data were produced at the Lunar Sample Laboratory Facility for Astromaterials 3D in NASA's Acquisition & Curation Office and were funded by NASA Planetary Data Archiving, Restoration, and Tools Program, Proposal No.: 15-PDART15_2-0041.",
+      "geometry_assumptions": "96-direction convex proxy discards concavities and fine detail. Returned, potentially cut or broken laboratory subsample; scene dimensions, burial and orientation are imposed assumptions. Not a representative polar boulder population."
+    },
+    {
+      "id": "10021-79_convex_proxy",
+      "parent_rock": "10021",
+      "split": "evaluation",
+      "path": "10021-79_proxy.obj",
+      "sha256": "308825c26b51c39797ed1cd3cec91313c40ce807bbd46305c76c5e80c52fad6b",
+      "source_url": "https://ares.jsc.nasa.gov/astromaterials3d/sample-details.htm?sample=10021-79",
+      "archive_url": "https://ares-a3d.s3.us-gov-east-1.amazonaws.com/samples/10021-79/2b_10021-79_SFM_Web-Resolution-Model_Coordinate-Registered/10021-79_SFM_Web-Resolution-Model_Coordinate-Registered.zip",
+      "archive_sha256": "052897cfca13b6d7d92c49c6e82e9b6a503108ee1e42757b2a5bcb7e71284b8b",
+      "source_obj_sha256": "1f25ee40b80abb9f30ba732ea177ee85d36f46440469ea7ed6387be9f0a97058",
+      "metadata_url": "https://ares-a3d.s3.us-gov-east-1.amazonaws.com/samples/10021-79/10021-79_A3D_EXPLORER_metadata.json",
+      "metadata_sha256": "678c5b323cf1cee9d5bcd30cac382ecf56d2878689aac5a1b2c91aad274c39db",
+      "source_vertices": 49090,
+      "source_triangles": 98184,
+      "proxy_vertices": 96,
+      "proxy_triangles": 188,
+      "credit": "NASA/These 3D reconstructed image data were produced at the Lunar Sample Laboratory Facility for Astromaterials 3D in NASA's Acquisition & Curation Office and were funded by NASA Planetary Data Archiving, Restoration, and Tools Program, Proposal No.: 15-PDART15_2-0041.",
+      "geometry_assumptions": "96-direction convex proxy discards concavities and fine detail. Returned, potentially cut or broken laboratory subsample; scene dimensions, burial and orientation are imposed assumptions. Not a representative polar boulder population."
+    }
+  ],
+  "source_policy": "https://ares.jsc.nasa.gov/astromaterials3d/faqs.htm",
+  "purpose": "Independent synthetic shape-transfer diagnostics; no measured boulder size prior."
+}

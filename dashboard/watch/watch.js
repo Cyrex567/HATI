@@ -20,6 +20,7 @@ function drawGrid(id, grid, {mode='heat', lo=0, hi=null}={}) {
     if(Number.isFinite(v)){
       const t=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
       if(mode==='status')rgb=[[69,85,103],[91,173,149],[220,166,91],[188,67,104]][Math.round(v)]||rgb;
+      else if(mode==='adaptive')rgb=[[126,139,152],[233,181,84],[98,191,167],[124,129,183],[200,70,98]][Math.round(v)]||rgb;
       else if(mode==='gray')rgb=[t*255,t*255,t*255];
       else if(mode==='residual'){const x=Math.max(-1,Math.min(1,v/Math.max(Math.abs(lo),Math.abs(hi),1e-9)));rgb=x<0?[230*(1+x),230*(1+x),230]:[230,230*(1-x),230*(1-x)];}
       else rgb=heat(t);
@@ -41,7 +42,7 @@ function drawSource(){
   function cross(row,col,color,size){ctx.strokeStyle=color;ctx.lineWidth=1.5;const x=ox+(col+.5)*scale,y=oy+(row+.5)*scale;ctx.beginPath();ctx.moveTo(x-size,y);ctx.lineTo(x+size,y);ctx.moveTo(x,y-size);ctx.lineTo(x,y+size);ctx.stroke();}
   if(target)cross(target[0],target[1],'white',8);
   const fit=state.snapshot?.fit;
-  if(fit){cross(fit.root_row_px,fit.root_col_px,'#69dfd0',10);const sz=(fit.observed?.[0]?.length||25)*scale;ctx.strokeStyle='#69dfd0';ctx.strokeRect(ox+(fit.col_px+.5)*scale-sz/2,oy+(fit.row_px+.5)*scale-sz/2,sz,sz);}
+  if(fit){cross(fit.root_row_px,fit.root_col_px,'#69dfd0',10);const sz=(fit.patch_size_px||fit.observed?.[0]?.length||25)*scale;ctx.strokeStyle='#69dfd0';ctx.strokeRect(ox+(fit.col_px+.5)*scale-sz/2,oy+(fit.row_px+.5)*scale-sz/2,sz,sz);}
 }
 function renderFrames(){
   const inputs=state.inputs, frames=inputs?.frames||[], select=$('frames');
@@ -88,7 +89,7 @@ function renderTerrain(){
 
 function renderCalculation(){
   const s=state.snapshot,fit=s?.fit;
-  text('calculation-title',fit?`Last regional fit · ${s.subrun}`:s?.subrun||s?.message||'Waiting for a calculation');
+  text('calculation-title',fit?`Last ${s.kind==='adaptive'?'adaptive':'regional'} fit · ${s.subrun}`:s?.subrun||s?.message||'Waiting for a calculation');
   const observedAt=fit?s.regional_updated:s?.updated;
   const age=observedAt?Math.max(0,(Date.now()-Date.parse(observedAt))/1000):null;
   text('snapshot-time',age===null?'No snapshot':`Snapshot ${Math.round(age)}s ago`);
@@ -100,7 +101,7 @@ function renderCalculation(){
     const max=Math.max(1,...fit.residual[idx].flat().filter(Number.isFinite).map(Math.abs));drawGrid('residual',fit.residual[idx],{mode:'residual',lo:-max,hi:max});
   }else{for(const id of ['observed','template','residual'])empty($(id),fit?'Frame not eligible in this fit':'No current regional fit');}
   text('delta',fit?fmt(fit.null_energy-fit.fitted_energy):'--');text('score',fmt(fit?.score));text('index',fmt(fit?.index));
-  text('index-formula',`index = score / (score + ${fit?.score_scale??'scale'})`);
+  text('index-formula',s?.kind==='adaptive'?'Experimental pass score; baseline hazard maps remain separate':`index = score / (score + ${fit?.score_scale??'scale'})`);
   const metrics=$('metrics');metrics.replaceChildren();
   if(fit){for(const [label,value] of [['Bank height',fmt(fit.height_m,2)+' m'],['Bank width',fmt(fit.width_m,2)+' m'],['Contrast',fmt(fit.contrast)],['Common support',fmt(fit.common_fraction*100,1)+'%'],['Identifiability',fmt(fit.identifiability)],['Eligible frames',String(fit.frames.length)],['Endpoint',fit.endpoint_censored?'Censored':'Inside support'],['Null energy',fmt(fit.null_energy,1)]]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;metrics.append(dt,dd);}}
   if(fit && s.geometry_order?.some((v,i)=>v!==i)){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent='Stress model Sun';dd.textContent=`${fmt(s.model_azimuths[selectedFrame],2)}° az / ${fmt(s.model_elevations[selectedFrame],3)}° el`;metrics.append(dt,dd);}
@@ -110,15 +111,18 @@ function renderCalculation(){
 
 function renderMaps(){
   const s=state.snapshot;
-  text('map-title',s?.kind==='field'?s.field_title:s?.kind==='regional'?'Regional search':'Most recent regional scan');
+  text('map-title',s?.kind==='field'?s.field_title:s?.kind==='adaptive'?'Adaptive context':s?.kind==='regional'?'Regional search':'Most recent regional scan');
   if(s?.kind==='field'){drawGrid('map-score',s.field,{hi:s.field_title.includes('index')||s.field_title.includes('illumination')?1:null});empty($('map-support'),'Coverage shown during regional search');text('score-caption',s.field_title);}
-  else{drawGrid('map-score',s?.score);drawGrid('map-support',s?.assessment,{mode:'status',hi:3});text('score-caption','Raw shadow score · colour scale spans this snapshot');}
+  else{drawGrid('map-score',s?.score);drawGrid('map-support',s?.assessment,{mode:s?.kind==='adaptive'?'adaptive':'status',hi:s?.kind==='adaptive'?4:3});text('score-caption',s?.kind==='adaptive'?'Last-scale experimental score; different windows are not comparable significances':'Raw shadow score · colour scale spans this snapshot');}
   const total=s?.cells_total,visited=s?.cells_visited;
   $('cells').max=total||1;$('cells').value=visited||0;
   text('cell-count',total?`${visited.toLocaleString()} / ${total.toLocaleString()} cells visited`:'Waiting for regional scan');
-  text('map-caption','Grey: unvisited/border · Green: assessed · Amber: unavailable · Pink: nonidentifiable. Partial maps are not final results.'+(s?.regional_updated&&s.kind!=='regional'?` Scan snapshot: ${new Date(s.regional_updated).toLocaleTimeString()}.`:''));
+  text('map-caption',s?.kind==='adaptive'?'Grey: not requested or unavailable · Amber: queued · Green: context supported, unvalidated · Purple: low evidence, unqualified · Pink: unresolved.':
+    'Grey: unvisited/border · Green: assessed · Amber: unavailable · Pink: nonidentifiable. Partial maps are not final results.'+(s?.regional_updated&&s.kind!=='regional'?` Scan snapshot: ${new Date(s.regional_updated).toLocaleTimeString()}.`:''));
   let extra='';
-  if(s?.kind==='controls'&&s.control){const c=s.control;extra=`Synthetic control: ${c.kind} · height ${c.height_m} m · location ${c.location+1} · seed ${c.seed}\nAssessment: ${c.status} · maximum score ${fmt(c.maximum_score)} · recovered: ${c.recovered===null?'unknown':String(c.recovered)}`;}
+  if(s?.kind==='controls'&&s.control){const c=s.control;extra=`Synthetic control: ${c.kind} · height ${c.height_m??'--'} m${Number.isFinite(c.location)?` · location ${c.location+1}`:''} · seed ${c.seed}\nAssessment: ${c.status} · maximum score ${fmt(c.maximum_score)} · recovered: ${c.recovered===null?'unknown':String(c.recovered)}`;}
+  if(s?.kind==='adaptive'&&s.adaptive){const a=s.adaptive;extra=`Pass ${a.scale}× · patch ${2*a.radius_px+1} pixels · fitting radius ${a.support_px} pixels · ${a.status}\nHeight compatibility: ${a.height_range_m?.join('–')??'unavailable'} m · width: ${a.width_range_m?.join('–')??'unavailable'} m. No calibrated confidence level.\nEndpoint support by frame: ${(a.endpoint_reasons||[]).join(', ')}.`;}
+  if(s?.kind==='prediction'&&s.prediction){const p=s.prediction;extra=`Withheld illumination at row ${p.row_px}, column ${p.col_px}: ${p.trials} declared trials · ${p.last_status}. Training fixes the object before the withheld frame is evaluated.`;}
   if(s?.kind==='height'&&s.height_profile){const h=s.height_profile;extra=`Height profile at row ${h.row_px}, column ${h.col_px} · support ${h.support_px} pixels · ${h.status}\nHeights (m): ${h.heights_m.join(', ')}\nScores: ${h.scores.map(v=>fmt(v,2)).join(', ')}\nDescriptive compatibility set: ${h.delta_set_m.join(', ')} m. This is not a calibrated confidence interval.`;}
   if(s?.kind==='registration'&&s.registration){const r=s.registration;extra=`Local registration: ${r.tile_px}-pixel tiles · ${r.pairs} similar-illumination pairs · ${r.measured_tiles} measured tiles. Offsets do not modify the input images.`;}
   if(s?.kind==='field'&&s.metrics)extra=Object.entries(s.metrics).map(([k,v])=>`${k.replaceAll('_',' ')}: ${typeof v==='number'?fmt(v,3):v}`).join(' · ');

@@ -4,6 +4,7 @@ The current scientific path (core 2.5.5) produces separate terrain and multi-ill
 
 - [Exact root footprints, scene diagnostics and current WSL runbook (2.5.5)](Documents/V255_SCENE_DIAGNOSTICS.md)
 - [Sequential saturation tests T1-T8, restart and Windows result export](Documents/SATURATION_CAMPAIGN.md)
+- [Adaptive context, 10 cm dimension sampling, independent 3D rocks and T9-T11 runbook](Documents/ADAPTIVE_SHADOW_PLAN.md)
 - [HATI Watch: live images, calculations and maps in a read-only browser](Documents/HATI_WATCH.md)
 - [Real-run warning attribution and shadow diagnostics (2.5.4)](Documents/V254_DIAGNOSTICS.md)
 - [Three-map development, evidence and stationary-machine runbook](Documents/V253_LANDING_MAPS.md)
