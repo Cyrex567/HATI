@@ -30,7 +30,21 @@ STAGES = [('maps', 'Replay terrain, shadow and fused maps'),
           ('T8', 'Held-out annotated scenes'),
           ('T9', 'Adaptive context and joint dimension refinement'),
           ('T10', 'Independent 3D rocks and adaptive controls'),
-          ('T11', 'Withheld illumination and changing-background alternatives')]
+          ('T11', 'Withheld illumination and changing-background alternatives'),
+          ('T12', 'Residual noise scale and controls at the measured level'),
+          ('T16', 'No-caster scenes through the full adaptive procedure')]
+
+
+def select_stages(text):
+    """Parse --stages; returns the chosen science stages in their declared order."""
+    known = [s for s, _ in STAGES]
+    if not text:
+        return known
+    chosen = [s.strip() for s in text.split(',') if s.strip()]
+    unknown = [s for s in chosen if s not in known]
+    if unknown or not chosen:
+        raise ValueError(f'unknown stages {unknown}; choose from {",".join(known)}')
+    return [s for s in known if s in chosen]
 
 
 def digest(path):
@@ -183,12 +197,33 @@ def evidence_summary(output, records):
                         'Equivalent dimensions and scores are experimental; baseline fusion is unchanged.')
     for row in read('T10').get('controls', []):
         findings.append(f'3D/control {row["kind"]}: {row["trials_with_warning"]}/{row["trials"]} trials contain adaptive warnings in fixed ROIs; '
+                        f'{row.get("trials_with_context_supported", 0)} reach context-supported status; '
                         f'{row["dimension_trials"]} trials provide central dimension estimates; '
                         f'{row.get("trials_with_unresolved_cells", 0)} contain unresolved cells. These are ROI diagnostics, not field false-alarm rates.')
     prediction = read('T11')
     if prediction:
         findings.append(f'Withheld illumination: {sum(r["assessed"] for r in prediction.get("predictions", []))}/{prediction.get("trials", 0)} '
                         'declared trials assessed. Predictive errors compare correct geometry, rotated geometry and static background at fixed scales.')
+    noise = read('T12')
+    if noise.get('measured_pooled_sigma') is not None:
+        findings.append(f'Residual scale: {noise["measured_pooled_sigma"]:.4f} (plane null) against an assumed {noise["assumed_sigma"]:.4f}, '
+                        f'{noise["ratio_to_assumed"]:.2f} times, over {noise["patches"]} patches chosen by support, illumination and slope. '
+                        'It includes unmodelled structure, so it bounds independent noise from above.')
+        rescaled = noise.get('rescaled_baseline')
+        if rescaled:
+            findings.append(f'If the whole excess were noise, baseline exceedance would move from {rescaled["fraction_above_threshold_assumed"]:.1%} '
+                            f'to {rescaled["fraction_above_threshold_rescaled"]:.1%} (median score {rescaled["median_score_assumed"]:.1f} to '
+                            f'{rescaled["median_score_rescaled"]:.1f}). Upper-bound arithmetic, not a corrected map.')
+        for p in noise.get('control_passes', []):
+            parts = [f'{s["kind"]}{" "+str(s["height_m"])+" m" if s["kind"] == "caster" else ""} '
+                     f'{s["trials_with_warning_roots"]}/{s["assessed"]}' for s in p['scenarios']]
+            findings.append(f'Controls, rendered sigma {p["render_noise"]:.4f} and model sigma {p["model_noise"]:.4f}: '
+                            + '; '.join(parts) + ' trials with warning roots.')
+    for row in read('T16').get('summaries', []):
+        label = row['kind'] if row['height_m'] is None else f'{row["kind"]} {row["height_m"]} m'
+        gate = '' if row['height_m'] is not None else (' (within the declared gate)' if row['within_declared_gate'] else ' (above the declared gate)')
+        findings.append(f'Adaptive null {row["noise_pass"]}, {label}: {row["trials_with_context_supported"]}/{row["trials"]} trials reach '
+                        f'context-supported status{gate}; {row["trials_with_adaptive_warning"]} contain adaptive warnings.')
     return findings
 
 
@@ -275,7 +310,13 @@ def main():
     ap.add_argument('--rock-catalog', type=Path, help='verified local OBJ manifest; defaults to the bundled Apollo shape proxies')
     ap.add_argument('--resume', action='store_true')
     ap.add_argument('--export-dir', type=Path, help='also copy ZIP/checksum here, e.g. a Windows /mnt/c/... folder')
+    ap.add_argument('--stages', help='comma-separated subset of science stages, e.g. T1,T12,T16; '
+                    'software checks always run. Default: every stage')
     args = ap.parse_args()
+    try:
+        selected = select_stages(args.stages)
+    except ValueError as exc:
+        ap.error(str(exc))
     output = (args.output or ROOT/'output/athena/saturation_campaign'/datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')).resolve()
     if output.exists() and any(output.iterdir()) and not args.resume:
         ap.error('output is not empty; use --resume with identical inputs or choose a new folder')
@@ -324,16 +365,18 @@ def main():
                       working_tree=capture(['git', 'status', '--short'])['stdout'],
                       python=sys.version, platform=platform.platform(),
                       configuration=json.loads(args.config.read_text(encoding='utf-8')),
-                      sequential=True, numerical_threads=1)
+                      sequential=True, numerical_threads=1, selected_stages=selected)
     records = [dict(id='software-'+p.stem[5:], title=p.name, status='PENDING', reason='Not run yet')
                for p in sorted((ROOT/'tests').glob('test_*.py'))]
-    records += [dict(id=s, title=t, status='PENDING', reason='Not run yet') for s, t in STAGES]
+    records += [dict(id=s, title=t, status='PENDING', reason='Not run yet') for s, t in STAGES if s in selected]
     if args.resume:
         saved = json.loads((output/'campaign.json').read_text(encoding='utf-8'))
         for k in ('inputs', 'source_sha256', 'python', 'platform', 'configuration', 'packages'):
             if saved['provenance'][k] != provenance[k]:
                 ap.error(f'resume provenance differs: {k}; use a new output folder')
         records = saved['stages']; provenance = saved['provenance']
+        if args.stages and provenance.get('selected_stages') and provenance['selected_stages'] != selected:
+            print(f'Resuming with the original stage selection {provenance["selected_stages"]}; --stages is ignored on resume.', flush=True)
     output.mkdir(parents=True, exist_ok=True)
     for sub in ('logs', 'stages', 'inputs'):
         (output/sub).mkdir(exist_ok=True)

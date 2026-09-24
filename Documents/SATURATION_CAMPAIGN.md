@@ -2,6 +2,8 @@
 
 The adaptive extension adds T9 (context and joint dimensions), T10 (independent 3D rock controls) and T11 (withheld illumination). Use the new preset and command in [Adaptive shadow development and workstation run](ADAPTIVE_SHADOW_PLAN.md) for `athena-adaptive-01`. The original T1–T8 protocol below remains the baseline comparison. Campaign stages remain sequential; the new preset uses four deterministic CPU workers within T9 and includes attributed Apollo shape proxies in the result bundle.
 
+The noise extension adds T12 (residual noise scale of the null model) and T16 (no-caster scenes through the full adaptive procedure). They test whether the saturation follows from an underestimated noise scale. See [Residual-noise campaign](#residual-noise-campaign-t12-and-t16).
+
 The runner follows T1-T8 in `Documents/report/HATI_saturation_analysis.pdf`. It executes all offline software suites first, then the map replay and scientific stages one at a time. It uses the verified diagnostic ZIP already produced on the stationary machine. It does not download images, call ISIS, change the saved inputs or tune production thresholds. Numerical computation currently uses CPU NumPy/SciPy, including when run on the GPU workstation.
 
 ## Run on the stationary WSL machine
@@ -48,6 +50,16 @@ These workers use one numerical thread and run sequentially for reproducibility.
 
 In a second WSL terminal, run `python dashboard/hati_watch.py --run-dir output/athena/saturation_campaign/athena-watch-01`, using the exact campaign output directory. Open `http://localhost:8765` in the stationary machine's browser. [HATI Watch instructions](HATI_WATCH.md) describe the images, intermediate calculations, maps and saved-stage inspection. Watching is optional and cannot control the computation.
 
+### Residual-noise campaign (T12 and T16)
+
+```bash
+bash scripts/run_noise_campaign_wsl.sh
+```
+
+The wrapper starts HATI Watch on `http://localhost:8765` and opens it in the Windows browser. It then runs the software checks, T1, T12 and T16 with `configs/saturation_campaign_noise_workstation.json` into a new folder `output/athena/saturation_campaign/noise-<UTC time>`, and copies the results ZIP to `C:\Users\Public\Downloads\HATI`. After the run the viewer stays open until Enter is pressed. A first argument selects another bundle. `CONFIG`, `STAGES`, `OUT`, `EXPORT_DIR`, `PORT` and `NO_BROWSER=1` override the defaults. Exit codes are those of the runner.
+
+The runner takes the same selection as `--stages T1,T12,T16`. Software checks always run, and a resumed campaign keeps its original selection. T12 uses T1 from the same campaign for the rescaled baseline and the per-frame comparison. T16 renders at the scale T12 measured; with `"null_render_noise": "measured"` it is BLOCKED rather than guessing when T12 is missing. Set `"assumed"` or a number to remove that dependency. `noise_control_seeds`, `null_seeds`, `null_caster_heights_m` and `null_gate_max_fraction` set the trial counts, the small-caster scenes and the declared gate.
+
 ## Resume after interruption
 
 Run the same command with the same output directory and add `--resume`. Inputs, configuration, Python/platform and scientific source hashes must match. Completed stage artifacts are hash-checked before reuse; completed regional subruns are also reusable inside an interrupted stage. Failed steps rerun. Changed inputs or code require a new output directory. Missing external data can be added to a new campaign, with a new frozen configuration.
@@ -83,6 +95,8 @@ The archive contains:
 | T6 | Fixed-grid height/root/width profiles at original and larger common supports; nominal endpoint and beyond-endpoint sample support; known-height and overlapping-caster controls | Records bias and empirical inclusion in a declared delta-score set. Status remains PARTIAL because the set has no validated confidence level, and observed shadow continuation is not inferred from a predicted endpoint |
 | T7 | 64/96/128 px tile diagnostics, unchanged strict support masks, planted signed shifts with actual missing data and a brightness gradient | Reports unsupported/ambiguous/boundary cases. Does not apply image shifts or derive a regional registration sigma |
 | T8 | Optional independent held-out bundle/annotation evaluation at the unchanged production score threshold | Missing annotation input is BLOCKED. Reports cell counts, unknown coverage and recall/false-alarm tradeoffs; does not count replicated pixels as independent cells |
+| T12 | Residual of the static-albedo null on non-overlapping 24 px patches, chosen only by finite data, full visibility in every frame and receiving slope at most 0.05; plane and quadratic spatial terms; per-frame scale from the demeaned residual (a negative variance estimate is reported and clipped); lag-one and block-variance structure beside a rendered static scene at the same scale; T1 baseline scores rescaled by assumed/measured scale; static, drifting-background and 0.3/0.6/1.2 m caster scenes rendered and fitted at the assumed and measured scales | The residual contains any unmodelled relief, so the measured scale bounds independent noise from above. The rescaled baseline is the extreme reading that all excess is noise, not a corrected map. The frame-scale versus T1 contribution coefficient is descriptive. No threshold or production noise value changes |
+| T16 | Static, drifting-background and small-caster scenes through the full adaptive request, expansion and stopping procedure, 12 seeds per scene, rendered at the assumed and the T12 scale with identical seeds | Counts trials with a context-supported cell against the declared gate. A synthetic 3×3-cell ROI rate, not a calibrated full-image false-alarm rate. Sun-consistent extended relief is not among these no-caster scenes yet |
 
 All science settings are declared in `configs/saturation_campaign.json` and saved before experiments run. Frame groups refer to the documented Athena stack. An absent declared frame makes that group unavailable rather than silently substituting another frame. New sites need a new declared configuration.
 

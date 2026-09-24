@@ -24,7 +24,7 @@ from src.hati_core.regional_shadow import RegionalConfig, assess_regions
 from src.hati_core.shadow_likelihood import ShadowConfig, RegistrationProjector, shadow_template
 from src.hati_core.scene_diagnostics import SceneConfig, local_registration
 from src.hati_core.campaign_controls import render_control
-from adaptive_experiments import t9, t10, t11
+from adaptive_experiments import t9, t10, t11, t16
 
 
 def save_json(path, value):
@@ -86,6 +86,19 @@ def validate_config(cfg):
         raise ValueError('rock_roi_cells must be odd')
     if 'rock_heights_m' in cfg and (not cfg['rock_heights_m'] or any(not np.isfinite(v) or v <= 0 for v in cfg['rock_heights_m'])):
         raise ValueError('rock heights must be finite and positive')
+    # T12 and T16 keys are optional; defaults live in the workers.
+    from src.hati_core.noise_scale import NoiseScaleConfig
+    NoiseScaleConfig(**cfg.get('noise_scale', {}))
+    for key in ('noise_control_seeds', 'null_seeds'):
+        if key in cfg and (type(cfg[key]) is not int or cfg[key] < 1):
+            raise ValueError('positive integer required: '+key)
+    if 'null_caster_heights_m' in cfg and any(not np.isfinite(v) or v <= 0 for v in cfg['null_caster_heights_m']):
+        raise ValueError('null caster heights must be finite and positive')
+    mode = cfg.get('null_render_noise', 'measured')
+    if mode not in ('assumed', 'measured') and not (isinstance(mode, (int, float)) and np.isfinite(mode) and mode > 0):
+        raise ValueError('null_render_noise must be "assumed", "measured" or a positive number')
+    if 'null_gate_max_fraction' in cfg and not 0 < cfg['null_gate_max_fraction'] <= 1:
+        raise ValueError('null_gate_max_fraction must lie in (0, 1]')
 
 
 class Experiment:
@@ -219,8 +232,17 @@ class Experiment:
         fig.suptitle('HATI saturation diagnostics | '+label)
         fig.savefig(self.out/filename, dpi=140); plt.close(fig)
 
-    def synthetic(self, *, indices=None, order=None, rc=None, kinds=None):
-        """Same seeds, geometry, masks, slopes and noise for matched variants."""
+    def synthetic(self, *, indices=None, order=None, rc=None, kinds=None,
+                  render_noise=None, model_noise=None, seeds=None):
+        """Same seeds, geometry, masks, slopes and noise for matched variants.
+
+        render_noise sets the noise drawn into the scene; model_noise is the sigma
+        the detector assumes. Both default to the source run's assumed sigma, so
+        existing stages are unchanged. T12 separates them.
+        """
+        render = self.noise if render_noise is None else float(render_noise)
+        model = self.noise if model_noise is None else float(model_noise)
+        trials = self.cfg['synthetic_seeds'] if seeds is None else int(seeds)
         rows = []
         d = self.data; radius = self.sc.radius_px
         size = 2*radius+16; half = size//2
@@ -237,17 +259,18 @@ class Experiment:
             scenarios = kinds or [('static', .3), ('structured_null', .3), ('resolved_ridge', .3),
                                   ('caster', .3), ('caster', .6), ('caster', 1.2)]
             for kind, height in scenarios:
-                for trial in range(self.cfg['synthetic_seeds']):
+                for trial in range(trials):
                     seed = self.cfg['seed']+100*location+trial
                     entry = dict(location=location, row_px=y, col_px=x, seed=seed, kind=kind,
-                                 height_m=height if kind in ('caster', 'overlap') else None)
+                                 height_m=height if kind in ('caster', 'overlap') else None,
+                                 render_noise=render, model_noise=model)
                     try:
                         stack = render_control((size, size), d['azimuths'], d['elevations'],
-                                               pixel_m=self.sc.pixel_m, seed=seed, noise=self.noise,
+                                               pixel_m=self.sc.pixel_m, seed=seed, noise=render,
                                                kind=kind, height=height, slope_rc=slopes)
                         stack[~mask] = np.nan
                         geometry = np.arange(len(stack)) if order is None else np.asarray(order)
-                        fit = assess_regions(stack, d['azimuths'][geometry], d['elevations'][geometry], self.noise,
+                        fit = assess_regions(stack, d['azimuths'][geometry], d['elevations'][geometry], model,
                                              self.sc, rc or self.rc, visible=d['visibility'][sl], frame_indices=indices,
                                              slope_row=d['slope_row'][y-half:y-half+size, x-half:x-half+size],
                                              slope_col=d['slope_col'][y-half:y-half+size, x-half:x-half+size])
@@ -626,9 +649,147 @@ def t8(ex):
                                   'Cell hazard detection does not validate individual object counts, heights or footpad stability.'])
 
 
+NOISE_CONTROL_KINDS = [('static', .3), ('structured_null', .3), ('caster', .3), ('caster', .6), ('caster', 1.2)]
+
+
+def summarise_controls(rows):
+    """Warnings and recovery per scenario, counted over assessed trials only."""
+    groups = {}
+    for r in rows:
+        groups.setdefault((r['kind'], r.get('height_m')), []).append(r)
+    out = []
+    for (kind, height), sample in groups.items():
+        assessed = [r for r in sample if r['status'] == 'assessed']
+        scores = [r['maximum_score'] for r in assessed if r.get('maximum_score') is not None]
+        out.append(dict(kind=kind, height_m=height, trials=len(sample), assessed=len(assessed),
+                        trials_with_warning_roots=sum(r['warning_roots'] > 0 for r in assessed),
+                        recovered_within_2px=sum(bool(r.get('recovered_within_2px')) for r in assessed) if kind in ('caster', 'overlap') else None,
+                        median_maximum_score=float(np.median(scores)) if scores else None))
+    return out
+
+
+def t12(ex):
+    """Residual scale under the null model, then the baseline controls at that scale."""
+    from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale, patch_map
+    d = ex.data; assumed = float(ex.noise)
+    base_cfg = NoiseScaleConfig(**ex.cfg.get('noise_scale', {}))
+    ex.live.update(force=True, kind='stage', message='Measuring the residual scale of the null model')
+    measured = {}
+    for degree in (1, 2):
+        measured[degree] = measure_residual_scale(d['stack'], d['visibility'], d['slope_row'], d['slope_col'],
+                                                  replace(base_cfg, spatial_degree=degree))
+    linear, quadratic = measured[1], measured[2]
+    save_json(ex.out/'residual_scale.json', dict(linear=linear, quadratic=quadratic, assumed_sigma=assumed))
+    if not linear['patches']:
+        return ex.result('BLOCKED', 'No patch met the support, illumination and slope rules, so no residual scale was measured.',
+                         rejected_patches=linear['rejected_patches'], configuration_noise_scale=asdict(base_cfg))
+    sigma = linear['pooled_sigma']
+    ex.live.field('Residual scale per patch, plane null (normalised intensity)', patch_map(linear, d['stack'].shape[1:]),
+                  pooled=round(sigma, 5), assumed=assumed, ratio=round(sigma/assumed, 3), patches=linear['patches'])
+    # Reference structure: the same estimator on rendered noise alone. The
+    # structure metrics are scale-free, so one rendering at the measured scale
+    # tells us what independent (slightly coloured) noise looks like here.
+    size = 4*base_cfg.patch_px
+    ref_stack = render_control((size, size), d['azimuths'], d['elevations'], pixel_m=ex.sc.pixel_m,
+                               seed=ex.cfg['seed']+900000, noise=sigma, kind='static')
+    reference = measure_residual_scale(ref_stack, np.ones_like(ref_stack), np.zeros((size, size)), np.zeros((size, size)), base_cfg)
+    rows = []
+    frames = [p['pid'] for p in ex.run['frames']]
+    for i, pid in enumerate(frames):
+        rows.append(dict(frame=i, pid=pid, azimuth_deg=float(d['azimuths'][i]), elevation_deg=float(d['elevations'][i]),
+                         sigma_plane=linear['per_frame_sigma'][i], sigma_quadratic=quadratic['per_frame_sigma'][i] if quadratic['patches'] else None,
+                         ratio_to_assumed=linear['per_frame_sigma'][i]/assumed))
+    # If T1 ran in this campaign, relate per-frame scale to per-frame evidence.
+    comparison = None
+    t1_result = ex.args.campaign/'stages/T1/result.json'
+    if t1_result.exists():
+        contributions = {f['frame']: f.get('signed_median') for f in json.loads(t1_result.read_text(encoding='utf-8')).get('frames', [])}
+        pairs = [(r['sigma_plane'], contributions.get(r['frame'])) for r in rows if contributions.get(r['frame']) is not None]
+        for r in rows:
+            r['t1_signed_median_contribution'] = contributions.get(r['frame'])
+        if len(pairs) >= 3:
+            rho = spearmanr([a for a, _ in pairs], [b for _, b in pairs]).correlation
+            comparison = dict(frames=len(pairs), spearman_sigma_vs_signed_median=rho,
+                              interpretation='Descriptive, one value per frame. A positive coefficient is what equal noise weights '
+                                             'would produce if noisier frames dominated the evidence; it is not a test.')
+    write_csv(ex.out/'per_frame_scale.csv', rows)
+    # "If all excess were noise": scores scale as 1/sigma. Needs T1's baseline.
+    rescaled = None
+    if (ex.baseline_dir/'regional.npz').exists():
+        b = ex.baseline(); ok = b['status'] == 1; s = b['score'][ok]
+        if s.size:
+            rescaled = dict(assessed_pixels=int(ok.sum()), threshold=ex.rc.score_scale,
+                            fraction_above_threshold_assumed=float(np.mean(s >= ex.rc.score_scale)),
+                            fraction_above_threshold_rescaled=float(np.mean(s*assumed/sigma >= ex.rc.score_scale)),
+                            median_score_assumed=float(np.median(s)), median_score_rescaled=float(np.median(s)*assumed/sigma),
+                            interpretation='Upper-bound arithmetic: treats the whole residual excess as independent noise.')
+    passes = []
+    seeds = ex.cfg.get('noise_control_seeds', ex.cfg['synthetic_seeds'])
+    for name, render, model in (('render_assumed_model_assumed', assumed, assumed),
+                                ('render_measured_model_assumed', sigma, assumed),
+                                ('render_measured_model_measured', sigma, sigma)):
+        ex.live.update(force=True, kind='stage', message=f'Controls: {name.replace("_", " ")}')
+        controls = ex.synthetic(kinds=NOISE_CONTROL_KINDS, render_noise=render, model_noise=model, seeds=seeds)
+        write_csv(ex.out/f'controls_{name}.csv', controls)
+        passes.append(dict(name=name, render_noise=render, model_noise=model, scenarios=summarise_controls(controls)))
+        print(f'T12 control pass {name} complete', flush=True)
+    _plot_t12(ex, linear, rows, passes, assumed)
+    return ex.result('PARTIAL', 'Residual scale measured on patches chosen by support, illumination and slope; controls rerun at that scale. '
+                     'The residual includes unmodelled structure, so it bounds independent noise from above.',
+                     assumed_sigma=assumed, measured_pooled_sigma=sigma, measured_pooled_sigma_quadratic=quadratic['pooled_sigma'],
+                     ratio_to_assumed=sigma/assumed, median_patch_sigma=linear['median_patch_sigma'],
+                     patches=linear['patches'], rejected_patches=linear['rejected_patches'],
+                     negative_variance_frames=linear['negative_variance_frames'],
+                     structure=linear['structure'], reference_noise_structure=reference['structure'],
+                     per_frame=rows, frame_scale_vs_evidence=comparison, rescaled_baseline=rescaled,
+                     control_passes=passes, configuration_noise_scale=asdict(base_cfg))
+
+
+def _plot_t12(ex, linear, rows, passes, assumed):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+    from src.hati_core.noise_scale import patch_map
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9), layout='constrained')
+    ax = axes[0, 0]
+    sig = [r['sigma_plane'] for r in rows]
+    ax.set_axisbelow(True)
+    ax.bar(range(len(sig)), sig, color='#1f3a5f')
+    ax.axhline(assumed, color='#c1121f', ls='--', lw=1.2, label=f'assumed {assumed:g}')
+    ax.axhline(linear['pooled_sigma'], color='#13283b', lw=1, label=f'pooled {linear["pooled_sigma"]:.4f}')
+    # Headroom above the tallest bar keeps the legend off the bars.
+    ax.set_ylim(0, 1.3*max(*sig, assumed, linear['pooled_sigma']))
+    ax.set_xticks(range(len(sig))); ax.set_xticklabels([r['pid'].split('.')[-1] for r in rows], rotation=45, ha='right', fontsize=8)
+    ax.set_ylabel('residual scale (normalised intensity)'); ax.set_title('Per-frame residual scale, plane null')
+    ax.legend(frameon=False, loc='upper left', ncols=2)
+    ax = axes[0, 1]
+    ax.hist([q['pooled_sigma'] for q in linear['per_patch']], bins=30, color='#1f3a5f')
+    ax.axvline(assumed, color='#c1121f', ls='--', lw=1.2)
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlabel('patch residual scale'); ax.set_ylabel('patches'); ax.set_title(f'{linear["patches"]} patches chosen without scores')
+    ax = axes[1, 0]
+    im = ax.imshow(patch_map(linear, ex.data['stack'].shape[1:]), cmap=plt.get_cmap('magma').with_extremes(bad='#80909d'), interpolation='nearest')
+    fig.colorbar(im, ax=ax, shrink=.8, label='patch residual scale'); ax.set_title('Where the residual is large (grey: not selected)')
+    ax = axes[1, 1]; ax.axis('off')
+    header = ['scenario'] + [p['name'].replace('render_', 'rendered ').replace('_model_', '\nmodel ') for p in passes]
+    cells = []
+    for i, s in enumerate(passes[0]['scenarios']):
+        label = s['kind'] + (f' {s["height_m"]} m' if s['kind'] == 'caster' else '')
+        cells.append([label] + [f'{p["scenarios"][i]["trials_with_warning_roots"]}/{p["scenarios"][i]["assessed"]}' for p in passes])
+    table = ax.table(cellText=cells, colLabels=header, loc='center', cellLoc='center')
+    table.auto_set_font_size(False); table.set_fontsize(8); table.scale(1, 1.6)
+    for (row, _), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_height(2*cell.get_height())  # two-line headers
+    ax.set_title('Trials with warning roots / assessed trials')
+    fig.suptitle('HATI T12 | residual scale of the null model | research diagnostic')
+    fig.savefig(ex.out/'residual_scale.png', dpi=140); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11'], required=True)
+    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T16'], required=True)
     ap.add_argument('--bundle', type=Path, required=True)
     ap.add_argument('--config', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)

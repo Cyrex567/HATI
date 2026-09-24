@@ -96,7 +96,14 @@ def t9(ex):
     return ex.result('PARTIAL', 'Adaptive cell histories and dimension compatibility exported; calibration and independent field validation remain open.', **details)
 
 
-def _control_trial(ex, cfg, scene, slopes, folder, truth):
+def _control_trial(ex, cfg, scene, slopes, folder, truth, *, noise=None, predict=True, save_arrays=True):
+    """One synthetic scene through the baseline and the full adaptive procedure.
+
+    noise is the sigma the detector assumes (default: the source run's value).
+    predict=False skips the withheld-frame predictions, which T16 does not use.
+    save_arrays=False keeps the per-scene arrays out of the results archive.
+    """
+    noise = ex.noise if noise is None else noise
     shape = scene.shape[1:]; sr = np.full(shape, slopes[0]); scol = np.full(shape, slopes[1])
     visibility = np.ones_like(scene)
     kind = truth['kind']
@@ -104,7 +111,7 @@ def _control_trial(ex, cfg, scene, slopes, folder, truth):
         r = shape[0]//2; visibility[:, r+8:r+12, :] = 0
     if kind == 'terrain_break':
         sr[:, shape[1]//2+8:] += .05
-    baseline = assess_regions(scene, ex.data['azimuths'], ex.data['elevations'], ex.noise, ex.sc, ex.rc,
+    baseline = assess_regions(scene, ex.data['azimuths'], ex.data['elevations'], noise, ex.sc, ex.rc,
                               visible=visibility, slope_row=sr, slope_col=scol)
     original_assessed = baseline['status'] == 1
     original_scores = baseline['score'][original_assessed]
@@ -119,12 +126,13 @@ def _control_trial(ex, cfg, scene, slopes, folder, truth):
             scope[r0:r1, c0:c1] = True; roi_count += 1
     baseline['status'] = np.where(scope, baseline['status'], 0)
     records = []
-    result = refine_regions(scene, visibility, ex.data['azimuths'], ex.data['elevations'], ex.noise,
+    result = refine_regions(scene, visibility, ex.data['azimuths'], ex.data['elevations'], noise,
                             ex.sc, ex.rc, replace(cfg, max_cells=0, workers=1), baseline, sr, scol, on_record=records.append)
     save(folder/'cell_histories.json', records)
-    np.savez_compressed(folder/'scene.npz', stack=scene, visibility=visibility, slope_row=sr, slope_col=scol,
-                        azimuths=ex.data['azimuths'], elevations=ex.data['elevations'])
-    np.savez_compressed(folder/'adaptive.npz', **{k: v for k, v in result.items() if isinstance(v, np.ndarray)})
+    if save_arrays:
+        np.savez_compressed(folder/'scene.npz', stack=scene, visibility=visibility, slope_row=sr, slope_col=scol,
+                            azimuths=ex.data['azimuths'], elevations=ex.data['elevations'])
+        np.savez_compressed(folder/'adaptive.npz', **{k: v for k, v in result.items() if isinstance(v, np.ndarray)})
     root = np.asarray(truth.get('root_px', middle), float)
     warnings = []
     for row in records:
@@ -158,12 +166,12 @@ def _control_trial(ex, cfg, scene, slopes, folder, truth):
     # selection did not request it. Held intensities cannot select this window.
     predictions = []
     rad = ex.sc.radius_px*max(cfg.scale_factors); r, c = map(int, nearest_centre)
-    if r-rad >= 0 and c-rad >= 0 and r+rad < shape[0] and c+rad < shape[1] and kind != 'terrain_break':
+    if predict and r-rad >= 0 and c-rad >= 0 and r+rad < shape[0] and c+rad < shape[1] and kind != 'terrain_break':
         sc = replace(ex.sc, radius_px=rad, root_support_px=ex.sc.root_support_px*max(cfg.scale_factors))
         sl = np.s_[:, r-rad:r+rad+1, c-rad:c+rad+1]
         for degree in (1, 2):
             prediction = held_out_prediction(scene[sl], visibility[sl], ex.data['azimuths'], ex.data['elevations'],
-                ex.noise, sc, ex.rc, replace(cfg, spatial_degree=degree), slopes)
+                noise, sc, ex.rc, replace(cfg, spatial_degree=degree), slopes)
             predictions.append(dict(spatial_degree=degree, **prediction))
     save(folder/'withheld_predictions.json', predictions)
     row['withheld_predictions'] = [{k: v for k, v in p.items() if k != 'training'} for p in predictions]
@@ -225,6 +233,8 @@ def t10(ex):
         sample = [r for r in rows if r['kind'] == kind]
         errors = [r['height_error_m'] for r in sample if r['height_error_m'] is not None]
         summaries.append(dict(kind=kind, trials=len(sample), trials_with_warning=sum(r['adaptive_warning_cells'] > 0 for r in sample),
+            trials_with_context_supported=sum(r['context_supported_cells'] > 0 for r in sample),
+            context_supported_cells=sum(r['context_supported_cells'] for r in sample),
             trials_with_final_fit=sum(r['cells_with_final_fit'] > 0 for r in sample),
             trials_with_unresolved_cells=sum(r['unresolved_cells'] > 0 for r in sample),
             trials_without_requests=sum(r['requested'] == 0 for r in sample),
@@ -287,3 +297,144 @@ def t11(ex):
                                   'Withheld spatial illumination coefficients are nuisance-fitted equally for every competing prediction.',
                                   'Wrong direction rotates only the withheld prediction by 90 degrees with the training object frozen.',
                                   'No best-scale selection or fitted success threshold is made from these results.'])
+
+
+# ---------------------------------------------------------------------- T16
+# Worker state for forked processes; set only for the duration of t16().
+_T16 = {}
+
+
+def _t16_run(job):
+    ex, cfg, size, root = _T16['ex'], _T16['cfg'], _T16['size'], _T16['root']
+    rocks = [make_rock(job['seed'], root, job['height_m'], .6, aspect=1.35)] if job['height_m'] is not None else []
+    generated = render_rocks((size, size), ex.data['azimuths'], ex.data['elevations'], rocks,
+                             pixel_m=ex.sc.pixel_m, seed=job['seed'], noise=job['render_noise'], slope_rc=(0., 0.),
+                             supersample=ex.cfg.get('rock_supersample', 6), structured_null=job['kind'] == 'structured_null')
+    folder = ex.out/job['folder']; folder.mkdir(parents=True, exist_ok=True)
+    truth = dict(kind=job['kind'], seed=job['seed'], height_m=job['height_m'],
+                 width_m=.6 if job['height_m'] is not None else None, root_px=root, slope_rc=(0., 0.),
+                 noise_pass=job['noise_pass'], render_noise=job['render_noise'], model_noise=float(ex.noise),
+                 generator_truth=generated['truth'], scene_scope='predeclared central ROI; full-frame baseline also recorded')
+    row, _ = _control_trial(ex, cfg, generated['stack'], (0., 0.), folder, truth, predict=False, save_arrays=job['example'])
+    return row
+
+
+def summarise_null_trials(rows, gate):
+    """Per noise pass and scenario: adaptive warnings and context-supported outcomes."""
+    groups = {}
+    for r in rows:
+        groups.setdefault((r['noise_pass'], r['kind'], r['height_m']), []).append(r)
+    out = []
+    for (name, kind, height), sample in groups.items():
+        supported = sum(r['context_supported_cells'] > 0 for r in sample)
+        entry = dict(noise_pass=name, kind=kind, height_m=height, trials=len(sample),
+                     render_noise=sample[0]['render_noise'], model_noise=sample[0]['model_noise'],
+                     trials_with_adaptive_warning=sum(r['adaptive_warning_cells'] > 0 for r in sample),
+                     trials_with_context_supported=supported,
+                     context_supported_cells=sum(r['context_supported_cells'] for r in sample),
+                     roi_assessed_cells=sum(r['roi_assessed_cells'] for r in sample),
+                     requested_cells=sum(r['requested'] for r in sample),
+                     unresolved_cells=sum(r['unresolved_cells'] for r in sample),
+                     recovered_within_2px=sum(r['recovered_within_2px'] is True for r in sample) if height is not None else None)
+        if height is None:
+            fraction = supported/len(sample) if sample else None
+            entry.update(context_supported_trial_fraction=fraction, declared_gate_max_fraction=gate,
+                         within_declared_gate=bool(fraction is not None and fraction <= gate))
+        out.append(entry)
+    return out
+
+
+def _plot_t16(ex, summaries, gate):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    names = list(dict.fromkeys(s['noise_pass'] for s in summaries))
+    fig, axes = plt.subplots(1, len(names), figsize=(6.5*len(names), 4.2), squeeze=False, layout='constrained')
+    for ax, name in zip(axes[0], names):
+        rows = [s for s in summaries if s['noise_pass'] == name]
+        labels = [s['kind'] if s['height_m'] is None else f'{s["kind"]} {s["height_m"]} m' for s in rows]
+        values = [s['trials_with_context_supported']/s['trials'] for s in rows]
+        ax.set_axisbelow(True)
+        ax.barh(range(len(rows)), values, color='#1f3a5f', height=.6)
+        for i, s in enumerate(rows):
+            ax.text(min(values[i]+.02, .9), i, f'{s["trials_with_context_supported"]}/{s["trials"]}', va='center', fontsize=9, color='#13283b')
+        ax.axvline(gate, color='#c1121f', ls='--', lw=1.2, label=f'declared gate for no-caster scenes ({gate:g})')
+        ax.set_yticks(range(len(rows))); ax.set_yticklabels(labels); ax.invert_yaxis(); ax.set_xlim(0, 1)
+        ax.set_xlabel('trials with a context-supported cell')
+        ax.set_title(f'{name.replace("_", " ")}: rendered sigma {rows[0]["render_noise"]:.4f}, model sigma {rows[0]["model_noise"]:.4f}', fontsize=10)
+        ax.legend(frameon=False, loc='lower right', fontsize=8)
+    fig.suptitle('HATI T16 | no-caster scenes through the full adaptive procedure | synthetic ROI diagnostic')
+    fig.savefig(ex.out/'adaptive_nulls.png', dpi=140); plt.close(fig)
+
+
+def t16(ex):
+    """No-caster scenes through the complete adaptive procedure, with enough seeds for a rate."""
+    import os
+    cfg = adaptive_config(ex)
+    seeds = ex.cfg.get('null_seeds', 12)
+    heights = ex.cfg.get('null_caster_heights_m', [.3, .6])
+    gate = ex.cfg.get('null_gate_max_fraction', .1)
+    mode = ex.cfg.get('null_render_noise', 'measured')
+    if mode == 'measured':
+        t12 = ex.args.campaign/'stages/T12/result.json'
+        measured = json.loads(t12.read_text(encoding='utf-8')) if t12.exists() else {}
+        key = 'measured_pooled_sigma_quadratic' if cfg.spatial_degree == 2 else 'measured_pooled_sigma'
+        render = measured.get(key) or measured.get('measured_pooled_sigma')
+        if not render:
+            return ex.result('BLOCKED', 'null_render_noise is "measured" but this campaign has no usable T12 residual scale. '
+                             'Run T12 first, or set null_render_noise to "assumed" or a number.')
+        source = f'T12 {key} (matches the adaptive null of spatial degree {cfg.spatial_degree})'
+    elif mode == 'assumed':
+        render, source = float(ex.noise), 'assumed model sigma'
+    else:
+        render, source = float(mode), 'configured value'
+    passes = [('render_assumed', float(ex.noise))]
+    if not np.isclose(render, ex.noise):
+        passes.append(('render_measured', float(render)))
+    size = 2*ex.sc.radius_px*max(cfg.scale_factors)+4*ex.rc.cell_px+1
+    root = [size//2+.3, size//2+.2]
+    scenarios = [('static', None), ('structured_null', None)] + [('procedural', float(h)) for h in heights]
+    jobs = []
+    for name, noise in passes:
+        for case, (kind, height) in enumerate(scenarios):
+            for trial in range(seeds):
+                # Disjoint from T10's seeds, and shared across noise passes, so
+                # both passes see the same scenes with the same draws, rescaled.
+                jobs.append(dict(noise_pass=name, render_noise=noise, kind=kind, height_m=height,
+                                 seed=ex.cfg['seed']+200000+100*case+trial, example=trial == 0,
+                                 folder=f'{name}/{case:03d}_{kind}_{trial:02d}'))
+    workers = cfg.workers if os.name != 'nt' else 1
+    rows = []
+    def report(row, done):
+        ex.live.update(force=True, kind='controls', fit=None, message='T16: no-caster scenes through the adaptive procedure',
+                       control=dict(kind=row['kind'], height_m=row['height_m'], seed=row['seed'], status=row['central_status'],
+                                    recovered=row['recovered_within_2px'], maximum_score=None))
+        print(f'T16 {done}/{len(jobs)}: {row["noise_pass"]} {row["kind"]} h={row["height_m"]}; '
+              f'context-supported cells {row["context_supported_cells"]}, adaptive warnings {row["adaptive_warning_cells"]}', flush=True)
+    _T16.update(ex=ex, cfg=cfg, size=size, root=root)
+    try:
+        if workers > 1:
+            import multiprocessing as mp
+            with mp.get_context('fork').Pool(workers) as pool:
+                for done, row in enumerate(pool.imap(_t16_run, jobs), 1):
+                    rows.append(row); report(row, done)
+        else:
+            for done, job in enumerate(jobs, 1):
+                row = _t16_run(job); rows.append(row); report(row, done)
+    finally:
+        _T16.clear()
+    save(ex.out/'null_trials.json', rows)
+    summaries = summarise_null_trials(rows, gate)
+    save(ex.out/'summary.json', summaries)
+    _plot_t16(ex, summaries, gate)
+    nulls = [s for s in summaries if s['height_m'] is None]
+    return ex.result('PARTIAL', 'No-caster scenes run through the complete adaptive request, expansion and stopping procedure; '
+                     'context-supported rates are reported against a declared research gate, not a calibrated false-alarm rate.',
+                     render_noise_source=source, model_sigma=float(ex.noise),
+                     noise_passes=[dict(name=n, render_noise=v, model_noise=float(ex.noise)) for n, v in passes],
+                     seeds_per_scenario=seeds, summaries=summaries, declared_gate_max_fraction=gate,
+                     null_scenarios=len(nulls), null_scenarios_within_gate=sum(s['within_declared_gate'] for s in nulls),
+                     limitations=['Synthetic 3x3-cell ROIs, not full-image false-alarm calibration.',
+                                  'The changing background is a drifting stripe pattern unrelated to Sun geometry; '
+                                  'Sun-consistent extended relief is not yet among the null scenes (test T13).',
+                                  'Rendering at the measured scale treats the whole residual excess as independent noise.'])
