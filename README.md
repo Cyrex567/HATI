@@ -2,6 +2,8 @@
 
 The current scientific path (core 2.5.5) produces separate terrain and multi-illumination shadow heatmaps, a conservative fused map, and observability layers. Shadow footprints use every sampled root at its actual distance. Broad image/DEM discrepancies and local apparent-registration checks accompany the maps. Native DEM plane/relief measurements and downstream DEM shadow prediction complement an uncapped regional shadow search. It uses no trained model weights. The target is subpixel relief sensing poleward of 70 degrees; lunar detection performance and landing clearance remain unvalidated.
 
+- [Full architecture and implementation dossier for scientific review (PDF)](Documents/architecture_review/HATI_architecture_and_implementation_review.pdf)
+- [Editable review text, evidence and rebuild instructions](Documents/architecture_review/README.md)
 - [Exact root footprints, scene diagnostics and current WSL runbook (2.5.5)](Documents/V255_SCENE_DIAGNOSTICS.md)
 - [Sequential saturation tests T1-T8, restart and Windows result export](Documents/SATURATION_CAMPAIGN.md)
 - [Adaptive context, 10 cm dimension sampling, independent 3D rocks and T9-T11 runbook](Documents/ADAPTIVE_SHADOW_PLAN.md)

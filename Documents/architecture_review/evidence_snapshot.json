@@ -1,0 +1,1655 @@
+{
+  "review_date": "2026-09-24",
+  "implementation_commit": "40cf64075c331e19d7fb57c4b2b4b3b4de17be66",
+  "measured_campaign_commit": "8347e6dbfc7532bb59c3311ff888ec3f7f9efd9a",
+  "measured_archive_sha256": "4200d3c46cf7bf9485beb42b57fb3e4e474a8dd16a5603b9908354a988a6de61",
+  "verified_archive_entries": 293,
+  "run": {
+    "version": "2.5.5",
+    "status": "experimental_unvalidated",
+    "demo": false,
+    "landing": {
+      "label": "illustrative_limits_not_Athena_specifications",
+      "baselines_m": [
+        16.0,
+        32.0,
+        64.0
+      ],
+      "footprint_diameter_m": 8.0,
+      "navigation_margin_m": 5.0,
+      "slope_limit_deg": 8.0,
+      "rms_limit_m": 0.5,
+      "relief_limit_m": 1.0,
+      "shadow_score_scale": 8.0,
+      "horizon_distance_m": 400.0,
+      "dem_vertical_sigma_m": 0.5,
+      "horizon_sigma_multiplier": 2.0
+    },
+    "landing_config_hash": "6ca78f280ed5657c",
+    "shadow_configuration": {
+      "regional": {
+        "cell_px": 4,
+        "tile_px": 64,
+        "heights_m": [
+          0.3,
+          0.6,
+          1.2
+        ],
+        "widths_m": [
+          0.6,
+          1.2
+        ],
+        "root_contrast": 0.6,
+        "score_scale": 8.0,
+        "min_frame_fraction": 0.85,
+        "min_common_fraction": 0.8,
+        "slope_bin": 0.005,
+        "cache_banks": 8
+      },
+      "shadow": {
+        "pixel_m": 0.9,
+        "heights_m": [
+          0.3,
+          0.5,
+          1.0,
+          2.0
+        ],
+        "widths_m": [
+          0.4,
+          0.9,
+          1.8,
+          3.6
+        ],
+        "radius_px": 12,
+        "root_support_px": 6.0,
+        "psf_sigma_px": 0.6,
+        "registration_sigma_px": 0.5,
+        "solar_radius_deg": 0.266,
+        "supersample": 4,
+        "max_candidates": 150,
+        "min_separation_px": 3,
+        "min_common_fraction": 0.8,
+        "min_identifiability": 0.02,
+        "max_contrast": 1.0,
+        "root_offsets_px": [
+          -0.5,
+          0.0,
+          0.5
+        ]
+      },
+      "noise_sigma": 0.03
+    },
+    "shadow_config_hash": "c858414a2c95cd93",
+    "frames": [
+      {
+        "pid": "nac.m1409532146le",
+        "utc": "2022-06-10T20:27:59+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M1409532146LE.lev2.cub",
+        "geometry": {
+          "az": 13.936376802828406,
+          "elev": 4.346928951237999,
+          "incidence": 85.653071048762,
+          "sub_lat": 0.70910882849243,
+          "sub_lon": 43.092254399957,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 2.4136821801391,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 682.7513538541,
+          "line": 30856.813959027
+        },
+        "normalization_median": 0.012658790424466188,
+        "shift_px": [
+          -31.4,
+          -42.6
+        ],
+        "residual_px": 0.05,
+        "closure_px": 1.131370613876137
+      },
+      {
+        "pid": "nac.m1266635336le",
+        "utc": "2017-11-29T22:54:29+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M1266635336LE.lev2.cub",
+        "geometry": {
+          "az": 14.347418964465621,
+          "elev": 3.5873780534989947,
+          "incidence": 86.412621946501,
+          "sub_lat": 1.4593547288208,
+          "sub_lon": 43.519139153009,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 1.3981967503684,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 1524.101940455,
+          "line": 2125.521435613
+        },
+        "normalization_median": 0.011184551157057299,
+        "shift_px": [
+          9.6,
+          -6.2
+        ],
+        "residual_px": 0.0,
+        "closure_px": 1.029564347957115
+      },
+      {
+        "pid": "nac.m1169496158le",
+        "utc": "2014-11-01T15:48:11+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M1169496158LE.lev2.cub",
+        "geometry": {
+          "az": 39.76930624290464,
+          "elev": 3.471140614212004,
+          "incidence": 86.528859385788,
+          "sub_lat": 0.53588116710624,
+          "sub_lon": 68.879625266257,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 1.7872650836605,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 1186.9996946673,
+          "line": 33770.105432672
+        },
+        "normalization_median": 0.010072928853333035,
+        "shift_px": [
+          -35.6,
+          -42.0
+        ],
+        "residual_px": 0.07071067811865475,
+        "closure_px": 1.2727930153559914
+      },
+      {
+        "pid": "nac.m1138847117le",
+        "utc": "2013-11-11T22:10:50+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M1138847117LE.lev2.cub",
+        "geometry": {
+          "az": 44.46047211963862,
+          "elev": 3.3806683886109994,
+          "incidence": 86.619331611389,
+          "sub_lat": 0.34112242517685,
+          "sub_lon": 73.559361353177,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 1.4036530015053,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 1507.745413504,
+          "line": 2111.1300235156
+        },
+        "normalization_median": 0.009915668610483493,
+        "shift_px": [
+          -11.1,
+          -32.5
+        ],
+        "residual_px": 0.223606797749979,
+        "closure_px": 1.4866071569966102
+      },
+      {
+        "pid": "nac.m1433043518re",
+        "utc": "2023-03-09T23:24:11+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M1433043518RE.lev2.cub",
+        "geometry": {
+          "az": 297.4661429638442,
+          "elev": 3.583541187836005,
+          "incidence": 86.416458812164,
+          "sub_lat": -1.1724602487162,
+          "sub_lon": 326.85378528809,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 1.3761407015264,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 1437.8708034342,
+          "line": 31381.56503073
+        },
+        "normalization_median": 0.008376999851316177,
+        "shift_px": [
+          -32.5,
+          -67.3
+        ],
+        "residual_px": 0.07071067811865475,
+        "closure_px": 2.7658600270918927
+      },
+      {
+        "pid": "nac.m1379255373le",
+        "utc": "2021-06-25T10:15:06+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M1379255373LE.lev2.cub",
+        "geometry": {
+          "az": 325.4351753833351,
+          "elev": 3.6319058071370023,
+          "incidence": 86.368094192863,
+          "sub_lat": 0.66022913357031,
+          "sub_lon": 354.70753189398,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 1.8088534001746,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 1197.5621437256,
+          "line": 33187.285148048
+        },
+        "normalization_median": 0.010176660232245822,
+        "shift_px": [
+          -5.9,
+          -53.2
+        ],
+        "residual_px": 0.0,
+        "closure_px": 0.7810252606438651
+      },
+      {
+        "pid": "nac.m1113828140le",
+        "utc": "2013-01-26T08:27:53+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M1113828140LE.lev2.cub",
+        "geometry": {
+          "az": 336.77185141106554,
+          "elev": 3.2755017343870065,
+          "incidence": 86.724498265613,
+          "sub_lat": 1.5120375453778,
+          "sub_lon": 5.9991852407756,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 2.0102756347354,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 982.34656245695,
+          "line": 12342.920518913
+        },
+        "normalization_median": 0.009469410916790398,
+        "shift_px": [
+          -3.3,
+          108.5
+        ],
+        "residual_px": 0.1,
+        "closure_px": 0.2236102097775082
+      },
+      {
+        "pid": "nac.m124401181le",
+        "utc": "2010-03-28T07:38:36+00:00",
+        "lev2": "/home/gergo/HATI_V2.0/data/sweep/M124401181LE.lev2.cub",
+        "geometry": {
+          "az": 355.74218464988274,
+          "elev": 3.6869562634470014,
+          "incidence": 86.313043736553,
+          "sub_lat": 1.5074447481735,
+          "sub_lon": 24.945242794266,
+          "site_lat": -84.7906,
+          "site_lon": 29.1957,
+          "emission": 1.8346575099772,
+          "processing_version": "2026-09-audit-echo-v1",
+          "sample": 1144.5447392717,
+          "line": 18620.676685533
+        },
+        "normalization_median": 0.010203738603740907,
+        "shift_px": [
+          26.6,
+          -27.0
+        ],
+        "residual_px": 0.0,
+        "closure_px": 1.2727930153559914
+      }
+    ],
+    "azimuths_map": [
+      43.132076982014496,
+      43.54311915146331,
+      68.96500672180872,
+      73.65617264704184,
+      326.6618423013761,
+      354.63087496591936,
+      5.967551111168654,
+      24.937884593475804
+    ],
+    "elevations": [
+      4.346928951237999,
+      3.5873780534989947,
+      3.471140614212004,
+      3.3806683886109994,
+      3.583541187836005,
+      3.6319058071370023,
+      3.2755017343870065,
+      3.6869562634470014
+    ],
+    "crs": "PROJCRS[\"POLAR_STEREOGRAPHIC MOON\",BASEGEOGCRS[\"GCS_MOON\",DATUM[\"D_MOON\",ELLIPSOID[\"MOON_polarRadius\",1737400,0,LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]],PRIMEM[\"Reference_Meridian\",0,ANGLEUNIT[\"degree\",0.0174532925199433,ID[\"EPSG\",9122]]]],CONVERSION[\"unnamed\",METHOD[\"Polar Stereographic (variant B)\",ID[\"EPSG\",9829]],PARAMETER[\"Latitude of standard parallel\",-90,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8832]],PARAMETER[\"Longitude of origin\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8833]],PARAMETER[\"False easting\",0,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8806]],PARAMETER[\"False northing\",0,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8807]]],CS[Cartesian,2],AXIS[\"easting\",north,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1]]]",
+    "transform": [
+      0.9,
+      0.0,
+      76877.3999999997,
+      0.0,
+      -0.9,
+      138224.300000004,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "site_lat": -84.7906,
+    "site_lon": 29.1957,
+    "image_posting_m": 0.9,
+    "dem_posting_m": 4.0,
+    "dem_source": "/home/gergo/HATI_V2.0/data/athena/NAC_DTM_NOBILE03.TIF",
+    "dem_halo_m": 442.0,
+    "effective_terrain_diameter_m": 16.0,
+    "footprint_resolved": false,
+    "cells_visited": 14884,
+    "shadow_buffer_method": "all_sampled_roots_exact_distance_v1",
+    "scene_diagnostics": {
+      "configuration": {
+        "dark_fraction": 0.2,
+        "min_core_diameter_px": 4.0,
+        "min_lit_frames": 3,
+        "min_discrepant_frames": 2,
+        "tile_px": 96,
+        "max_shift_px": 6,
+        "max_azimuth_difference_deg": 8.0,
+        "max_elevation_difference_deg": 1.0,
+        "highpass_sigma_px": 2.0,
+        "min_common_fraction": 0.8
+      },
+      "assessed_fraction": 0.9759941101074219,
+      "broad_dark_flag_fraction": 0.04267120361328125,
+      "normalization_medians": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "interpretation": "Broad image/DEM discrepancy blocks qualified low shadow evidence; no object classification or calibrated model adequacy."
+    },
+    "cells_assessed": 14324,
+    "candidate_count": 6503,
+    "search_truncated": false,
+    "coverage": {
+      "terrain": 0.939483642578125,
+      "shadow": 0.9603691101074219,
+      "fused": 0.9641876220703125
+    },
+    "fusion_status_fractions": {
+      "0": 0.0358123779296875,
+      "1": 0.0,
+      "2": 0.9641876220703125
+    },
+    "counterfactual": {
+      "site": "IM-2 Athena prelanding counterfactual",
+      "row_px": 256.69970552486484,
+      "col_px": 256.4905893221876,
+      "eligible_common_fraction": 0.0,
+      "ranking_scope": "Comparable fully qualified pixels inside this analysed window only",
+      "maps": {
+        "terrain": {
+          "index": 0.386484366957844,
+          "at_or_above_configured_threshold": false,
+          "hazard_percentile_in_common_region": null,
+          "descriptive_percentile_in_available_module_area": 80.18028260516485
+        },
+        "shadow": {
+          "index": 0.9292066644405026,
+          "at_or_above_configured_threshold": true,
+          "hazard_percentile_in_common_region": null,
+          "descriptive_percentile_in_available_module_area": 78.99962264900398
+        },
+        "fused": {
+          "index": 0.9292066644405026,
+          "at_or_above_configured_threshold": true,
+          "hazard_percentile_in_common_region": null,
+          "descriptive_percentile_in_available_module_area": 79.08279130861385
+        }
+      },
+      "assessment": "regional_warning_direct_cell_unassessed",
+      "qualified_at_touchdown": false,
+      "limitation": "A terrain flag cannot prove avoidance of mission loss or explain descent dynamics.",
+      "warning_attribution": {
+        "raw_cell": {
+          "status": 2,
+          "score": null,
+          "common_fraction": 0.7610619469026548,
+          "required_common_fraction": 0.8,
+          "assessed": false
+        },
+        "maps": {
+          "terrain": {
+            "available_fraction": 0.939483642578125,
+            "threshold_exceedance_fraction_available": 0.015242813058307617,
+            "threshold_exceedance_fraction_window": 0.01432037353515625
+          },
+          "shadow": {
+            "available_fraction": 0.9603691101074219,
+            "threshold_exceedance_fraction_available": 1.0,
+            "threshold_exceedance_fraction_window": 0.9603691101074219
+          },
+          "fused": {
+            "available_fraction": 0.9641876220703125,
+            "threshold_exceedance_fraction_available": 1.0,
+            "threshold_exceedance_fraction_window": 0.9641876220703125
+          }
+        },
+        "source": {
+          "score": 105.00498750022159,
+          "regional_index": 0.9292066644405026,
+          "root_resolution": "all sampled roots, exact disk at sampled map centre",
+          "root": {
+            "row_px": 262.5,
+            "col_px": 263.5,
+            "distance_from_test_location_m": 8.822064211576787,
+            "within_nominal_radius": true,
+            "distance_from_sampled_map_centre_m": 8.932244958575644,
+            "within_map_disk": true
+          }
+        },
+        "raw_threshold_exceedance_fraction_assessed": 0.8911616866796984,
+        "buffer": {
+          "nominal_radius_m": 9.0,
+          "meaning": "Maximum over all sampled roots inside the exact disk centred on the sampled map pixel; no cell replication.",
+          "cell_diagonal_m": 5.091168824543143,
+          "sampled_map_centre_row_px": 256.5,
+          "sampled_map_centre_col_px": 256.5,
+          "test_to_map_centre_distance_m": 0.1799344174690554
+        },
+        "warning_origin": "regional_warning_direct_cell_unassessed",
+        "interpretation": "A regional threshold warning is not an independently validated object detection or successful mission-loss counterfactual.",
+        "scene_discrepancy_at_sampled_pixel": {
+          "broad_dark_flag": true,
+          "assessed": true,
+          "meaning": "Image/DEM discrepancy diagnostic; absence is not proof of model adequacy"
+        }
+      }
+    },
+    "provenance": {
+      "stack_sha256": "5a2c06b96eddc4a9f25665c15049405677633eb0a3905f1e2f15f78910db2e39",
+      "source_run_sha256": "2c3959707b9ca02c489904accdd558d3d3a409890314f6abc7ab7fd64b2e1df3",
+      "purpose": "cached campaign replay; no ISIS"
+    },
+    "elapsed_seconds": 242.99244684,
+    "ranking": {
+      "centres": 2944,
+      "ordering": "ascending nominal maximum of separate buffered indices",
+      "meaning": "Descriptive alternatives; qualification column is separate. No reachability or clearance guarantee."
+    },
+    "limitations": [
+      "Illustrative limits unless replaced by verified vehicle configuration; no probability of LOM.",
+      "Terrain uses least-squares surfaces, not a solved footpad contact/stability model.",
+      "Native posting is sampling, not a DEM accuracy or effective spatial-resolution guarantee.",
+      "Finite DEM horizon; terrain beyond the recorded distance is not modelled.",
+      "DEM uncertainty is a bounded assumed envelope; at grazing Sun it can leave most low scores unqualified.",
+      "Frame-centre Sun geometry is held constant in this window; local slopes are binned in m/m.",
+      "A fixed cell bank produces regional evidence maxima, not object counts or calibrated significance.",
+      "Sensitivity is expected template signal under assumed noise, not injection-recovery completeness.",
+      "First-order albedo-gradient covariance does not repair incorrect or spatially varying registration.",
+      "Footprint and navigation buffers use map metres and discrete pixel-centre disks.",
+      "Shadow maxima use every sampled root at exact distance; unsampled positions and unresolved extent are not completeness guarantees.",
+      "Broad-darkness diagnostics can respond to albedo, unresolved terrain modelling or registration; absence is not model validation.",
+      "No global multiple-search false-alarm or empirical detection calibration is claimed.",
+      "Low module indices are descriptive; fused low indices require the recorded model qualifications."
+    ]
+  },
+  "counterfactual": {
+    "site": "IM-2 Athena prelanding counterfactual",
+    "row_px": 256.69970552486484,
+    "col_px": 256.4905893221876,
+    "eligible_common_fraction": 0.0,
+    "ranking_scope": "Comparable fully qualified pixels inside this analysed window only",
+    "maps": {
+      "terrain": {
+        "index": 0.386484366957844,
+        "at_or_above_configured_threshold": false,
+        "hazard_percentile_in_common_region": null,
+        "descriptive_percentile_in_available_module_area": 80.18028260516485
+      },
+      "shadow": {
+        "index": 0.9292066644405026,
+        "at_or_above_configured_threshold": true,
+        "hazard_percentile_in_common_region": null,
+        "descriptive_percentile_in_available_module_area": 78.99962264900398
+      },
+      "fused": {
+        "index": 0.9292066644405026,
+        "at_or_above_configured_threshold": true,
+        "hazard_percentile_in_common_region": null,
+        "descriptive_percentile_in_available_module_area": 79.08279130861385
+      }
+    },
+    "assessment": "regional_warning_direct_cell_unassessed",
+    "qualified_at_touchdown": false,
+    "limitation": "A terrain flag cannot prove avoidance of mission loss or explain descent dynamics.",
+    "warning_attribution": {
+      "raw_cell": {
+        "status": 2,
+        "score": null,
+        "common_fraction": 0.7610619469026548,
+        "required_common_fraction": 0.8,
+        "assessed": false
+      },
+      "maps": {
+        "terrain": {
+          "available_fraction": 0.939483642578125,
+          "threshold_exceedance_fraction_available": 0.015242813058307617,
+          "threshold_exceedance_fraction_window": 0.01432037353515625
+        },
+        "shadow": {
+          "available_fraction": 0.9603691101074219,
+          "threshold_exceedance_fraction_available": 1.0,
+          "threshold_exceedance_fraction_window": 0.9603691101074219
+        },
+        "fused": {
+          "available_fraction": 0.9641876220703125,
+          "threshold_exceedance_fraction_available": 1.0,
+          "threshold_exceedance_fraction_window": 0.9641876220703125
+        }
+      },
+      "source": {
+        "score": 105.00498750022159,
+        "regional_index": 0.9292066644405026,
+        "root_resolution": "all sampled roots, exact disk at sampled map centre",
+        "root": {
+          "row_px": 262.5,
+          "col_px": 263.5,
+          "distance_from_test_location_m": 8.822064211576787,
+          "within_nominal_radius": true,
+          "distance_from_sampled_map_centre_m": 8.932244958575644,
+          "within_map_disk": true
+        }
+      },
+      "raw_threshold_exceedance_fraction_assessed": 0.8911616866796984,
+      "buffer": {
+        "nominal_radius_m": 9.0,
+        "meaning": "Maximum over all sampled roots inside the exact disk centred on the sampled map pixel; no cell replication.",
+        "cell_diagonal_m": 5.091168824543143,
+        "sampled_map_centre_row_px": 256.5,
+        "sampled_map_centre_col_px": 256.5,
+        "test_to_map_centre_distance_m": 0.1799344174690554
+      },
+      "warning_origin": "regional_warning_direct_cell_unassessed",
+      "interpretation": "A regional threshold warning is not an independently validated object detection or successful mission-loss counterfactual.",
+      "scene_discrepancy_at_sampled_pixel": {
+        "broad_dark_flag": true,
+        "assessed": true,
+        "meaning": "Image/DEM discrepancy diagnostic; absence is not proof of model adequacy"
+      }
+    }
+  },
+  "review_metrics": {
+    "source_archive": "athena-watch-01_results.zip",
+    "source_revision": "8347e6dbfc7532bb59c3311ff888ec3f7f9efd9a",
+    "controls": [
+      {
+        "label": "Static background",
+        "assessed": 56,
+        "warnings": 0,
+        "recovered": null,
+        "median_maximum_score": 3.7795751554016723,
+        "min_score": 2.652159871098736,
+        "max_score": 5.739176330092843
+      },
+      {
+        "label": "Structured background",
+        "assessed": 56,
+        "warnings": 56,
+        "recovered": null,
+        "median_maximum_score": 19.792608153510272,
+        "min_score": 16.32311112544869,
+        "max_score": 21.524825393053906
+      },
+      {
+        "label": "Resolved ridge",
+        "assessed": 56,
+        "warnings": 56,
+        "recovered": null,
+        "median_maximum_score": 56.93795594638943,
+        "min_score": 34.28715340119392,
+        "max_score": 62.93701938517172
+      },
+      {
+        "label": "0.3 m caster",
+        "assessed": 56,
+        "warnings": 55,
+        "recovered": 55,
+        "median_maximum_score": 17.01934141712441,
+        "min_score": 7.155353674056566,
+        "max_score": 23.013455450911948
+      },
+      {
+        "label": "0.6 m caster",
+        "assessed": 56,
+        "warnings": 56,
+        "recovered": 56,
+        "median_maximum_score": 31.346789267478535,
+        "min_score": 12.123128951112285,
+        "max_score": 37.95805019693219
+      },
+      {
+        "label": "1.2 m caster",
+        "assessed": 56,
+        "warnings": 56,
+        "recovered": 56,
+        "median_maximum_score": 43.76960609847549,
+        "min_score": 13.148037799337622,
+        "max_score": 49.794449791186125
+      }
+    ],
+    "geometry": [
+      {
+        "group": "baseline",
+        "assessed_cells": 14324,
+        "cell_warning_fraction": 0.8911616866796984,
+        "cell_median": 24.939845604407644,
+        "paired_cell_median_change": 0.0,
+        "active_roots": 94990,
+        "active_root_median_change": 0.0,
+        "active_root_correct_higher_fraction": 0.0,
+        "control_recovered": 167,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_1",
+        "assessed_cells": 13873,
+        "cell_warning_fraction": 0.8386073668276508,
+        "cell_median": 17.927619596207386,
+        "paired_cell_median_change": -6.557281670434641,
+        "active_roots": 113502,
+        "active_root_median_change": -7.151304076576853,
+        "active_root_correct_higher_fraction": 0.6624552871315043,
+        "control_recovered": 101,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_2",
+        "assessed_cells": 13694,
+        "cell_warning_fraction": 0.8436541551044253,
+        "cell_median": 18.241385599091494,
+        "paired_cell_median_change": -6.19502412041496,
+        "active_roots": 136089,
+        "active_root_median_change": -8.021134351521066,
+        "active_root_correct_higher_fraction": 0.5833829332275202,
+        "control_recovered": 32,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_3",
+        "assessed_cells": 13509,
+        "cell_warning_fraction": 0.8467688207861426,
+        "cell_median": 18.169591724099643,
+        "paired_cell_median_change": -6.060879038235255,
+        "active_roots": 150425,
+        "active_root_median_change": -8.959766522198176,
+        "active_root_correct_higher_fraction": 0.5686089413328902,
+        "control_recovered": 0,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_4",
+        "assessed_cells": 13491,
+        "cell_warning_fraction": 0.8482692165147135,
+        "cell_median": 19.252431281275154,
+        "paired_cell_median_change": -5.21159982030093,
+        "active_roots": 159689,
+        "active_root_median_change": -8.74521102118121,
+        "active_root_correct_higher_fraction": 0.549574485406008,
+        "control_recovered": 0,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_5",
+        "assessed_cells": 13491,
+        "cell_warning_fraction": 0.8548662071010303,
+        "cell_median": 19.537696340188198,
+        "paired_cell_median_change": -4.712691654836252,
+        "active_roots": 154592,
+        "active_root_median_change": -8.246301044040372,
+        "active_root_correct_higher_fraction": 0.5499831815359139,
+        "control_recovered": 1,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_6",
+        "assessed_cells": 13491,
+        "cell_warning_fraction": 0.8612408272181454,
+        "cell_median": 19.381295782898047,
+        "paired_cell_median_change": -4.821379608379772,
+        "active_roots": 138513,
+        "active_root_median_change": -7.796763370038947,
+        "active_root_correct_higher_fraction": 0.5712315811512276,
+        "control_recovered": 101,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_7",
+        "assessed_cells": 13492,
+        "cell_warning_fraction": 0.8525793062555589,
+        "cell_median": 18.994185054669064,
+        "paired_cell_median_change": -5.6332178443220595,
+        "active_roots": 113504,
+        "active_root_median_change": -6.291283474085425,
+        "active_root_correct_higher_fraction": 0.6314579221877643,
+        "control_recovered": 153,
+        "control_assessed": 168
+      }
+    ],
+    "comparisons": [
+      {
+        "group": "baseline",
+        "assessed_cells": 14324,
+        "cell_warning_fraction": 0.8911616866796984,
+        "cell_median": 24.939845604407644,
+        "paired_cell_median_change": 0.0,
+        "active_roots": 94990,
+        "active_root_median_change": 0.0,
+        "active_root_correct_higher_fraction": 0.0,
+        "control_recovered": 167,
+        "control_assessed": 168
+      },
+      {
+        "group": "without_frame_00",
+        "assessed_cells": 14299,
+        "cell_warning_fraction": 0.8881739981816911,
+        "cell_median": 24.844058752031227,
+        "paired_cell_median_change": -0.0008613259882466195,
+        "active_roots": 99274,
+        "active_root_median_change": 0.0,
+        "active_root_correct_higher_fraction": 0.4797328605677217,
+        "control_recovered": 55,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_frame_01",
+        "assessed_cells": 14314,
+        "cell_warning_fraction": 0.8891993852172698,
+        "cell_median": 24.82084342875106,
+        "paired_cell_median_change": -0.06707717784134459,
+        "active_roots": 99375,
+        "active_root_median_change": 0.0,
+        "active_root_correct_higher_fraction": 0.4992100628930818,
+        "control_recovered": 50,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_frame_02",
+        "assessed_cells": 14267,
+        "cell_warning_fraction": 0.8640919604682133,
+        "cell_median": 21.758111451945773,
+        "paired_cell_median_change": -3.164396381092317,
+        "active_roots": 97449,
+        "active_root_median_change": -2.6976353431272813,
+        "active_root_correct_higher_fraction": 0.8059292553027737,
+        "control_recovered": 48,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_frame_03",
+        "assessed_cells": 14266,
+        "cell_warning_fraction": 0.862540305621758,
+        "cell_median": 21.67286267296779,
+        "paired_cell_median_change": -3.0542688101377093,
+        "active_roots": 98308,
+        "active_root_median_change": -2.7493816253002636,
+        "active_root_correct_higher_fraction": 0.7622573951255238,
+        "control_recovered": 49,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_frame_04",
+        "assessed_cells": 14242,
+        "cell_warning_fraction": 0.8834433366100267,
+        "cell_median": 21.40143306582943,
+        "paired_cell_median_change": -2.321829910285021,
+        "active_roots": 102705,
+        "active_root_median_change": -2.881954318734927,
+        "active_root_correct_higher_fraction": 0.6170098826736771,
+        "control_recovered": 51,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_frame_05",
+        "assessed_cells": 14285,
+        "cell_warning_fraction": 0.8813440672033601,
+        "cell_median": 23.328861637803964,
+        "paired_cell_median_change": -1.5160469945771666,
+        "active_roots": 99055,
+        "active_root_median_change": -1.4676344511358081,
+        "active_root_correct_higher_fraction": 0.6567462520821765,
+        "control_recovered": 54,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_frame_06",
+        "assessed_cells": 14285,
+        "cell_warning_fraction": 0.8775638781939097,
+        "cell_median": 23.201293915691583,
+        "paired_cell_median_change": -1.4601618573317197,
+        "active_roots": 98286,
+        "active_root_median_change": -1.3073420875908734,
+        "active_root_correct_higher_fraction": 0.6631056305068881,
+        "control_recovered": 55,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_frame_07",
+        "assessed_cells": 14313,
+        "cell_warning_fraction": 0.8819953888073779,
+        "cell_median": 24.6655033904781,
+        "paired_cell_median_change": -0.08703964740380066,
+        "active_roots": 98968,
+        "active_root_median_change": 0.0,
+        "active_root_correct_higher_fraction": 0.4894814485490259,
+        "control_recovered": 55,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_low_NCC",
+        "assessed_cells": 14061,
+        "cell_warning_fraction": 0.8103264348197141,
+        "cell_median": 17.3834568633785,
+        "paired_cell_median_change": -6.838429962854121,
+        "active_roots": 102748,
+        "active_root_median_change": -6.387468501010863,
+        "active_root_correct_higher_fraction": 0.7497372211624557,
+        "control_recovered": 48,
+        "control_assessed": 56
+      },
+      {
+        "group": "without_RE",
+        "assessed_cells": 14242,
+        "cell_warning_fraction": 0.8834433366100267,
+        "cell_median": 21.40143306582943,
+        "paired_cell_median_change": -2.321829910285021,
+        "active_roots": 102705,
+        "active_root_median_change": -2.881954318734927,
+        "active_root_correct_higher_fraction": 0.6170098826736771,
+        "control_recovered": 51,
+        "control_assessed": 56
+      },
+      {
+        "group": "cyclic_1",
+        "assessed_cells": 13873,
+        "cell_warning_fraction": 0.8386073668276508,
+        "cell_median": 17.927619596207386,
+        "paired_cell_median_change": -6.557281670434641,
+        "active_roots": 113502,
+        "active_root_median_change": -7.151304076576853,
+        "active_root_correct_higher_fraction": 0.6624552871315043,
+        "control_recovered": 101,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_2",
+        "assessed_cells": 13694,
+        "cell_warning_fraction": 0.8436541551044253,
+        "cell_median": 18.241385599091494,
+        "paired_cell_median_change": -6.19502412041496,
+        "active_roots": 136089,
+        "active_root_median_change": -8.021134351521066,
+        "active_root_correct_higher_fraction": 0.5833829332275202,
+        "control_recovered": 32,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_3",
+        "assessed_cells": 13509,
+        "cell_warning_fraction": 0.8467688207861426,
+        "cell_median": 18.169591724099643,
+        "paired_cell_median_change": -6.060879038235255,
+        "active_roots": 150425,
+        "active_root_median_change": -8.959766522198176,
+        "active_root_correct_higher_fraction": 0.5686089413328902,
+        "control_recovered": 0,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_4",
+        "assessed_cells": 13491,
+        "cell_warning_fraction": 0.8482692165147135,
+        "cell_median": 19.252431281275154,
+        "paired_cell_median_change": -5.21159982030093,
+        "active_roots": 159689,
+        "active_root_median_change": -8.74521102118121,
+        "active_root_correct_higher_fraction": 0.549574485406008,
+        "control_recovered": 0,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_5",
+        "assessed_cells": 13491,
+        "cell_warning_fraction": 0.8548662071010303,
+        "cell_median": 19.537696340188198,
+        "paired_cell_median_change": -4.712691654836252,
+        "active_roots": 154592,
+        "active_root_median_change": -8.246301044040372,
+        "active_root_correct_higher_fraction": 0.5499831815359139,
+        "control_recovered": 1,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_6",
+        "assessed_cells": 13491,
+        "cell_warning_fraction": 0.8612408272181454,
+        "cell_median": 19.381295782898047,
+        "paired_cell_median_change": -4.821379608379772,
+        "active_roots": 138513,
+        "active_root_median_change": -7.796763370038947,
+        "active_root_correct_higher_fraction": 0.5712315811512276,
+        "control_recovered": 101,
+        "control_assessed": 168
+      },
+      {
+        "group": "cyclic_7",
+        "assessed_cells": 13492,
+        "cell_warning_fraction": 0.8525793062555589,
+        "cell_median": 18.994185054669064,
+        "paired_cell_median_change": -5.6332178443220595,
+        "active_roots": 113504,
+        "active_root_median_change": -6.291283474085425,
+        "active_root_correct_higher_fraction": 0.6314579221877643,
+        "control_recovered": 153,
+        "control_assessed": 168
+      },
+      {
+        "group": "expanded_width",
+        "assessed_cells": 14324,
+        "cell_warning_fraction": 0.907009215302988,
+        "cell_median": 27.855465487545427,
+        "paired_cell_median_change": 2.8469622612080236,
+        "active_roots": 101690,
+        "active_root_median_change": 3.0229596887496353,
+        "active_root_correct_higher_fraction": 0.0
+      }
+    ],
+    "heights": [
+      {
+        "kind": "caster",
+        "support_px": 6.0,
+        "assessed": 144,
+        "truth_in_delta_set": 42,
+        "median_error_m": -0.07499999999999996,
+        "median_absolute_error_m": 0.07499999999999996
+      },
+      {
+        "kind": "caster",
+        "support_px": 10.0,
+        "assessed": 168,
+        "truth_in_delta_set": 13,
+        "median_error_m": -0.07499999999999996,
+        "median_absolute_error_m": 0.07499999999999996
+      },
+      {
+        "kind": "overlap",
+        "support_px": 6.0,
+        "assessed": 144,
+        "truth_in_delta_set": 60,
+        "median_error_m": -0.04999999999999999,
+        "median_absolute_error_m": 0.1499999999999999
+      },
+      {
+        "kind": "overlap",
+        "support_px": 10.0,
+        "assessed": 168,
+        "truth_in_delta_set": 72,
+        "median_error_m": 0.0,
+        "median_absolute_error_m": 0.07499999999999996
+      }
+    ],
+    "planted_registration": {
+      "total": 2926,
+      "measured": 186,
+      "max_error_px": 0.0
+    },
+    "posthoc_threshold_separation": {
+      "structured_max_score": 21.524825393053906,
+      "small_caster_trials_above_structured_max": 4,
+      "assessed_small_caster_trials": 56,
+      "meaning": "Illustrates score overlap only; not a proposed or validated threshold."
+    },
+    "limitations": [
+      "Derived comparisons are descriptive and post hoc.",
+      "No scientific stage rerun.",
+      "Synthetic warning/recovery fractions are conditional; unavailable trials are excluded explicitly.",
+      "Spatially related cells, repeated noise seeds and multiple masks are not independent validation scenes."
+    ]
+  },
+  "software_smoke": {
+    "software_suites": 14,
+    "software_all_passed": true,
+    "unittest_counts": {
+      "software-adaptive_campaign": [
+        2
+      ],
+      "software-adaptive_shadow": [
+        11
+      ],
+      "software-audit_regressions": [
+        14
+      ],
+      "software-channels": [],
+      "software-coreg": [],
+      "software-footprint": [],
+      "software-kinematics": [],
+      "software-landing_maps": [
+        14
+      ],
+      "software-live_watch": [
+        7
+      ],
+      "software-rock_scenes": [
+        5
+      ],
+      "software-saturation_campaign": [
+        12
+      ],
+      "software-scene_diagnostics": [
+        10
+      ],
+      "software-shadow_diagnostics": [
+        7
+      ],
+      "software-shadow_likelihood": [
+        14
+      ]
+    },
+    "manifest_entries_verified": 286,
+    "zip_crc_verified": true,
+    "windows_export_identical": true,
+    "all_three_maps_present": true,
+    "science_stages_failed": [],
+    "expected_missing": [
+      "T4",
+      "T8"
+    ],
+    "smoke_only": true,
+    "full_workstation_campaign_not_run": true
+  },
+  "sources": {
+    "dashboard/hati_watch.py": {
+      "sha256": "45ed3879cf59206fe03645ebc7f36f857fdb8f000615ad22aaf233f0d3a014f5",
+      "symbols": {
+        "safe_file": 20,
+        "read_json": 27,
+        "tail": 36,
+        "WatchStore": 45,
+        "make_handler": 111,
+        "main": 174
+      }
+    },
+    "scripts/adaptive_experiments.py": {
+      "sha256": "1d1ed8a7608be76a377907ccdafc6c2fbf01e0f92b831cc0dc4a7a5e20b5355c",
+      "symbols": {
+        "save": 17,
+        "fingerprint": 24,
+        "adaptive_config": 28,
+        "plot_layers": 32,
+        "t9": 60,
+        "_control_trial": 99,
+        "t10": 174,
+        "t11": 244
+      }
+    },
+    "scripts/annotate_athena_for_robinson.py": {
+      "sha256": "df66cb702e813d1443c20a78eb40a66e3d85fbd0af19867647703b42cf1d3859",
+      "symbols": {
+        "main": 34
+      }
+    },
+    "scripts/apply_fixes.py": {
+      "sha256": "78dcd54be736b5582029a7929e8c56b74052eaf5aef70fbfdcbf7430181ca9ad",
+      "symbols": {
+        "fix_gradient_axis": 29,
+        "fix_lateral_velocity": 43,
+        "fix_seaborn_import": 112,
+        "make_code_cell": 486,
+        "main": 496
+      }
+    },
+    "scripts/apply_gpu_optimizations.py": {
+      "sha256": "b20aa34f5ddc82556baa1d90aa2b16e74319b14de9bda0d0e545fdf201d75437",
+      "symbols": {
+        "patch_cell_0": 55,
+        "patch_cell_1": 94,
+        "patch_cell_3": 105,
+        "patch_cell_4": 111,
+        "main": 150
+      }
+    },
+    "scripts/athena_channel_influence.py": {
+      "sha256": "fbf79d3d5f37f88cd2e203f5694cdf0f571d39304b3c3fe70ff405c636e64a79",
+      "symbols": {
+        "main": 44
+      }
+    },
+    "scripts/athena_conf_check.py": {
+      "sha256": "66e9bc3a6385d391ebcdf356dc00260dd183284db85476d3f5bce90eb723852a",
+      "symbols": {
+        "main": 14
+      }
+    },
+    "scripts/athena_counterfactual.py": {
+      "sha256": "e355e6b080e3919691ea2d8684774b191bf7a8daadaa22456457d327194ceef0",
+      "symbols": {
+        "touchdown_xy": 74,
+        "dtm_pixel": 83,
+        "ortho_pixel": 90,
+        "load_dtm": 101,
+        "fill_nearest": 109,
+        "DemResult": 120,
+        "run_dem_pipeline": 129,
+        "evaluate_dem": 159,
+        "build_weights": 205,
+        "main_dem": 234,
+        "load_ortho": 280,
+        "ShadowResult": 288,
+        "detect_shadows_local": 300,
+        "run_shadow_pipeline": 328
+      }
+    },
+    "scripts/athena_figure.py": {
+      "sha256": "82f809d1c769663342973f0e3704ff493d8df1e065d6332fe5ec61a05285761d",
+      "symbols": {
+        "hillshade": 31,
+        "main": 40
+      }
+    },
+    "scripts/athena_resolution_validation.py": {
+      "sha256": "a605fd77d2166346146b3bb5e3c18fb28033c379ec07f869946b9b78cb8ff964",
+      "symbols": {
+        "roc_auc": 40,
+        "downsample_curve": 54,
+        "shadow_score_and_mask": 61,
+        "shadow_ladder": 85,
+        "heatmap_ladder": 148,
+        "make_figures": 176,
+        "main": 235
+      }
+    },
+    "scripts/athena_safe_control.py": {
+      "sha256": "59af0d9ac26231251ad837d4791be2f6decba13d51d0f7a40544a554b4bdf02c",
+      "symbols": {
+        "main": 45
+      }
+    },
+    "scripts/benchmark_regional_shadow.py": {
+      "sha256": "f77abe77f784f2c668b61a420277b31fe61168014c1049d7cc38920c2cdbb9ca",
+      "symbols": {
+        "main": 16
+      }
+    },
+    "scripts/benchmark_shadow_likelihood.py": {
+      "sha256": "794eecef44fe17e90d7ab7037381164aa25562eeae6e6bddf6d2d9c9cdf046fc",
+      "symbols": {
+        "main": 14
+      }
+    },
+    "scripts/build_v25_report.py": {
+      "sha256": "c08d799bb55877ce9210363d155d2f1326b05931fd2b90a9bdc3911dce99ba35",
+      "symbols": {
+        "chart": 23,
+        "para": 91,
+        "heading": 101,
+        "page": 105,
+        "table": 110,
+        "link": 158,
+        "equation": 172
+      }
+    },
+    "scripts/compare_landing_scenarios.py": {
+      "sha256": "1143956d5fbee88efddbad0f445606e56b56dd564c8371d531c9c9d098f0a489",
+      "symbols": {
+        "compare": 12,
+        "main": 58
+      }
+    },
+    "scripts/diagnose_coreg.py": {
+      "sha256": "6704773d985b8d5678ee34be9e922516ee87e03ad5c6b2c0f93792ca772caff1",
+      "symbols": {
+        "describe": 37,
+        "main": 49
+      }
+    },
+    "scripts/diagnose_kinematics.py": {
+      "sha256": "065bee9624a8ad18e14a40f7d2b93efe0b0def388e01f4d2ce5813ff5e9a66dc",
+      "symbols": {
+        "axis_azimuth": 46,
+        "circ_diff_180": 65,
+        "main": 71
+      }
+    },
+    "scripts/diagnose_landing_run.py": {
+      "sha256": "9d9eaf04f0bd8155136fd37e4ed2f4ac1eb2481ea0aee52c59968bc50aa138d7",
+      "symbols": {
+        "inspect_run": 21,
+        "write_summary": 47,
+        "main": 63
+      }
+    },
+    "scripts/hati25_absolute_gate.py": {
+      "sha256": "c567de59a142d87955fb7e88af66eb6f745d7dc9710266c90ccab1950572f20f",
+      "symbols": {
+        "auc": 38,
+        "common_eff": 46,
+        "slope_deg": 54,
+        "relief": 60,
+        "rmsdev": 66,
+        "chans": 71,
+        "main": 79
+      }
+    },
+    "scripts/hati25_heatmaps.py": {
+      "sha256": "1438a8ec6c2f6be579d69ff389845d89639416064c8802322eb64e86999feaa4",
+      "symbols": {
+        "to_common": 37,
+        "slope_deg": 45,
+        "panel": 50,
+        "main": 73
+      }
+    },
+    "scripts/heatmap_resolution_validation.py": {
+      "sha256": "1f5a3c449c810c03e5101917550c7e98d4b4588206e7bd1517409059fc8fca8b",
+      "symbols": {
+        "roc_auc": 44,
+        "main": 58
+      }
+    },
+    "scripts/ingest_sweep.py": {
+      "sha256": "f6684b22a48509d51c4e3ceba7589d56f1641db07852004279548dfb6e0cd258",
+      "symbols": {
+        "map_pvl": 49,
+        "stage": 103,
+        "load_csv": 107,
+        "select_frames": 188,
+        "download": 273,
+        "isis_retry": 314,
+        "isis": 340,
+        "systemic": 348,
+        "check_isis_env": 363,
+        "lev2_has_site": 391,
+        "cube_dims": 434,
+        "_num": 470,
+        "campt_covers": 475,
+        "sibling_channel": 572,
+        "sibling_record": 588,
+        "process_frame": 605,
+        "bounded_shift": 686,
+        "where_is_the_data": 725,
+        "coregister": 776,
+        "main": 1103
+      }
+    },
+    "scripts/landing_maps.py": {
+      "sha256": "8392da9618df8225a241f947a17bbbfec1f4c36a7a0d76c8295f6e866cb95dc1",
+      "symbols": {
+        "clean_json": 27,
+        "write_tif": 38,
+        "counterfactual": 48,
+        "rank_centres": 73,
+        "make_previews": 89,
+        "run": 125,
+        "demo_inputs": 277,
+        "main": 294
+      }
+    },
+    "scripts/live_feedback.py": {
+      "sha256": "20bd134f23ecc6df5518b669edc099971ffc55176c9ef64a2fae8e9659b662ab",
+      "symbols": {
+        "atomic_json": 15,
+        "timestamp": 30,
+        "Heartbeat": 34,
+        "display_array": 62,
+        "render_inputs": 71,
+        "LiveFeedback": 93
+      }
+    },
+    "scripts/lola_premise_check.py": {
+      "sha256": "087bebdd43263285616df90aff5c893b07f84b5f924e17788cedac6e6f417825",
+      "symbols": {
+        "fetch": 38,
+        "label_value": 56,
+        "main": 63
+      }
+    },
+    "scripts/make_channel_verdict_figure.py": {
+      "sha256": "01b34f4d881dd36dd1ccdb314cea91345f4f77ee2028a9374a4ef9011810492a",
+      "symbols": {}
+    },
+    "scripts/mare_control.py": {
+      "sha256": "645637c4192f22d2ea7df9fb0da09eae1f92c4edb8586b775282fa473c9a9d75",
+      "symbols": {
+        "g_channels": 42,
+        "sigmoid": 51,
+        "main": 55
+      }
+    },
+    "scripts/mare_control_v2.py": {
+      "sha256": "9bfd40dc5bc01e9d01996452a69532177f10aa41fa68cf34fbc7e8cfff13a856",
+      "symbols": {
+        "auc": 33,
+        "slope_deg": 41,
+        "relief_amp": 45,
+        "to_common": 49,
+        "chans": 57,
+        "bandpower_8_16": 65,
+        "main": 70
+      }
+    },
+    "scripts/mare_control_v3.py": {
+      "sha256": "65494ce7ea76ff5c0b89b4042cba26b8c94eda532b1c15efc8a2e1aa6a958995",
+      "symbols": {
+        "auc": 61,
+        "to_common": 75,
+        "stack": 92,
+        "base_name": 101,
+        "run": 110,
+        "main": 122
+      }
+    },
+    "scripts/nac_find_boulder_field.py": {
+      "sha256": "4da8f4b371d2123187f16aebff1caca1ce23e978e25725b509e0075bfaca744f",
+      "symbols": {
+        "load_nac": 35,
+        "find_blobs": 43,
+        "score": 66,
+        "render": 75,
+        "main": 135
+      }
+    },
+    "scripts/nac_shadow_sfd.py": {
+      "sha256": "d07d8e271adb915ea1db80a2e6db923017fe227021bf93cf8f1665cc59016fcc",
+      "symbols": {
+        "load_nac": 85,
+        "Shadow": 94,
+        "detect_shadows": 115,
+        "modal_orientation": 142,
+        "render_imagery": 159,
+        "_cumulative": 217,
+        "render_statistics": 224,
+        "summarise": 293,
+        "main": 314
+      }
+    },
+    "scripts/nac_show_subpixel.py": {
+      "sha256": "40727ca38eb03c8bf72acf339fd0d98ec64ab5ae51c73f948d81995ac8ba6431",
+      "symbols": {
+        "load_nac": 46,
+        "find_shadow_blobs": 54,
+        "classify": 77,
+        "render": 92,
+        "main": 167
+      }
+    },
+    "scripts/nac_spike.py": {
+      "sha256": "744755c903830cf0cec571085dcd36c32eb50199fe6d4479c5a575c7ab037c85",
+      "symbols": {
+        "main": 37
+      }
+    },
+    "scripts/prepare_lunar_rock_catalog.py": {
+      "sha256": "90c05819afc7eebcce78c34aee833622ce69e689c51fec8485947058267f8665",
+      "symbols": {
+        "fetch": 23,
+        "main": 28
+      }
+    },
+    "scripts/review_shadow_bundle.py": {
+      "sha256": "267b34a7b10fe683d9b507643cf773b82911690113f9487151dfdbf8ad3eee93",
+      "symbols": {
+        "read_bundle": 21,
+        "preview": 51,
+        "review": 77,
+        "main": 123
+      }
+    },
+    "scripts/run_heatmap_apollo17.py": {
+      "sha256": "7d34fc9d7119558170969f0940c91687a75002691e5313a6d3a250f7f2fdd3e3",
+      "symbols": {
+        "hillshade": 38,
+        "load_dem": 49,
+        "render_money_shot": 79,
+        "render_overview": 124,
+        "write_stats": 195,
+        "main": 229
+      }
+    },
+    "scripts/run_saturation_campaign.py": {
+      "sha256": "e917276a6961cdb61eed2ed7a0df03610cef0e3dd229efec63f49c5d9a0e49d0",
+      "symbols": {
+        "digest": 36,
+        "write_json": 44,
+        "utc": 51,
+        "capture": 55,
+        "run_logged": 60,
+        "result_record": 91,
+        "verdict": 104,
+        "evidence_summary": 124,
+        "package": 195,
+        "stage_cached": 257,
+        "main": 264
+      }
+    },
+    "scripts/saturation_experiments.py": {
+      "sha256": "39ff2361d060cec15d20950cac82806aec910f902db1912a2208b84cc22dce0d",
+      "symbols": {
+        "save_json": 30,
+        "write_csv": 34,
+        "load_inputs": 45,
+        "validate_config": 56,
+        "Experiment": 91,
+        "maps": 273,
+        "t1": 294,
+        "t2": 314,
+        "t3": 347,
+        "t4": 361,
+        "t5": 394,
+        "fit_profile": 409,
+        "t6": 479,
+        "t7": 535,
+        "t8": 574,
+        "main": 629
+      }
+    },
+    "scripts/shadow_consensus.py": {
+      "sha256": "75b6b87d76b21616489d61aaa3fbf3431393dff27a10b8a8c595ecb9d8b4d55d",
+      "symbols": {
+        "load_ortho_path": 37,
+        "elev_lookup": 44,
+        "main": 58
+      }
+    },
+    "scripts/shadow_kinematics.py": {
+      "sha256": "e06c0d4765d732736ea28adbed3e62f83c1569b7819b0f46bc123edba3bcde20",
+      "symbols": {
+        "make_scene": 42,
+        "cast_shadow": 77,
+        "render": 92,
+        "detect": 100,
+        "vote": 118,
+        "accumulate": 140,
+        "truth_mask": 158,
+        "auc": 165,
+        "main": 175
+      }
+    },
+    "scripts/shadow_kinematics_real.py": {
+      "sha256": "c1a937a36cba0e7bbdb68de74874f4bd5184938cdfaeff49c15a9c90a8e569ea",
+      "symbols": {
+        "_pvl": 62,
+        "sun_azimuth": 67,
+        "geometry_for": 82,
+        "frame_window": 150,
+        "detect": 184,
+        "regions_of": 224,
+        "bases_from_regions": 242,
+        "stamp": 289,
+        "vote": 319,
+        "accumulate": 342,
+        "hits_by_k": 383,
+        "concentration": 400,
+        "classify": 410,
+        "bright_side": 443,
+        "inject_shadows": 489,
+        "inject_craters": 547,
+        "inject_ridges": 598,
+        "apply_psf": 628,
+        "measured_darkness": 650,
+        "_run_injected": 679,
+        "hits_near": 691,
+        "recovery": 703,
+        "main": 725,
+        "write_products": 1116
+      }
+    },
+    "scripts/shadow_roots_real.py": {
+      "sha256": "8a26dc0a4f9194a6662c766481e4736ee47f07f6a5bd85b3122e2fc65269b72f",
+      "symbols": {
+        "main": 25
+      }
+    },
+    "scripts/solar_sweep_query.py": {
+      "sha256": "eaefb6e6e657dda4afffaaa3301fe21fb925efb697bba34761bf3915ec1f6574",
+      "symbols": {
+        "subsolar_longitude": 59,
+        "sun_azimuth_at": 65,
+        "parse_utc": 78,
+        "get_any": 90,
+        "to_float": 103,
+        "_polygon": 110,
+        "_contains": 128,
+        "_project": 141,
+        "_edge_distance": 160,
+        "site_margin_m": 174,
+        "best_url": 208,
+        "fetch": 221,
+        "main": 228
+      }
+    },
+    "scripts/sweep_contract.py": {
+      "sha256": "3e81cf4a6858b48ffcbc1a8f76c7a2f19ef411c5053bc3ec12536e806c2c7a54",
+      "symbols": {
+        "utc_time": 9,
+        "predates": 16
+      }
+    },
+    "scripts/sweep_products.py": {
+      "sha256": "c7692d2c0fa1a5f77a905dda60865857cb8f8e7250532bad48450ef5094339bd",
+      "symbols": {
+        "load_sweep": 9,
+        "load_dem_context": 72,
+        "on_reference": 103
+      }
+    },
+    "scripts/validate_channels.py": {
+      "sha256": "16d9d2cb002f5094e5157365219557af3aff423e8f4c3754b88f5d326b2d01ae",
+      "symbols": {
+        "channel_correlation": 26,
+        "main": 43
+      }
+    },
+    "src/hati_core/__init__.py": {
+      "sha256": "fd378e875be94ec7c541c77b528f2e0229a7367a6a0bd867625e52e5bf1a5575",
+      "symbols": {
+        "Config": 52,
+        "channels": 79,
+        "gate": 119,
+        "fuse": 140,
+        "fit_baseline": 149
+      }
+    },
+    "src/hati_core/adaptive_shadow.py": {
+      "sha256": "b24bd5f78802ab2e935fe288298d343b49c48ea76da0d770ca23b9734141cc92",
+      "symbols": {
+        "AdaptiveConfig": 21,
+        "cell_table": 60,
+        "plan_regions": 69,
+        "_refined_axis": 117,
+        "fit_patch": 129,
+        "refine_cell": 237,
+        "_init_worker": 286,
+        "_worker_cell": 291,
+        "_ordered_cells": 299,
+        "refine_regions": 338,
+        "held_out_prediction": 382
+      }
+    },
+    "src/hati_core/campaign_controls.py": {
+      "sha256": "1555000f9f863614c1a9f1e043453320fbfb6b200b54d9bf5a9a9408851f9cd2",
+      "symbols": {
+        "render_control": 11
+      }
+    },
+    "src/hati_core/dem_shadow.py": {
+      "sha256": "432e330e5755108dfda8fd95b789e5dede811d50f143d70134709e6022efeaa2",
+      "symbols": {
+        "predict_visibility": 6
+      }
+    },
+    "src/hati_core/landing_terrain.py": {
+      "sha256": "aed0cee26a52427c4c216bb5f207fcada6d8595b96a867efe450212f37d30666",
+      "symbols": {
+        "LandingConfig": 14,
+        "disk": 43,
+        "plane_metrics": 49,
+        "terrain_assessment": 107,
+        "buffer_evidence": 127,
+        "fuse_landing": 143
+      }
+    },
+    "src/hati_core/regional_shadow.py": {
+      "sha256": "ddf4a46ab33102f35499a67b5ecaca3b03eec643b4a4d4a24516aa71d33ebf85",
+      "symbols": {
+        "RegionalConfig": 16,
+        "assess_regions": 40
+      }
+    },
+    "src/hati_core/rock_scenes.py": {
+      "sha256": "29f12ef3961956d14da2dfc35343b7b900cc3fb909d45b48b96a86e78f289e87",
+      "symbols": {
+        "mesh_hash": 21,
+        "read_obj": 25,
+        "convex_proxy": 52,
+        "procedural_mesh": 65,
+        "load_catalog": 72,
+        "make_rock": 105,
+        "_above_ground": 138,
+        "_raster_triangle": 149,
+        "render_rocks": 165
+      }
+    },
+    "src/hati_core/root_footprint.py": {
+      "sha256": "d34bb8d0b68ba18169a4832614ff71973c48ffce2b447e2fde979c38d8ff8263",
+      "symbols": {
+        "buffer_roots": 6
+      }
+    },
+    "src/hati_core/scene_diagnostics.py": {
+      "sha256": "f3b965dde5481265804d31fc51877c1f57e5322e5d9a320aa0959190aebaefc0",
+      "symbols": {
+        "SceneConfig": 12,
+        "broad_dark_discrepancy": 36,
+        "local_registration": 76
+      }
+    },
+    "src/hati_core/shadow_diagnostics.py": {
+      "sha256": "bddee9674aed80127927ffb985cfd41a963689ac7ba7cecea7897921722c3192",
+      "symbols": {
+        "best_fit": 7,
+        "diagnose_stack": 23
+      }
+    },
+    "src/hati_core/shadow_likelihood.py": {
+      "sha256": "49769bed5c07bcdf66fcceaddf75dbe8ef9ba5457b31aa7bbd935e78e0886fba",
+      "symbols": {
+        "ShadowConfig": 21,
+        "NuisanceProjector": 64,
+        "RegistrationProjector": 102,
+        "shadow_template": 141,
+        "fit_template": 194,
+        "endpoint_support": 210,
+        "propose_roots": 260,
+        "search_stack": 297,
+        "gaussian_search_calibration": 363,
+        "map_sun_azimuth": 395
+      }
+    },
+    "src/hati_core/stereo_confidence.py": {
+      "sha256": "f874c266b6da5301d23f4405550676d2f16c5265d946b47d007e41cbe41c2ff6",
+      "symbols": {
+        "category_counts": 9,
+        "sample_categories": 16
+      }
+    },
+    "src/hati_core/warning_attribution.py": {
+      "sha256": "fecc7d139a089da59922a66287ecf23d767b2cbf39a066fd2206de4f6f1365ed",
+      "symbols": {
+        "describe_warning": 5
+      }
+    }
+  }
+}
