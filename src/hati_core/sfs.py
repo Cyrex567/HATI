@@ -1,0 +1,144 @@
+"""Linearised multi-image shape from shading on the aligned stack (campaign T14).
+
+Ratio images remove albedo: Y_k / Ybar - 1 = -grad(h) . w_k + p_k(x) + noise,
+where w_k is cot(e_k) times the horizontal direction toward the Sun, minus its
+mean over frames, and p_k is a brightness plane per frame. The height h lives on
+a coarse grid (grid_px image pixels) with bilinear interpolation and a
+second-difference smoothness penalty; together they set the effective
+resolution. The system is solved by sparse least squares (LSQR).
+
+Samples darker than dark_ratio times the frame mean are left out of that frame's
+equations, so deep cast shadows, rock shadows included, are not fitted as
+slopes. The surface is relative: its mean and any plane shared by every frame
+are not observed. Linear shading holds for slopes below the Sun elevation, so
+steep walls are smoothed and their slopes underestimated.
+"""
+import numpy as np
+from scipy import sparse
+from scipy.sparse.linalg import lsqr
+
+from .noise_scale import sun_loadings
+
+
+def _bilinear(shape, grid_px):
+    H, W = shape
+    Hc, Wc = (H-1)//grid_px+2, (W-1)//grid_px+2
+    r, c = np.indices(shape, dtype=float).reshape(2, -1)/grid_px
+    r0, c0 = np.floor(r).astype(int), np.floor(c).astype(int)
+    fr, fc = r-r0, c-c0
+    rows, cols, vals = [], [], []
+    for dr, dc, w in ((0, 0, (1-fr)*(1-fc)), (1, 0, fr*(1-fc)), (0, 1, (1-fr)*fc), (1, 1, fr*fc)):
+        rows.append(np.arange(H*W)); cols.append((r0+dr)*Wc+(c0+dc)); vals.append(w)
+    matrix = sparse.csr_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(H*W, Hc*Wc))
+    return matrix, (Hc, Wc)
+
+
+def _derivative(n, spacing):
+    """Central differences, one-sided at the ends."""
+    main = np.zeros(n); upper = np.full(n-1, .5); lower = np.full(n-1, -.5)
+    d = sparse.diags([lower, main, upper], [-1, 0, 1], shape=(n, n)).tolil()
+    d[0, 0], d[0, 1] = -1., 1.
+    d[n-1, n-2], d[n-1, n-1] = -1., 1.
+    return d.tocsr()/spacing
+
+
+def _smoothness(shape):
+    Hc, Wc = shape
+    def second(n):
+        return sparse.diags([np.ones(n-2), -2*np.ones(n-2), np.ones(n-2)], [0, 1, 2], shape=(n-2, n))
+    def first(n):
+        return sparse.diags([-np.ones(n-1), np.ones(n-1)], [0, 1], shape=(n-1, n))
+    return sparse.vstack([sparse.kron(second(Hc), sparse.identity(Wc)),
+                          sparse.kron(sparse.identity(Hc), second(Wc)),
+                          np.sqrt(2)*sparse.kron(first(Hc), first(Wc))]).tocsr()
+
+
+def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothness=1.,
+              dark_ratio=.5, iterations=600, tolerance=1e-8):
+    """Fit a relative height field; return it with its predicted shading and a corrected stack.
+
+    corrected = stack - Ybar * predicted relief ratio, on pixels valid in every
+    frame; elsewhere the stack is unchanged. The static part of the shading is
+    not removed: it cannot be told from albedo and the detector's null absorbs it.
+    """
+    stack = np.asarray(stack, float)
+    n, H, W = stack.shape
+    if n < 3 or type(grid_px) is not int or grid_px < 1 or smoothness < 0 or not 0 <= dark_ratio < 1:
+        raise ValueError('need three frames, an integer grid and nonnegative smoothness')
+    usable = np.asarray(valid, bool) & np.isfinite(stack)
+    common = usable.all(axis=0)
+    if common.sum() < 100:
+        raise ValueError('too few pixels valid in every frame')
+    count = usable.sum(axis=0)
+    mean = np.where(common, np.where(usable, stack, 0.).sum(axis=0)/np.maximum(count, 1), np.nan)
+    common &= mean > 0
+    ratio = stack/np.where(common, mean, 1.)[None]-1
+    loadings = sun_loadings(azimuths, elevations)
+    w = loadings-loadings.mean(axis=0)
+    if np.linalg.matrix_rank(w) < 2:
+        raise ValueError('illumination directions do not constrain both slope components')
+    interp, coarse = _bilinear((H, W), grid_px)
+    grad_r = (sparse.kron(_derivative(H, pixel_m), sparse.identity(W))@interp).tocsr()
+    grad_c = (sparse.kron(sparse.identity(H), _derivative(W, pixel_m))@interp).tocsr()
+    rr, cc = np.indices((H, W), dtype=float)
+    rr = ((rr-H/2)/H).ravel(); cc = ((cc-W/2)/W).ravel()
+    blocks, targets, kept = [], [], []
+    for k in range(n):
+        keep = common & (stack[k] >= dark_ratio*mean)
+        idx = np.flatnonzero(keep.ravel())
+        slope_part = -(w[k, 0]*grad_r[idx]+w[k, 1]*grad_c[idx])
+        plane = sparse.csr_matrix((np.column_stack([np.ones(len(idx)), rr[idx], cc[idx]]).ravel(),
+                                   (np.repeat(np.arange(len(idx)), 3), np.tile(np.arange(3*k, 3*k+3), len(idx)))),
+                                  shape=(len(idx), 3*n))
+        blocks.append(sparse.hstack([slope_part, plane]))
+        targets.append(ratio[k].ravel()[idx]); kept.append(keep)
+    data = sparse.vstack(blocks).tocsr(); b = np.concatenate(targets)
+    unknowns = interp.shape[1]
+    penalty = _smoothness(coarse)
+    anchor = sparse.hstack([1e-6*sparse.identity(unknowns), sparse.csr_matrix((unknowns, 3*n))])
+    system = sparse.vstack([data, sparse.hstack([np.sqrt(smoothness)*penalty, sparse.csr_matrix((penalty.shape[0], 3*n))]),
+                            anchor]).tocsr()
+    rhs = np.concatenate([b, np.zeros(penalty.shape[0]+unknowns)])
+    solution = lsqr(system, rhs, atol=tolerance, btol=tolerance, iter_lim=iterations)
+    heights, planes = solution[0][:unknowns], solution[0][unknowns:].reshape(n, 3)
+    h = (interp@heights).reshape(H, W)
+    gr, gc = (grad_r@heights).reshape(H, W), (grad_c@heights).reshape(H, W)
+    predicted = -(w[:, 0, None, None]*gr[None]+w[:, 1, None, None]*gc[None])
+    plane_part = planes[:, 0, None, None]+planes[:, 1, None, None]*rr.reshape(H, W)[None]+planes[:, 2, None, None]*cc.reshape(H, W)[None]
+    used = np.asarray(kept)
+    before = ratio-plane_part
+    after = before-predicted
+    explained = 1-float(np.sum(after[used]**2)/max(np.sum(before[used]**2), 1e-30))
+    corrected = np.where(common[None], stack-np.where(common, mean, 0.)[None]*predicted, stack)
+    relative = np.where(common, h-h[common].mean(), np.nan)
+    slope = np.where(common, np.degrees(np.arctan(np.hypot(gr, gc))), np.nan)
+    return dict(height_m=relative, slope_deg=slope, predicted_ratio=np.where(common[None], predicted, np.nan),
+                corrected=corrected, common=common, used=used, planes=planes, explained_fraction=explained,
+                ratio_rms_before=float(np.sqrt(np.mean(before[used]**2))),
+                ratio_rms_after=float(np.sqrt(np.mean(after[used]**2))),
+                used_fraction_per_frame=[float(u[common].mean()) for u in used],
+                lsqr_stop=int(solution[1]), lsqr_iterations=int(solution[2]),
+                configuration=dict(grid_px=grid_px, smoothness=smoothness, dark_ratio=dark_ratio,
+                                   iterations=iterations, tolerance=tolerance, pixel_m=pixel_m))
+
+
+def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersample=4, window_px=32):
+    """Multiplicative brightness of injected rocks (shadow plus lit faces) on flat ground.
+
+    sites: [(row, col, height_m)]. Rendered with the independent relief generator
+    without noise, texture or planes, then applied as stack * factor so the real
+    albedo and relief stay underneath.
+    """
+    from .relief_scenes import render_relief
+    from .rock_scenes import make_rock
+    factor = np.ones((len(azimuths), *shape))
+    half = window_px//2
+    for i, (r, c, height) in enumerate(sites):
+        r0, c0 = int(r)-half, int(c)-half
+        if r0 < 0 or c0 < 0 or r0+window_px > shape[0] or c0+window_px > shape[1]:
+            raise ValueError('injection window must lie inside the image')
+        rock = make_rock(seed+i, (r-r0, c-c0), height, .6, aspect=1.35)
+        local = render_relief((window_px, window_px), azimuths, elevations, pixel_m=pixel_m, seed=seed+i, noise=0.,
+                              rocks=[rock], supersample=supersample, texture=0., stain=0., frame_plane=0.)
+        factor[:, r0:r0+window_px, c0:c0+window_px] *= local['stack']
+    return factor

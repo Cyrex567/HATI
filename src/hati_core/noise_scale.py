@@ -149,6 +149,86 @@ def measure_residual_scale(stack, visibility, slope_row, slope_col, cfg=NoiseSca
     return result
 
 
+def sun_loadings(azimuths, elevations):
+    """Shading loadings of a slope field: cot(e_k) times the horizontal direction toward the Sun.
+
+    To first order a surface tilted by grad(h) changes brightness by
+    -cot(e) grad(h).s, with s = (-cos a, sin a) in (row, col) for azimuth a
+    clockwise from map up (the same convention as the shadow templates).
+    """
+    a = np.radians(np.asarray(azimuths, float))
+    e = np.radians(np.asarray(elevations, float))
+    return (1/np.tan(e))[:, None]*np.column_stack([-np.cos(a), np.sin(a)])
+
+
+def _explained(covariance, loadings):
+    centred = loadings-loadings.mean(axis=0)   # the static part of shading joins the albedo term
+    projection = centred@np.linalg.pinv(centred)
+    return float(np.trace(projection@covariance)/np.trace(covariance))
+
+
+def relief_consistency(stack, visibility, slope_row, slope_col, azimuths, elevations,
+                       cfg=NoiseScaleConfig(), *, max_permutations=40320, seed=0):
+    """Test whether the null residual is Sun-consistent shading of a shared slope field.
+
+    On the same patches as measure_residual_scale, a per-pixel slope field g
+    shades frame k by the loadings above. After the static-albedo projection only
+    their frame-to-frame part remains, a rank-2 subspace. Report the residual
+    energy that the measured geometry explains, the same for every reassignment
+    of the measured (azimuth, elevation) pairs to frames (a random subset when
+    there are more than max_permutations), and the best any rank-2 model could
+    do. The residual scale after removing that subspace, with its degrees of
+    freedom, is a better upper bound on independent noise than the raw residual.
+    The per-pixel slope magnitude assumes unit relative albedo and first-order
+    shading; noise inflates it, so it is indicative only.
+    """
+    import itertools
+    stack = np.asarray(stack, float)
+    n = stack.shape[0]
+    patches, rejected = select_patches(stack, visibility, slope_row, slope_col, cfg)
+    p = cfg.patch_px
+    if not patches or n < 4:
+        return dict(available=False, patches=len(patches), rejected_patches=rejected,
+                    reason='needs at least one qualifying patch and four frames')
+    residual = np.stack([patch_residual(stack[:, r:r + p, c:c + p], cfg.spatial_degree) for r, c in patches])
+    flat = residual.transpose(1, 0, 2, 3).reshape(n, -1)
+    covariance = flat@flat.T
+    loadings = sun_loadings(azimuths, elevations)
+    true = _explained(covariance, loadings)
+    rng = np.random.default_rng(seed)
+    total = int(np.prod(np.arange(1, n + 1)))
+    if total <= max_permutations:
+        orders = itertools.permutations(range(n))
+    else:
+        orders = (rng.permutation(n) for _ in range(max_permutations))
+    shuffled = np.array([_explained(covariance, loadings[list(o)]) for o in orders])
+    eigen = np.sort(np.linalg.eigvalsh(covariance))[::-1]
+    centred = loadings-loadings.mean(axis=0)
+    rank = int(np.linalg.matrix_rank(centred))
+    fitted = centred@(np.linalg.pinv(centred)@flat)
+    after = flat-fitted
+    dof = (n - 1 - rank)*(p*p - spatial_terms(cfg.spatial_degree))*len(patches)
+    slopes = np.degrees(np.arctan(np.linalg.norm(np.linalg.pinv(centred)@flat, axis=0)))
+    corr = covariance/np.sqrt(np.outer(np.diag(covariance), np.diag(covariance)))
+    return dict(available=True, patches=len(patches), rejected_patches=rejected, frames=n, loading_rank=rank,
+                explained_true_geometry=true,
+                explained_shuffled_median=float(np.median(shuffled)),
+                explained_shuffled_p95=float(np.percentile(shuffled, 95)),
+                explained_shuffled_max=float(shuffled.max()),
+                shuffled_assignments=len(shuffled),
+                fraction_shuffled_at_or_above_true=float(np.mean(shuffled >= true - 1e-12)),
+                explained_best_rank2=float(eigen[:2].sum()/eigen.sum()),
+                relief_corrected_sigma=float(np.sqrt(np.sum(after**2)/max(dof, 1))),
+                relief_corrected_frame_rms=np.sqrt(np.mean(after**2, axis=1)).tolist(),
+                residual_frame_rms=np.sqrt(np.mean(flat**2, axis=1)).tolist(),
+                frame_correlation=corr.tolist(),
+                shuffled_histogram=dict(zip(('counts', 'edges'), (v.tolist() for v in np.histogram(shuffled, bins=50, range=(0, 1))))),
+                indicative_slope_deg=dict(median=float(np.median(slopes)), p90=float(np.percentile(slopes, 90))),
+                interpretation='Shares of residual energy on the scored patches. Shuffled assignments keep the '
+                               'measured Sun directions and only change which frame gets which; the true '
+                               'geometry ranking first means the residual follows the Sun.')
+
+
 def patch_map(result, shape):
     """Per-patch pooled residual scale painted on the analysis grid, for display."""
     out = np.full(shape, np.nan)

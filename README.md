@@ -5,7 +5,7 @@ The current scientific path (core 2.5.5) produces separate terrain and multi-ill
 - [Full architecture and implementation dossier for scientific review (PDF)](Documents/architecture_review/HATI_architecture_and_implementation_review.pdf)
 - [Editable review text, evidence and rebuild instructions](Documents/architecture_review/README.md)
 - [Exact root footprints, scene diagnostics and current WSL runbook (2.5.5)](Documents/V255_SCENE_DIAGNOSTICS.md)
-- [Sequential saturation tests T1-T8, the T12/T16 residual-noise campaign, restart and Windows result export](Documents/SATURATION_CAMPAIGN.md)
+- [Sequential saturation tests T1-T8, the T12-T16 relief and noise campaign, restart and Windows result export](Documents/SATURATION_CAMPAIGN.md)
 - [Adaptive context, 10 cm dimension sampling, independent 3D rocks and T9-T11 runbook](Documents/ADAPTIVE_SHADOW_PLAN.md)
 - [HATI Watch: live images, calculations and maps in a read-only browser](Documents/HATI_WATCH.md)
 - [Real-run warning attribution and shadow diagnostics (2.5.4)](Documents/V254_DIAGNOSTICS.md)

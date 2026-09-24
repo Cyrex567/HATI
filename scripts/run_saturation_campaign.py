@@ -32,6 +32,8 @@ STAGES = [('maps', 'Replay terrain, shadow and fused maps'),
           ('T10', 'Independent 3D rocks and adaptive controls'),
           ('T11', 'Withheld illumination and changing-background alternatives'),
           ('T12', 'Residual noise scale and controls at the measured level'),
+          ('T13', 'Compact, extended and depression models compete'),
+          ('T14', 'Shape from shading as a structural null'),
           ('T16', 'No-caster scenes through the full adaptive procedure')]
 
 
@@ -214,11 +216,49 @@ def evidence_summary(output, records):
             findings.append(f'If the whole excess were noise, baseline exceedance would move from {rescaled["fraction_above_threshold_assumed"]:.1%} '
                             f'to {rescaled["fraction_above_threshold_rescaled"]:.1%} (median score {rescaled["median_score_assumed"]:.1f} to '
                             f'{rescaled["median_score_rescaled"]:.1f}). Upper-bound arithmetic, not a corrected map.')
+        relief = noise.get('relief_consistency') or {}
+        if relief.get('available'):
+            findings.append(f'Sun-consistent shading of a shared slope field explains {relief["explained_true_geometry"]:.1%} of the residual '
+                            f'with the measured geometry, against {relief["explained_shuffled_median"]:.1%} (median) when the '
+                            f'{relief["shuffled_assignments"]} reassignments of Sun directions to frames are tried; the best any two-component '
+                            f'model reaches is {relief["explained_best_rank2"]:.1%}. After removing it the residual scale is '
+                            f'{relief["relief_corrected_sigma"]:.4f}, still an upper bound on independent noise.')
         for p in noise.get('control_passes', []):
             parts = [f'{s["kind"]}{" "+str(s["height_m"])+" m" if s["kind"] == "caster" else ""} '
                      f'{s["trials_with_warning_roots"]}/{s["assessed"]}' for s in p['scenarios']]
-            findings.append(f'Controls, rendered sigma {p["render_noise"]:.4f} and model sigma {p["model_noise"]:.4f}: '
-                            + '; '.join(parts) + ' trials with warning roots.')
+            findings.append(f'Controls ({noise.get("control_generator", "control")} generator), rendered sigma {p["render_noise"]:.4f} '
+                            f'and model sigma {p["model_noise"]:.4f}: ' + '; '.join(parts) + ' trials with warning roots.')
+    compete = read('T13')
+    if compete.get('margins'):
+        fired = compete.get('relief_scenes_with_warnings', {})
+        findings.append(f'Relief with no caster: {fired.get("with_warnings", 0)}/{fired.get("scenes", 0)} generated mound, bowl and ripple '
+                        'scenes produce warning roots in the unchanged detector.')
+        for truth, row in compete.get('evaluation_confusion', {}).items():
+            total = sum(row.values())
+            findings.append(f'Held-out simulated {truth} scenes: ' + ', '.join(f'{v}/{total} {k.replace("_", " ")}' for k, v in row.items()) + '.')
+        for group, row in (compete.get('athena_summary') or {}).items():
+            if row.get('cells'):
+                findings.append(f'Athena cells ({group.replace("_", " ")}, {row["cells"]}): ' + ', '.join(
+                    f'{row[c]:.1%} {c.replace("_", " ")}' for c in ('rock_like', 'relief_like', 'ambiguous', 'none')) +
+                    '. Research labels from withheld-frame prediction; relief-like goes to the terrain module as a slope hazard.')
+        cell = compete.get('touchdown_cell')
+        if cell:
+            findings.append(f'Cell nearest the touchdown: {str(cell["label"]).replace("_", " ")} (baseline score {cell["baseline_score"]:.1f}).')
+    sfs = read('T14')
+    if sfs.get('sfs'):
+        e = sfs.get('exceedance', {})
+        findings.append(f'Shape from shading explains {sfs["sfs"]["explained_fraction"]:.1%} of the frame-to-frame brightness variation; '
+                        f'metre-scale slope median {sfs["slope_deg"]["median"]:.1f} deg, 90th percentile {sfs["slope_deg"]["p90"]:.1f} deg.')
+        if e.get('after_assumed_sigma') is not None:
+            before = f'from {e["before_assumed_sigma"]:.1%} ' if e.get('before_assumed_sigma') is not None else ''
+            findings.append(f'With relief shading removed, exceedance moves {before}to {e["after_assumed_sigma"]:.1%} at the assumed sigma and '
+                            f'{e["after_measured_sigma"]:.1%} at the residual scale measured after correction '
+                            f'({sfs["residual_scale_after"]["pooled_sigma"] or float("nan"):.4f}).')
+        for height, row in sfs.get('injection_recovery', {}).items():
+            m, a, u = row['corrected_measured'], row['corrected_assumed'], row['original_assumed']
+            findings.append(f'Injected {height} rocks recovered on quiet sites: {m["recovered"]}/{m["quiet_sites"]} after the relief correction '
+                            f'at the residual scale measured after it, {a["recovered"]}/{a["quiet_sites"]} at the assumed sigma, '
+                            f'{u["recovered"]}/{u["quiet_sites"]} without the correction.')
     for row in read('T16').get('summaries', []):
         label = row['kind'] if row['height_m'] is None else f'{row["kind"]} {row["height_m"]} m'
         gate = '' if row['height_m'] is not None else (' (within the declared gate)' if row['within_declared_gate'] else ' (above the declared gate)')

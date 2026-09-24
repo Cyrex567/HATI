@@ -86,6 +86,16 @@ class ResidualScaleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             select_stages('T1,T99')
 
+    def test_control_summary_skips_locations_without_support(self):
+        # Regression: noise-01 failed on the Athena stack, where one location has no slope.
+        from saturation_experiments import summarise_controls
+        rows = [dict(location=6, status='missing_slope'),
+                dict(location=0, kind='caster', height_m=.3, status='assessed', warning_roots=2,
+                     recovered_within_2px=True, maximum_score=12.)]
+        summary = summarise_controls(rows)
+        self.assertEqual([(s['kind'], s['trials']) for s in summary], [('caster', 1)])
+        self.assertEqual(summary[0]['recovered_within_2px'], 1)
+
     def test_null_summary_counts_context_supported_trials_against_the_gate(self):
         from adaptive_experiments import summarise_null_trials
         row = dict(noise_pass='render_measured', kind='static', height_m=None, render_noise=.1, model_noise=.03,
@@ -126,7 +136,9 @@ class NoiseWorkerTests(unittest.TestCase):
             noise = run('T12', t12, out)
             self.assertEqual(noise['status'], 'PARTIAL')
             self.assertGreater(noise['measured_pooled_sigma'], 0)
-            self.assertEqual(len(noise['control_passes']), 3)
+            # Three passes, plus one at the relief-corrected scale when the Sun test is available.
+            self.assertEqual(len(noise['control_passes']), 4 if noise['relief_consistency']['available'] else 3)
+            self.assertEqual(noise['control_passes'][0]['unavailable_locations'], [])
             self.assertIsNotNone(noise['rescaled_baseline'])
             self.assertTrue((out/'stages/T12/residual_scale.png').exists())
             nulls = run('T16', t16, out)

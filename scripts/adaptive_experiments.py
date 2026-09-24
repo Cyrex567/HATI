@@ -305,13 +305,16 @@ _T16 = {}
 
 
 def _t16_run(job):
+    from src.hati_core.relief_scenes import render_relief, relief_feature
     ex, cfg, size, root = _T16['ex'], _T16['cfg'], _T16['size'], _T16['root']
     rocks = [make_rock(job['seed'], root, job['height_m'], .6, aspect=1.35)] if job['height_m'] is not None else []
-    generated = render_rocks((size, size), ex.data['azimuths'], ex.data['elevations'], rocks,
-                             pixel_m=ex.sc.pixel_m, seed=job['seed'], noise=job['render_noise'], slope_rc=(0., 0.),
-                             supersample=ex.cfg.get('rock_supersample', 6), structured_null=job['kind'] == 'structured_null')
+    relief = job.get('relief')
+    features = [relief_feature(relief[0], relief[1], relief[2], seed=job['seed'])] if relief else []
+    generated = render_relief((size, size), ex.data['azimuths'], ex.data['elevations'], pixel_m=ex.sc.pixel_m,
+                              seed=job['seed'], noise=job['render_noise'], features=features, rocks=rocks,
+                              supersample=ex.cfg.get('relief_supersample', 4), structured_null=job['kind'] == 'structured_null')
     folder = ex.out/job['folder']; folder.mkdir(parents=True, exist_ok=True)
-    truth = dict(kind=job['kind'], seed=job['seed'], height_m=job['height_m'],
+    truth = dict(kind=job['kind'], seed=job['seed'], height_m=job['height_m'], relief=relief,
                  width_m=.6 if job['height_m'] is not None else None, root_px=root, slope_rc=(0., 0.),
                  noise_pass=job['noise_pass'], render_noise=job['render_noise'], model_noise=float(ex.noise),
                  generator_truth=generated['truth'], scene_scope='predeclared central ROI; full-frame baseline also recorded')
@@ -378,12 +381,15 @@ def t16(ex):
     if mode == 'measured':
         t12 = ex.args.campaign/'stages/T12/result.json'
         measured = json.loads(t12.read_text(encoding='utf-8')) if t12.exists() else {}
-        key = 'measured_pooled_sigma_quadratic' if cfg.spatial_degree == 2 else 'measured_pooled_sigma'
+        # Relief is rendered explicitly below, so the noise to draw is what is left once
+        # Sun-consistent shading is removed; older T12 results fall back to the raw residual.
+        key = 'relief_corrected_sigma' if measured.get('relief_corrected_sigma') else \
+            'measured_pooled_sigma_quadratic' if cfg.spatial_degree == 2 else 'measured_pooled_sigma'
         render = measured.get(key) or measured.get('measured_pooled_sigma')
         if not render:
             return ex.result('BLOCKED', 'null_render_noise is "measured" but this campaign has no usable T12 residual scale. '
                              'Run T12 first, or set null_render_noise to "assumed" or a number.')
-        source = f'T12 {key} (matches the adaptive null of spatial degree {cfg.spatial_degree})'
+        source = f'T12 {key}'
     elif mode == 'assumed':
         render, source = float(ex.noise), 'assumed model sigma'
     else:
@@ -393,14 +399,18 @@ def t16(ex):
         passes.append(('render_measured', float(render)))
     size = 2*ex.sc.radius_px*max(cfg.scale_factors)+4*ex.rc.cell_px+1
     root = [size//2+.3, size//2+.2]
-    scenarios = [('static', None), ('structured_null', None)] + [('procedural', float(h)) for h in heights]
+    # Sun-consistent relief with no caster: the null the athena residual points to (T12, T13).
+    relief_scenes = [tuple(s) for s in ex.cfg.get('null_relief_scenes', [['ripples', 6., 2.], ['mound', 6., 4.]])]
+    scenarios = [('static', None, None), ('structured_null', None, None)]
+    scenarios += [(f'{k}_{slope:g}deg', None, (k, float(size_m), float(slope))) for k, size_m, slope in relief_scenes]
+    scenarios += [('procedural', float(h), None) for h in heights]
     jobs = []
     for name, noise in passes:
-        for case, (kind, height) in enumerate(scenarios):
+        for case, (kind, height, relief) in enumerate(scenarios):
             for trial in range(seeds):
                 # Disjoint from T10's seeds, and shared across noise passes, so
                 # both passes see the same scenes with the same draws, rescaled.
-                jobs.append(dict(noise_pass=name, render_noise=noise, kind=kind, height_m=height,
+                jobs.append(dict(noise_pass=name, render_noise=noise, kind=kind, height_m=height, relief=relief,
                                  seed=ex.cfg['seed']+200000+100*case+trial, example=trial == 0,
                                  folder=f'{name}/{case:03d}_{kind}_{trial:02d}'))
     workers = cfg.workers if os.name != 'nt' else 1
@@ -434,7 +444,9 @@ def t16(ex):
                      noise_passes=[dict(name=n, render_noise=v, model_noise=float(ex.noise)) for n, v in passes],
                      seeds_per_scenario=seeds, summaries=summaries, declared_gate_max_fraction=gate,
                      null_scenarios=len(nulls), null_scenarios_within_gate=sum(s['within_declared_gate'] for s in nulls),
+                     relief_scenes=[dict(kind=k, size_m=s, max_slope_deg=sl) for k, s, sl in relief_scenes],
+                     generator='relief_heightfield_horizon_lunar_lambert_v1',
                      limitations=['Synthetic 3x3-cell ROIs, not full-image false-alarm calibration.',
-                                  'The changing background is a drifting stripe pattern unrelated to Sun geometry; '
-                                  'Sun-consistent extended relief is not yet among the null scenes (test T13).',
-                                  'Rendering at the measured scale treats the whole residual excess as independent noise.'])
+                                  'The changing background is a drifting stripe pattern unrelated to Sun geometry; the relief '
+                                  'scenes are Sun-consistent mounds and ripples from the independent generator.',
+                                  'Relief slopes and sizes are declared, not measured lunar distributions.'])

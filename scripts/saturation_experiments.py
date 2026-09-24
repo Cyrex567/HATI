@@ -25,6 +25,7 @@ from src.hati_core.shadow_likelihood import ShadowConfig, RegistrationProjector,
 from src.hati_core.scene_diagnostics import SceneConfig, local_registration
 from src.hati_core.campaign_controls import render_control
 from adaptive_experiments import t9, t10, t11, t16
+from relief_experiments import t13, t14
 
 
 def save_json(path, value):
@@ -99,6 +100,38 @@ def validate_config(cfg):
         raise ValueError('null_render_noise must be "assumed", "measured" or a positive number')
     if 'null_gate_max_fraction' in cfg and not 0 < cfg['null_gate_max_fraction'] <= 1:
         raise ValueError('null_gate_max_fraction must lie in (0, 1]')
+    # T12-T16 relief and shape-from-shading keys, all optional.
+    from src.hati_core.relief_scenes import RELIEF_KINDS
+    def positive_list(key, upper=np.inf):
+        if key in cfg and (not cfg[key] or any(not np.isfinite(v) or not 0 < v < upper for v in cfg[key])):
+            raise ValueError(f'{key} must be a nonempty list of positive values below {upper}')
+    for key in ('relief_sizes_m', 'relief_rock_heights_m', 'relief_competition_sizes_m', 'relief_scales_m', 'sfs_injection_heights_m'):
+        positive_list(key)
+    for key in ('relief_slopes_deg', 'relief_competition_slopes_deg'):
+        positive_list(key, 45)
+    if any(k not in RELIEF_KINDS for k in cfg.get('relief_kinds', [])):
+        raise ValueError(f'relief_kinds must come from {RELIEF_KINDS}')
+    if cfg.get('control_generator', 'relief') not in ('control', 'relief'):
+        raise ValueError('control_generator must be control or relief')
+    for key, low in (('relief_seeds', 1), ('relief_calibration_seeds', 2), ('relief_blank_scenes', 4), ('relief_supersample', 1), ('relief_scene_px', 16),
+                     ('relief_athena_cells', 0), ('relief_touchdown_radius_px', 0), ('sfs_grid_px', 1), ('sfs_iterations', 1),
+                     ('sfs_injection_sites', 0), ('sfs_injection_spacing_px', 20)):
+        if key in cfg and (type(cfg[key]) is not int or cfg[key] < low):
+            raise ValueError(f'{key} must be an integer of at least {low}')
+    for key in ('relief_target_rock_called_relief', 'relief_target_relief_called_rock', 'relief_target_blank_called_signal'):
+        if key in cfg and not 0 < cfg[key] < 1:
+            raise ValueError(f'{key} must lie in (0, 1)')
+    if cfg.get('relief_background_slope_deg') is not None and not 0 < cfg['relief_background_slope_deg'] < 45:
+        raise ValueError('relief_background_slope_deg must lie in (0, 45)')
+    if 'relief_background_wavelength_m' in cfg and not cfg['relief_background_wavelength_m'] > 0:
+        raise ValueError('relief_background_wavelength_m must be positive')
+    if 'sfs_smoothness' in cfg and not cfg['sfs_smoothness'] >= 0:
+        raise ValueError('sfs_smoothness must be nonnegative')
+    if 'sfs_dark_ratio' in cfg and not 0 <= cfg['sfs_dark_ratio'] < 1:
+        raise ValueError('sfs_dark_ratio must lie in [0, 1)')
+    for scene in cfg.get('null_relief_scenes', []):
+        if len(scene) != 3 or scene[0] not in RELIEF_KINDS or not scene[1] > 0 or not 0 < scene[2] < 45:
+            raise ValueError('null_relief_scenes entries are [kind, size_m, max_slope_deg]')
 
 
 class Experiment:
@@ -233,16 +266,21 @@ class Experiment:
         fig.savefig(self.out/filename, dpi=140); plt.close(fig)
 
     def synthetic(self, *, indices=None, order=None, rc=None, kinds=None,
-                  render_noise=None, model_noise=None, seeds=None):
+                  render_noise=None, model_noise=None, seeds=None, generator='control'):
         """Same seeds, geometry, masks, slopes and noise for matched variants.
 
         render_noise sets the noise drawn into the scene; model_noise is the sigma
         the detector assumes. Both default to the source run's assumed sigma, so
-        existing stages are unchanged. T12 separates them.
+        existing stages are unchanged. T12 separates them. generator='relief'
+        draws the scenes with the relief generator instead: rocks are 3D bodies
+        with lit faces, and kind 'relief' is elephant-hide ripples whose value is
+        the maximum slope in degrees.
         """
         render = self.noise if render_noise is None else float(render_noise)
         model = self.noise if model_noise is None else float(model_noise)
         trials = self.cfg['synthetic_seeds'] if seeds is None else int(seeds)
+        if generator not in ('control', 'relief'):
+            raise ValueError('generator must be control or relief')
         rows = []
         d = self.data; radius = self.sc.radius_px
         size = 2*radius+16; half = size//2
@@ -263,11 +301,16 @@ class Experiment:
                     seed = self.cfg['seed']+100*location+trial
                     entry = dict(location=location, row_px=y, col_px=x, seed=seed, kind=kind,
                                  height_m=height if kind in ('caster', 'overlap') else None,
-                                 render_noise=render, model_noise=model)
+                                 render_noise=render, model_noise=model, generator=generator)
+                    if kind == 'relief':
+                        entry['slope_deg'] = height
                     try:
-                        stack = render_control((size, size), d['azimuths'], d['elevations'],
-                                               pixel_m=self.sc.pixel_m, seed=seed, noise=render,
-                                               kind=kind, height=height, slope_rc=slopes)
+                        if generator == 'relief':
+                            stack = self.relief_scene(size, seed, kind, height, slopes, render)
+                        else:
+                            stack = render_control((size, size), d['azimuths'], d['elevations'],
+                                                   pixel_m=self.sc.pixel_m, seed=seed, noise=render,
+                                                   kind=kind, height=height, slope_rc=slopes)
                         stack[~mask] = np.nan
                         geometry = np.arange(len(stack)) if order is None else np.asarray(order)
                         fit = assess_regions(stack, d['azimuths'][geometry], d['elevations'][geometry], model,
@@ -291,6 +334,23 @@ class Experiment:
                                                   recovered=entry.get('recovered_within_2px')))
             print(f'Independent synthetic location {location+1}/{len(self.cfg["synthetic_locations"])} done', flush=True)
         return rows
+
+    def relief_scene(self, size, seed, kind, value, slopes, noise):
+        """One control scene from the relief generator, on the location's receiving plane."""
+        from src.hati_core.relief_scenes import render_relief, relief_feature
+        from src.hati_core.rock_scenes import make_rock
+        root = ((size-1)/2+.3, (size-1)/2+.2)
+        features = [relief_feature('ripples', self.cfg.get('relief_background_wavelength_m', 6.), value, seed=seed)] \
+            if kind == 'relief' else []
+        rocks = [make_rock(seed, root, value, .6, aspect=1.35)] if kind in ('caster', 'overlap') else []
+        if kind == 'overlap':
+            rocks.append(make_rock(seed+50000, (root[0]+1.7, root[1]+2.1), value, .6, aspect=1.35))
+        if kind == 'resolved_ridge':
+            features = [relief_feature('mound', 9*self.sc.pixel_m, 20., seed=seed)]
+        return render_relief((size, size), self.data['azimuths'], self.data['elevations'], pixel_m=self.sc.pixel_m,
+                             seed=seed, noise=noise, features=features, rocks=rocks, plane_slope_rc=slopes,
+                             supersample=self.cfg.get('relief_supersample', 4),
+                             structured_null=kind == 'structured_null')['stack']
 
 
 def maps(ex):
@@ -653,10 +713,15 @@ NOISE_CONTROL_KINDS = [('static', .3), ('structured_null', .3), ('caster', .3), 
 
 
 def summarise_controls(rows):
-    """Warnings and recovery per scenario, counted over assessed trials only."""
+    """Warnings and recovery per scenario, counted over assessed trials only.
+
+    A location without a usable window or slope yields one row with no scenario;
+    those rows are skipped here and listed by t12 as unavailable locations.
+    """
     groups = {}
     for r in rows:
-        groups.setdefault((r['kind'], r.get('height_m')), []).append(r)
+        if 'kind' in r:
+            groups.setdefault((r['kind'], r.get('height_m')), []).append(r)
     out = []
     for (kind, height), sample in groups.items():
         assessed = [r for r in sample if r['status'] == 'assessed']
@@ -670,7 +735,7 @@ def summarise_controls(rows):
 
 def t12(ex):
     """Residual scale under the null model, then the baseline controls at that scale."""
-    from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale, patch_map
+    from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale, patch_map, relief_consistency
     d = ex.data; assumed = float(ex.noise)
     base_cfg = NoiseScaleConfig(**ex.cfg.get('noise_scale', {}))
     ex.live.update(force=True, kind='stage', message='Measuring the residual scale of the null model')
@@ -679,7 +744,11 @@ def t12(ex):
         measured[degree] = measure_residual_scale(d['stack'], d['visibility'], d['slope_row'], d['slope_col'],
                                                   replace(base_cfg, spatial_degree=degree))
     linear, quadratic = measured[1], measured[2]
-    save_json(ex.out/'residual_scale.json', dict(linear=linear, quadratic=quadratic, assumed_sigma=assumed))
+    ex.live.update(force=True, kind='stage', message='Testing whether the residual follows the Sun')
+    consistency = relief_consistency(d['stack'], d['visibility'], d['slope_row'], d['slope_col'],
+                                     d['azimuths'], d['elevations'], base_cfg)
+    save_json(ex.out/'residual_scale.json', dict(linear=linear, quadratic=quadratic, relief_consistency=consistency,
+                                                 assumed_sigma=assumed))
     if not linear['patches']:
         return ex.result('BLOCKED', 'No patch met the support, illumination and slope rules, so no residual scale was measured.',
                          rejected_patches=linear['rejected_patches'], configuration_noise_scale=asdict(base_cfg))
@@ -725,15 +794,25 @@ def t12(ex):
                             interpretation='Upper-bound arithmetic: treats the whole residual excess as independent noise.')
     passes = []
     seeds = ex.cfg.get('noise_control_seeds', ex.cfg['synthetic_seeds'])
-    for name, render, model in (('render_assumed_model_assumed', assumed, assumed),
-                                ('render_measured_model_assumed', sigma, assumed),
-                                ('render_measured_model_measured', sigma, sigma)):
+    generator = ex.cfg.get('control_generator', 'relief')
+    relief_sigma = consistency['relief_corrected_sigma'] if consistency.get('available') else None
+    background = ex.cfg.get('relief_background_slope_deg')
+    if background is None:
+        background = float(np.clip(consistency['indicative_slope_deg']['median'], .5, 5.)) if consistency.get('available') else 2.
+    kinds = NOISE_CONTROL_KINDS if generator == 'control' else \
+        [('static', .3), ('structured_null', .3), ('relief', background), ('caster', .3), ('caster', .6), ('caster', 1.2)]
+    plan = [('render_assumed_model_assumed', assumed, assumed), ('render_measured_model_assumed', sigma, assumed),
+            ('render_measured_model_measured', sigma, sigma)]
+    if relief_sigma:
+        plan.append(('render_relief_corrected_model_relief_corrected', relief_sigma, relief_sigma))
+    for name, render, model in plan:
         ex.live.update(force=True, kind='stage', message=f'Controls: {name.replace("_", " ")}')
-        controls = ex.synthetic(kinds=NOISE_CONTROL_KINDS, render_noise=render, model_noise=model, seeds=seeds)
+        controls = ex.synthetic(kinds=kinds, render_noise=render, model_noise=model, seeds=seeds, generator=generator)
         write_csv(ex.out/f'controls_{name}.csv', controls)
-        passes.append(dict(name=name, render_noise=render, model_noise=model, scenarios=summarise_controls(controls)))
+        passes.append(dict(name=name, render_noise=render, model_noise=model, scenarios=summarise_controls(controls),
+                           unavailable_locations=[dict(location=r['location'], status=r['status']) for r in controls if 'kind' not in r]))
         print(f'T12 control pass {name} complete', flush=True)
-    _plot_t12(ex, linear, rows, passes, assumed)
+    _plot_t12(ex, linear, rows, passes, assumed, consistency)
     return ex.result('PARTIAL', 'Residual scale measured on patches chosen by support, illumination and slope; controls rerun at that scale. '
                      'The residual includes unmodelled structure, so it bounds independent noise from above.',
                      assumed_sigma=assumed, measured_pooled_sigma=sigma, measured_pooled_sigma_quadratic=quadratic['pooled_sigma'],
@@ -742,54 +821,91 @@ def t12(ex):
                      negative_variance_frames=linear['negative_variance_frames'],
                      structure=linear['structure'], reference_noise_structure=reference['structure'],
                      per_frame=rows, frame_scale_vs_evidence=comparison, rescaled_baseline=rescaled,
+                     relief_consistency={k: v for k, v in consistency.items() if k != 'shuffled_histogram'},
+                     relief_corrected_sigma=relief_sigma, control_generator=generator,
+                     relief_background_slope_deg=background if generator == 'relief' else None,
                      control_passes=passes, configuration_noise_scale=asdict(base_cfg))
 
 
-def _plot_t12(ex, linear, rows, passes, assumed):
+def _plot_t12(ex, linear, rows, passes, assumed, consistency):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
     from src.hati_core.noise_scale import patch_map
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9), layout='constrained')
+    fig, axes = plt.subplots(2, 3, figsize=(19, 9.5), layout='constrained')
     ax = axes[0, 0]
     sig = [r['sigma_plane'] for r in rows]
     ax.set_axisbelow(True)
-    ax.bar(range(len(sig)), sig, color='#1f3a5f')
+    ax.bar(range(len(sig)), sig, color='#1f3a5f', label='plane null')
+    if consistency.get('available'):
+        ax.plot(range(len(sig)), consistency['relief_corrected_frame_rms'], 'o', color='#e2a441', ms=7,
+                label='after Sun-consistent shading (raw rms)')
     ax.axhline(assumed, color='#c1121f', ls='--', lw=1.2, label=f'assumed {assumed:g}')
     ax.axhline(linear['pooled_sigma'], color='#13283b', lw=1, label=f'pooled {linear["pooled_sigma"]:.4f}')
     # Headroom above the tallest bar keeps the legend off the bars.
-    ax.set_ylim(0, 1.3*max(*sig, assumed, linear['pooled_sigma']))
+    ax.set_ylim(0, 1.45*max(*sig, assumed, linear['pooled_sigma']))
     ax.set_xticks(range(len(sig))); ax.set_xticklabels([r['pid'].split('.')[-1] for r in rows], rotation=45, ha='right', fontsize=8)
-    ax.set_ylabel('residual scale (normalised intensity)'); ax.set_title('Per-frame residual scale, plane null')
-    ax.legend(frameon=False, loc='upper left', ncols=2)
+    ax.set_ylabel('residual scale (normalised intensity)'); ax.set_title('Per-frame residual scale')
+    ax.legend(frameon=False, loc='upper left', ncols=2, fontsize=8)
     ax = axes[0, 1]
     ax.hist([q['pooled_sigma'] for q in linear['per_patch']], bins=30, color='#1f3a5f')
     ax.axvline(assumed, color='#c1121f', ls='--', lw=1.2)
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_xlabel('patch residual scale'); ax.set_ylabel('patches'); ax.set_title(f'{linear["patches"]} patches chosen without scores')
+    ax = axes[0, 2]
+    if consistency.get('available'):
+        hist = consistency['shuffled_histogram']
+        ax.set_axisbelow(True)
+        ax.stairs(hist['counts'], hist['edges'], fill=True, color='#80909d', label='frames given shuffled Sun directions')
+        ax.axvline(consistency['explained_true_geometry'], color='#1f3a5f', lw=2,
+                   label=f'measured geometry {100*consistency["explained_true_geometry"]:.1f}%')
+        ax.axvline(consistency['explained_best_rank2'], color='#13283b', ls=':', lw=1.2,
+                   label=f'best any 2-component model {100*consistency["explained_best_rank2"]:.1f}%')
+        ax.set_xlim(0, 1); ax.set_xlabel('share of residual energy explained by Sun-consistent shading')
+        ax.set_ylabel('assignments'); ax.legend(frameon=False, loc='upper left', fontsize=8)
+        ax.set_title(f'Does the residual follow the Sun? ({consistency["shuffled_assignments"]} assignments)')
+    else:
+        ax.axis('off')
     ax = axes[1, 0]
     im = ax.imshow(patch_map(linear, ex.data['stack'].shape[1:]), cmap=plt.get_cmap('magma').with_extremes(bad='#80909d'), interpolation='nearest')
     fig.colorbar(im, ax=ax, shrink=.8, label='patch residual scale'); ax.set_title('Where the residual is large (grey: not selected)')
-    ax = axes[1, 1]; ax.axis('off')
+    ax = axes[1, 1]
+    if consistency.get('available'):
+        az = np.asarray(ex.data['azimuths'], float)
+        mean_az = np.degrees(np.angle(np.mean(np.exp(1j*np.radians(az)))))
+        order = np.argsort((az-mean_az+180) % 360)
+        corr = np.asarray(consistency['frame_correlation'])[np.ix_(order, order)]
+        im = ax.imshow(corr, cmap='RdBu_r', vmin=-1, vmax=1)
+        labels = [f'{rows[i]["pid"].split(".")[-1]}\n{az[i]:.0f} deg' for i in order]
+        ax.set_xticks(range(len(order))); ax.set_xticklabels(labels, rotation=90, fontsize=7)
+        ax.set_yticks(range(len(order))); ax.set_yticklabels(labels, fontsize=7)
+        fig.colorbar(im, ax=ax, shrink=.8, label='residual correlation between frames')
+        ax.set_title('Frames ordered by Sun azimuth')
+    else:
+        ax.axis('off')
+    ax = axes[1, 2]; ax.axis('off')
     header = ['scenario'] + [p['name'].replace('render_', 'rendered ').replace('_model_', '\nmodel ') for p in passes]
     cells = []
     for i, s in enumerate(passes[0]['scenarios']):
         label = s['kind'] + (f' {s["height_m"]} m' if s['kind'] == 'caster' else '')
         cells.append([label] + [f'{p["scenarios"][i]["trials_with_warning_roots"]}/{p["scenarios"][i]["assessed"]}' for p in passes])
+    short = dict(assumed='assumed', measured='measured', relief_corrected='relief-corr.')
+    header = ['scenario']+[f'{short[p["name"].split("render_")[1].split("_model_")[0]]}\n/ {short[p["name"].split("_model_")[1]]}'
+                           for p in passes]
     table = ax.table(cellText=cells, colLabels=header, loc='center', cellLoc='center')
     table.auto_set_font_size(False); table.set_fontsize(8); table.scale(1, 1.6)
     for (row, _), cell in table.get_celld().items():
         if row == 0:
             cell.set_height(2*cell.get_height())  # two-line headers
-    ax.set_title('Trials with warning roots / assessed trials')
+    ax.set_title('Trials with warning roots / assessed trials\ncolumns: rendered noise / model noise')
     fig.suptitle('HATI T12 | residual scale of the null model | research diagnostic')
     fig.savefig(ex.out/'residual_scale.png', dpi=140); plt.close(fig)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T16'], required=True)
+    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T16'], required=True)
     ap.add_argument('--bundle', type=Path, required=True)
     ap.add_argument('--config', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
