@@ -199,10 +199,80 @@ def fig_template_bank() -> None:
     plt.close(fig)
 
 
+# Campaign athena-watch-01 (source revision 8347e6d), transcribed from the
+# architecture and implementation review of 24 September 2026, sections 21-22.
+# These are reported results; nothing here recomputes them.
+CAMPAIGN_CONTROLS = [  # scenario, assessable trials with any warning (of 56)
+    ("No caster: static background", 0),
+    ("No caster: changing background", 56),
+    ("Resolved ridge", 56),
+    ("Caster 0.3 m", 55),
+    ("Caster 0.6 m", 56),
+    ("Caster 1.2 m", 56),
+]
+CAMPAIGN_VARIANTS = [  # variant, real assessed cells above score 8 (per cent)
+    ("Baseline", 89.12),
+    ("Remove RE frame", 88.34),
+    ("Remove low-NCC pair", 81.03),
+    ("Add 2.4 m width", 90.70),
+]
+CAMPAIGN_REASSIGNED = (83.86, 86.12)  # range over seven cyclic geometry reassignments
+
+
+def fig_campaign() -> None:
+    """Controls and ablations. One series per panel, so one hue each; the axis
+    labels carry identity. Two different quantities, so two panels, not one axis."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.8, 3.2))
+    for ax in (ax1, ax2):
+        ax.set_axisbelow(True)   # keep the grid recessive, behind the bars
+
+    # --- left: synthetic controls, share of the 56 assessable trials that warned
+    names = [c[0] for c in CAMPAIGN_CONTROLS][::-1]
+    counts = [c[1] for c in CAMPAIGN_CONTROLS][::-1]
+    y = np.arange(len(names))
+    ax1.barh(y, [c / 56 * 100 for c in counts], color=BLUE, height=0.62)
+    for yi, c in zip(y, counts):
+        pct = c / 56 * 100
+        if pct > 12:
+            ax1.text(pct - 2, yi, f"{c}/56", va="center", ha="right", fontsize=7.4, color="white")
+        else:
+            ax1.text(pct + 2, yi, f"{c}/56", va="center", ha="left", fontsize=7.4, color=NAVY)
+    ax1.set_yticks(y)
+    ax1.set_yticklabels(names, fontsize=7.6)
+    ax1.set_xlim(0, 100)
+    ax1.set_xlabel("assessable trials with any warning (%)")
+    ax1.set_title("Synthetic controls, 56 trials each", color=NAVY, fontsize=9.5, pad=6)
+    ax1.grid(axis="y", visible=False)
+
+    # --- right: real window, share of assessed cells above score 8
+    labels = [v[0] for v in CAMPAIGN_VARIANTS] + ["Geometry reassigned (7 runs)"]
+    y2 = np.arange(len(labels))[::-1]
+    for yi, (_, val) in zip(y2[:-1], CAMPAIGN_VARIANTS):
+        ax2.barh(yi, val, color=BLUE, height=0.62)
+        ax2.text(val - 2, yi, f"{val:.2f}%", va="center", ha="right", fontsize=7.4, color="white")
+    lo, hi = CAMPAIGN_REASSIGNED
+    yr = y2[-1]
+    ax2.barh(yr, lo, color=BLUE, height=0.62)            # bar to the lowest run
+    ax2.plot([lo, hi], [yr, yr], color=NAVY, lw=1.6)      # whisker to the highest
+    ax2.plot([hi, hi], [yr - 0.18, yr + 0.18], color=NAVY, lw=1.6)
+    ax2.text(lo - 2, yr, f"{lo:.2f} to {hi:.2f}%", va="center", ha="right", fontsize=7.4, color="white")
+    ax2.set_yticks(y2)
+    ax2.set_yticklabels(labels, fontsize=7.6)
+    ax2.set_xlim(0, 100)
+    ax2.set_xlabel("real assessed cells above score 8 (%)")
+    ax2.set_title("Real window, athena-watch-01", color=NAVY, fontsize=9.5, pad=6)
+    ax2.grid(axis="y", visible=False)
+
+    fig.tight_layout()
+    fig.savefig(FIG / "fig_campaign.png", bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     fig_geometry()
     fig_occupancy()
     fig_frame_evidence()
     fig_template_bank()
+    fig_campaign()
     for p in sorted(FIG.glob("*.png")):
         print("wrote", p.name, f"{p.stat().st_size/1024:.0f} KB")

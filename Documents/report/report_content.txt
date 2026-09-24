@@ -1,30 +1,36 @@
 !meta title = Is the ground really that rocky?
-!meta subtitle = Method, evidence and a test programme for the saturated shadow module, run 20260912T072640Z
+!meta subtitle = Method, campaign evidence, literature and a test programme for the shadow module, run 20260912T072640Z
 !meta author = Gergő Csaba Morvai
 !meta affiliation = University of Southern Denmark, Faculty of Engineering; Máni mission science team
 !meta date = September 2026
-!meta version = Run: v2.5.3 / bbbef4f; diagnostics and replay: v2.5.4-2.5.5
-!meta docid = HATI-R-2026-09-SAT
+!meta version = Edition 2, HATI v2.5.5 and adaptive extension 40cf640
+!meta docid = HATI-R-2026-09-SAT, edition 2
 
 # What this document is for
 
-On 12 September 2026, run 20260912T072640Z produced terrain, shadow and fused maps from real imagery of the IM-2 Athena landing site. The terrain index was below its configured limit at touchdown. The shadow ranker exceeded its score threshold in 89.1 per cent of assessed cells, and footprint buffering flagged every available shadow-map pixel.
+On 12 September 2026, run 20260912T072640Z produced terrain, shadow and fused maps from imagery of the IM-2 Athena landing site. The terrain index was below its configured limit at touchdown. The shadow ranker exceeded its score threshold in 89.1 per cent of assessed cells, and footprint buffering flagged every available shadow-map pixel.
 
-Saturation is not, by itself, proof that the detections are false. A dense population of real hazards could produce widespread warnings. Equally, systematic model error or shadows from resolved terrain poorly represented by the DEM could produce a similar map. The present threshold cannot distinguish safer regions within the available area, regardless of which explanation dominates.
+Saturation is not, by itself, proof that the detections are false. A dense population of real hazards could produce this result. On the other hand, systematic model error or shadows from resolved terrain poorly represented by the DEM could produce similar output. The present threshold cannot distinguish safer regions within the available area, regardless of which explanation proves to be correct.
 
-This document keeps those possibilities open. It explains what the ranker measures, checks the numerical evidence and proposes tests that can discriminate between explanations. The occupancy calculation in section 7 is an illustrative population model, not an inference that the measured threshold-exceedance fraction equals rock occupancy. Its result depends strongly on diameter, height-to-diameter relation, size distribution and spatial clustering.
+This document examines why this output may have occurred. It explains what the ranker measures, checks the numerical evidence and proposes tests that can discriminate between explanations. The occupancy calculation in section 7 is an illustrative population model, not an inference that the measured threshold-exceedance fraction equals rock occupancy. Its result depends strongly on diameter, height-to-diameter relation, size distribution and spatial clustering.
 
 Mons Mouton's ancient geology makes local rock abundance a relevant question. It does not establish the abundance of exposed sub-metre rocks at this specific location. Geological model ages describe a different quantity from the production, exposure and breakdown history of individual surface rocks.
 
+!box note | Edition 2, 24 September 2026
+This edition keeps the corrected text of 19 September and adds three things. Section 8 summarises published work on lunar rocks, small craters and surface texture; every claim used was checked at its source. Section 11 reports the controls and ablations of campaign athena-watch-01, as documented in the architecture and implementation review of 24 September. Section 13 records the status of each test and adds five new ones.
+
+In that campaign a changing background with no caster produced a warning in all 56 assessable trials, and removing frames or reassigning Sun geometry left most real warnings in place. The literature finds small degraded craters and textured regolith common on old highland terrain, and exposed metre-scale rocks sparse wherever they have been measured. Taken together, real relief broader than the caster template, combined with an uncalibrated noise scale, is now a stronger candidate explanation than either a pure artefact or a dense field of discrete sub-metre rocks. Neither source settles the question for this site.
+!endbox
+
 !box plain | How to read this
-Sections 3 and 4 describe the method. Section 5 separates the original run from the 2.5.5 replay. Sections 6 to 9 examine competing explanations, section 10 discusses a vehicle-relevant hazard product, and sections 11 to 13 set out tests and decision criteria. Read sections 6, 7 and 11 first if time is limited.
+Sections 3 and 4 describe the method. Section 5 separates the original run from the 2.5.5 replay. Sections 6 to 11 examine possible explanations: section 8 covers the published literature and section 11 the campaign results. Section 12 discusses a vehicle-relevant hazard product, and sections 13 to 15 set out tests and decision criteria. Read sections 6, 8, 11 and 13 first if time is limited.
 !endbox
 
 !pagebreak
 
 # The question in one page
 
-A rock's height, shape and position relative to a vehicle's footpads can matter to landing stability. No universal half-metre tip-over threshold applies to every lander. In these data the projected image posting is 0.9 metres, so some relevant features may be smaller than a pixel; whether their brightness signal is detectable also depends on contrast, optics, noise and geometry.
+A rock's height, shape and position relative to a vehicle's footpads matter for landing stability. However, there is no universal half-metre tip-over threshold that applies to every lander. In these data the projected image posting is 0.9 metres, so some relevant features may be smaller than a pixel; whether their brightness signal is detectable also depends on contrast, optics, noise and geometry.
 
 HATI exploits the shadow rather than relying only on the caster's directly imaged area. On a level receiving surface, a vertical object under a Sun three degrees above the horizon casts a shadow about nineteen times its height. Images with different Sun directions provide a way to distinguish moving illumination structure from static reflectance.
 
@@ -32,9 +38,9 @@ The pipeline estimates subpixel image shifts, but interpolation precision is not
 
 At the fixed touchdown location, the native DEM fit on a 16 metre baseline gives a slope of 2.96 degrees and an RMS height residual of about eight centimetres. The RMS is not the maximum relief: positive and negative residual extremes are approximately 0.187 and 0.113 metres. Terrain warnings cover 1.52 per cent of the available terrain map under illustrative vehicle limits.
 
-The shadow output is harder to interpret. A score threshold is exceeded in 89.1 per cent of assessed cells; this is not a measured fraction containing rocks. After buffering, all available shadow pixels exceed threshold. The touchdown's raw cell itself is unassessed, and its displayed warning is inherited from nearby evidence.
+The shadow module's output is harder to interpret. A score threshold is exceeded in 89.1 per cent of assessed cells; this is not a measured fraction containing rocks. After buffering, all available shadow pixels exceed threshold. The touchdown's raw cell itself is unassessed, and its displayed warning is inherited from nearby evidence.
 
-Possible causes include actual unresolved casters, real shadows from resolved terrain absent or distorted in the DEM, photometric differences, and registration or calibration errors. They can coexist. Keeping the physical explanation open is justified; choosing it from saturation alone is not.
+Possible causes include actual unresolved casters, real shadows from resolved terrain absent or distorted in the DEM, photometric differences, and registration or calibration errors. Several may coexist, so the physical explanation should remain open. Saturation alone does not justify choosing the 'unresolved casters' explanation.
 
 !pagebreak
 
@@ -42,17 +48,17 @@ Possible causes include actual unresolved casters, real shadows from resolved te
 
 ## The shadow law
 
-On a level receiving surface, a vertical object of height *h* under a Sun at elevation *e* casts a shadow of length *L* = *h* cot *e* along the anti-solar direction. The eight retained frames have measured elevations from 3.2755 to 4.3469 degrees, so cot *e* ranges from 13.16 to 17.47. A 0.3 metre height therefore gives a level-ground shadow about 3.95 to 5.24 metres long, or 4.4 to 5.8 image pixels. Height does not specify the caster's diameter or its fractional pixel area. The production renderer also accounts for the receiving slope and finite solar disc.
+On a level receiving surface, a vertical object of height *h* under a Sun at elevation *e* casts a shadow of length *L* = *h* cot *e* along the anti-solar direction. The eight retained frames have measured elevations from 3.2755 to 4.3469 degrees, so cot *e* ranges from 13.16 to 17.47. A 0.3 metre height therefore gives a level-ground shadow about 3.95 to 5.24 metres long, or 4.4 to 5.8 image pixels. Height specifies neither the caster's other dimensions nor its fractional pixel area. The production renderer also accounts for the receiving slope from module 1 and assumes a finite solar disc.
 
-The shadow gets longer, not wider. That matters twice. It is why a sub-pixel object leaves a multi-pixel trace, and it is why the trace is a thin streak that a careless cleanup step will delete. HATI's first detector did exactly that and found nothing under three pixels wide until the injection tests caught it.
+The shadow gets longer, not wider. That matters twice: it is why a sub-pixel object leaves a multi-pixel trace, and it is why the trace is often a thin streak that a careless cleanup step will delete. HATI's early detector versions did exactly that and found nothing under three pixels wide until the injection tests caught it.
 
-!fig fig/fig_geometry.png | The shadow law in side view, and the sweep in plan. Shadows from a fixed caster rotate about its base as the Sun moves. This is an idealised geometry demonstration, not an empirical false-alarm test. | 0.92
+!fig fig/fig_geometry.png | The shadow law in side view, and the sweep in plan. Shadows from a fixed caster rotate about its base as the Sun moves. This is an idealised geometry demonstration. | 0.92
 
 ## Why a sweep and not a single image
 
-A single image cannot tell a shadow from a dark rock face, a dust stain, or a shallow depression. All of them are dark pixels. What separates them is behaviour under a moving Sun. A shadow's far end sweeps around its caster's base at the rate the Sun moves, and its length changes as cot *e*. A stain stays put.
+A single image cannot tell a shadow from a dark rock face, a dust stain, or a shallow depression. All of them are dark pixels. What separates them is behaviour under a moving Sun. A shadow's far end sweeps around its caster's base at the rate the Sun moves, and its length changes as cot *e*. Other albedo stains stay put.
 
-So HATI collects every usable frame of one site across the range of Sun azimuths available, aligns them, and reasons about the stack rather than about any one frame. There is no single-image detector underneath this that the sweep improves on; the sweep is the method.
+HATI therefore collects every usable frame of one site across the range of Sun azimuths available from the LROC NAC, aligns them and analyses the stack. A shadow is distinguished from other albedo features by its movement under the changing Sun. The method has no underlying single-image detector; the sweep itself provides the distinction.
 
 ## What the likelihood ranker actually computes
 
@@ -68,17 +74,17 @@ A likelihood ratio is only as honest as its null. HATI's null says the observed 
 
 What the null does not contain is anything that varies from frame to frame with spatial structure finer than a plane: local registration error of a pixel or more, photometric response differences between the two camera channels, echo-correction residue, or terrain-induced brightness variation that the elevation model is too coarse to predict. If any of those are present, a wide directional template can improve the fit against them almost anywhere, and the ranker may exceed threshold without identifying a discrete unresolved caster.
 
-That is the mechanism behind hypothesis H1 in section 6. Whether it is operating here is exactly what the evidence in sections 8 and 9 argues about.
+That is the mechanism behind hypothesis H1 in section 6. Whether it is operating here is exactly what the evidence in sections 9 to 11 argues about.
 
 !pagebreak
 
 # The measurement chain
 
-Five stages, one direction of flow. Stages one to three are the ground segment and turn an archive of raw detector dumps into a stack of calibrated, map-projected, co-registered images of one patch of ground. Stage four holds the physics. Stage five combines the products without averaging a strong hazard away.
+The measurement chain has 5 stages. Stages one to three are the ground segment and turn an archive of raw detector dumps into a stack of calibrated, map-projected, co-registered images of one patch of ground. Stage four holds the physics. Stage five combines the products without averaging a strong hazard away.
 
 ## Acquire
 
-The Orbital Data Explorer is queried for every Narrow Angle Camera observation whose footprint touches the site. The archive filters on a bounding box, and near the pole a long diagonal strip has a box far larger than the strip, so most of what comes back images nothing at the site. The September query returned 696 observations, 637 with footprints. A polygon test in projected polar-stereographic coordinates, returning a signed margin in metres to the strip edge, found that 513 miss the site outright and 64 only clip its edge. Sixty remained with the required 600 metre clearance.
+The Orbital Data Explorer is queried for every Narrow Angle Camera observation whose footprint touches the site. The archive filters on a bounding box, and near the pole a long diagonal strip has a box far larger than the strip, so most returned observations do not image the site. The September query returned 696 observations, 637 with footprints. A polygon test in projected polar-stereographic coordinates, returning a signed margin in metres to the strip edge, found that 513 miss the site outright and 64 only clip its edge. Sixty remained with the required 600 metre clearance.
 
 The archive serves no Sun azimuth field. A sub-solar longitude model calibrated against the ISIS camera model gives it to 0.08 degrees over two years. Frames are then binned by azimuth into 24 sectors with ranked alternates per bin, capped at 40 degrees emission angle because relief parallax scales as height times tan(emission), and the selector reports the azimuth spread as 360 degrees minus the largest gap.
 
@@ -86,15 +92,15 @@ The archive serves no Sun azimuth field. A sub-solar longitude model calibrated 
 
 USGS ISIS performs the calibration: lronac2isis to convert the archive product to a cube, spiceinit to attach the kernels that say where the spacecraft and Sun were, lronaccal for radiometric calibration, lronacecho to remove the detector echo, and cam2map to project into a shared 5 kilometre box at 0.9 metres per pixel.
 
-Between spiceinit and the expensive steps sits a gate. The footprint describes the observation, not the single left or right optic that was downloaded, so campt asks the camera model directly where the site falls on the detector. The answer is bounded against the real detector width, 5064 samples or 2532 in summed mode, and the correlation window's worth of pixels is required on either side. When the site falls off the downloaded optic the sibling channel is fetched instead. Cached products carry a processing version and are re-checked for data at the touchdown before they are trusted.
+Between spiceinit and the expensive steps sits a gate. The footprint describes the observation, so campt asks the camera model directly where the site falls on the detector. The answer is bounded against the real detector width, 5064 samples or 2532 in summed mode, and the correlation window's worth of pixels is required on either side. When the site falls off the downloaded optic the sibling channel is fetched instead. Cached products carry a processing version and are re-checked for data at the touchdown before they are trusted.
 
 ## Register
 
-Projected cubes are aligned to a reference ortho using a large correlation window, mean subtraction and phase correlation without spectral normalisation. The science run then assesses a central 512-pixel window. An estimated translation can include pointing and map-registration effects; it is not itself a measurement of local residual error. Re-correlating the shifted images gives a median residual of 0.0605 pixels for the eight retained frames.
+Projected cubes are aligned to a reference ortho using a large correlation window, mean subtraction and phase correlation. The science run then assesses a central 512-pixel window. An estimated translation can include pointing and map-registration effects. Re-correlating the shifted images gives a median residual of 0.0605 pixels for the eight retained frames.
 
-Re-correlation is partly a self-consistency check, not independent ground truth. Pairwise closure compares a direct inter-frame displacement with the difference of reference-based shifts. It can reveal inconsistencies, but illumination changes and relief can confound it. One additional frame was removed by the earlier closure gate. That decision does not establish the remaining stack's metre-scale local registration accuracy.
+Re-correlation is partly a self-consistency check. Pairwise closure compares a direct inter-frame displacement with the difference of reference-based shifts. It can reveal inconsistencies, but illumination changes and relief can confound it. One additional frame was removed by the earlier closure gate. That decision does not establish the remaining stack's metre-scale local registration accuracy.
 
-The earlier audit found severe closure failures among some widely separated illumination pairs. Large changes in cast shadows can move a correlation peak without representing a real camera displacement. Similar illumination reduces that confound but does not remove it. The 2.5.5 diagnostic consequently reports apparent offsets, support, peak separation and boundary flags without applying corrections.
+An earlier audit found severe closure failures among some widely separated illumination pairs. Large changes in cast shadows can move a correlation peak without representing a real camera displacement. Similar illumination reduces that confound. The 2.5.5 diagnostic consequently reports apparent offsets, support, peak separation and boundary flags without applying corrections.
 
 ## Measure
 
@@ -166,7 +172,11 @@ Under H1, the reported threshold-exceedance fraction substantially overstates th
 
 ## H2: unresolved casters contribute substantially to the widespread evidence
 
-A dense population of small protrusions could make occupancy high on a 3.6 metre grid. This is physically possible in principle. Whether it applies here requires a site-specific size/height distribution and a detector response model, including missed detections, false positives, overlap and selection effects. Ancient terrain alone does not supply those quantities.
+A dense population of small protrusions could make occupancy high on a 3.6 metre grid. This is physically possible in principle. Whether it applies here requires a site-specific size/height distribution and a detector response model, including missed detections, false positives, overlap and selection effects.
+
+## H1 has two parts with different consequences
+
+H1 covers two physically different situations. In one, the fit responds to instrument, calibration or registration residuals, and the evidence says nothing about the ground. In the other, it responds to real relief that the caster template does not describe: small degraded craters and their rims, slope texture, or hummocky ground finer than the DEM. Such relief casts shadows that move with the Sun, so it can raise the score for physical reasons. It may itself be a hazard, but its height, extent and consequence for a vehicle differ from those of a discrete rock. Section 8 shows that the literature expects this kind of relief to be common on old highland terrain. Telling the two parts of H1 apart matters as much as telling H1 from H2.
 
 ## Both at once
 
@@ -188,22 +198,73 @@ For identical circular planforms of diameter d, summed planform area per unit gr
 | 0.3 m | 0.0707 square metres | 1.21 per cent |
 | 0.6 m | 0.2827 square metres | 4.84 per cent |
 | 1.2 m | 1.1310 square metres | 19.34 per cent |
-!caption Sensitivity calculation for identical circular planforms, not inferred site coverage. HATI's bank contains heights 0.3/0.6/1.2 m and widths 0.6/1.2 m; height and diameter are not interchangeable.
+!caption Sensitivity calculation for identical circular planforms. HATI's bank contains heights 0.3/0.6/1.2 m and widths 0.6/1.2 m; height and diameter are not interchangeable.
 !endtable
 
-!fig fig/fig_occupancy.png | Illustrative Poisson occupancy for three fixed diameters. The horizontal line is the observed score-exceedance fraction used as a hypothetical occupancy, not a calibrated equivalence. No geological plausibility band is asserted. | 0.88
+!fig fig/fig_occupancy.png | Illustrative Poisson occupancy for three fixed diameters. The horizontal line is the observed score-exceedance fraction used as a hypothetical occupancy. No geological plausibility band is asserted. | 0.88
 
 The earlier 1.2 per cent argument used a 0.3 metre diameter while discussing rocks at least 0.3 metres tall. That conversion is unjustified. Even treating template width as a circular diameter is only a sensitivity example: the bank's width is not a measured rock diameter.
 
 ## What geology can contribute
 
-Independent rock-abundance data can constrain a population model. Diviner and NAC images respond to different spatial scales and physical properties, however, and extrapolating from one to the other requires a supported size-frequency model. A generic factor of two to five is not a site measurement.
+Independent rock-abundance data can constrain a population model. Diviner and NAC images respond to different spatial scales and physical properties, however, and extrapolating from one to the other requires a supported size-frequency model.
 
 The approximately 4.26-billion-year geological model age discussed for this region does not determine modern exposed sub-metre rock abundance. Production, exhumation, burial and breakdown must also be considered. Published work on other lunar terrains demonstrates that surface-rock abundance can decrease with age; it cannot simply be assumed to increase because terrain is old.
 
+Section 8 summarises what published work does and does not constrain, including a conditional occupancy calculation under stated size-distribution assumptions.
+
 ## Where this calculation is weak
 
-For a size distribution, f = n times the mean planform area, not the minimum permitted area. Height-to-diameter relation, clustering, finite rock extent and overlapping shadows also matter. Most importantly, detector threshold exceedance is not occupancy. The calculation neither establishes H2 nor rules it out, and the size of its uncertainty has not been bounded to a factor of two.
+For a size distribution, f = n times the mean planform area. Height-to-diameter relation, clustering, finite rock extent and overlapping shadows also matter. Most importantly, detector threshold exceedance is not occupancy. The calculation neither establishes H2 nor rules it out, and the size of its uncertainty has not been bounded to a factor of two.
+
+!pagebreak
+
+# What the published literature constrains
+
+A literature search through the Consensus service on 24 September 2026 identified the studies used here. Each claim that bears on the argument was checked against the paper or its abstract, and claims that could not be confirmed at source were left out. This is a targeted search, not a systematic review. The absence of a study here does not show that none exists.
+
+## Rocks: what orbital data measure, and where
+
+Thermal rock abundance from the Diviner radiometer is the main global constraint on exposed rocks. It corresponds to the areal fraction of rocks roughly one to two metres across and larger (Powell et al. 2023). Where the retrieval is valid, rock abundance is low over most of the surface and high mainly around young craters (Bandfield et al. 2011). The original retrieval covers latitudes within 60 degrees of the equator, and later products are reported to extend to about 80 degrees. The Athena site, at 84.8 degrees south, lies outside both, so no thermal rock abundance exists for this window.
+
+Optical counts in NAC images reach rocks a few pixels across, about one to three metres at NAC scales (Li and Wu 2018). Chandrayaan-2 OHRC images, at 0.25 to 0.28 metres per pixel, resolve boulders below one metre. One study mapped more than 2 000 boulders around a young crater at 74.9 degrees south under a six-degree Sun (Dagar et al. 2022).
+
+No dataset used in this project measures rocks between 0.3 and 1 metre at this site. Any statement about that size range depends on an assumed size-frequency distribution. How thermal rock abundance itself depends on the boulder size distribution is examined by Amaro et al. (2026).
+
+## A conditional occupancy calculation
+
+Section 7 showed that 89.1 per cent occupancy by bodies 1.2 metres across would need a summed planform area of 19.3 per cent. That is far above the rock abundance measured over most of the Moon, so a dense population of metre-scale rocks is not a credible explanation for the saturation, even though this latitude has no direct measurement.
+
+Smaller rocks need an assumed size distribution. The table below assumes a power law in which the number of rocks larger than diameter D scales as D to the power minus b, continuing below one metre, with 0.5 per cent areal coverage by rocks at least one metre across. That coverage is chosen for illustration and is not measured here. Rock centres are placed at random, as in section 7, and the mean planform area of the power-law population is used instead of a single diameter.
+
+!table
+| Exponent b | Cells holding a rock at least 0.3 m across | Cells holding a rock at least 0.6 m across |
+| --- | --- | --- |
+| 2.5 | 28 per cent | 6 per cent |
+| 3.0 | 64 per cent | 12 per cent |
+| 3.5 | 91 per cent | 19 per cent |
+!caption Illustrative calculation, not a site measurement. At 0.1 per cent coverage by rocks at least one metre across every density falls fivefold, and the 0.3 metre value for b = 3.5 becomes 38 per cent.
+!endtable
+
+Under these assumptions, rocks at least 0.3 metres across reach the observed fraction only with the steepest distribution tested and the chosen coverage. Rocks at least 0.6 metres across stay below 20 per cent. Which column applies to the bank's 0.3 metre height depends on the height-to-diameter relation, which is not established here. Exponential distributions, used for Mars landing sites (Golombek and Rapp 1997) and fitted to lunar counts (Li and Wu 2018), fall off differently and would need parameters fitted for this terrain.
+
+## Extended relief is common on old highland and polar terrain
+
+Cai and Fa (2020) mapped metre-scale roughness in 462 regions from NAC terrain models. Highland roughness exceeds mare roughness by factors of 2.4 in bidirectional slope, 3.0 in RMS height and 2.7 in median absolute slope, and roughness from metre to hectometre scales is mainly controlled by small degraded impact craters. Small craters on lunar surfaces are commonly in equilibrium, with cumulative density falling roughly as the inverse square of size (Xiao and Werner 2015; Minton et al. 2019).
+
+Near the south pole, elephant-hide texture forms lobate patterns decametres to about a hundred metres wide. It is most common on slopes of 5 to 30 degrees but occurs with similar likelihood on shallow slopes of 5 degrees or less, in both illuminated and permanently shadowed terrain (Brown et al. 2025, conference abstract). Its relief amplitude is poorly quantified.
+
+Such relief casts shadows that move with the Sun. At three to four degrees of elevation, a rim or crest a few decimetres high casts a shadow several metres long. The ranker's template describes a compact caster, but it can still improve its fit against these shadows, and section 11 shows it moving toward the widest template on offer. Extended relief is therefore a physically grounded candidate for much of the evidence, and a candidate hazard in its own right.
+
+## Prior art
+
+Shadow-based rock detection from orbit is established on Mars. Golombek et al. (2012) fitted ellipses to shadows and cylinders to rocks in HiRISE images of the Mars Science Laboratory candidate sites. Rocks larger than about 1.5 metres were fully resolved, their size-frequency distributions matched the exponential models derived from lander measurements, and shadows of non-rock features were removed by fitting model distributions. Those rocks span about five HiRISE pixels. HATI targets casters below one NAC pixel, roughly an order of magnitude smaller relative to the pixel, and relies on the sweep to compensate. That compensation has not been demonstrated.
+
+On the Moon, Li and Wu (2018) detected rocks automatically from illumination gradients in NAC and Chang'e-3 descent images, using the fact that rocks and craters show opposite orders of bright and dark along the Sun direction. Cadogan (2020) matched craters across overlapping NAC images taken under different illumination, detected craters down to about three metres, and used agreement between images to reject false positives. The search found no published method that uses a multi-azimuth sweep to detect casters below the pixel scale.
+
+## Where the literature is thin
+
+Three gaps matter for this project. Sub-metre rock abundance has not been measured from orbit at polar latitudes. The relief amplitude of elephant-hide and similar texture is poorly quantified. No lunar study found here validates sub-pixel shadow detections against ground truth under polar low-Sun conditions. Each gap is a reason to seek independent ground truth rather than to infer occupancy from the ranker.
 
 !pagebreak
 
@@ -211,7 +272,7 @@ For a size distribution, f = n times the mean planform area, not the minimum per
 
 ## Frame contributions are strongly uneven
 
-The retained elevations span 3.2755-4.3469 degrees, not the 2.8-4.4 degree selection estimates used in the earlier draft. Corresponding cot e spans 13.16-17.47. Median signed fit contributions vary much more widely, from 1.53 to 247.05, but shadow length alone does not predict those contributions.
+The retained elevations span 3.2755-4.3469 degrees. Corresponding cot e spans 13.16-17.47. Median signed fit contributions vary much more widely, from 1.53 to 247.05, but shadow length alone does not predict those contributions.
 
 !fig fig/fig_frame_evidence.png | Descriptive per-frame median signed fit contributions against the saved measured elevation and aligned NCC. These values are conditional on selected roots and frame eligibility; neither plot isolates a causal effect. Point numbers identify the table rows below. | 1.0
 
@@ -229,7 +290,7 @@ The retained elevations span 3.2755-4.3469 degrees, not the 2.8-4.4 degree selec
 !caption Median delta is the signed change in chi-squared. Geometry comes from the source run's azimuths_map and elevations arrays; NCC from coreg_report.csv. Contributions are matched through each candidate's saved frames list. Denominators vary with frame eligibility. Azimuths are map-grid bearings in degrees, not selection-stage estimates.
 !endtable
 
-The only RE frame and the two lowest-NCC frames contribute strongly. This motivates controlled frame and calibration checks. It does not establish that those frames are defective: illumination direction, receiving slope, support, contrast, occlusion and the joint nuisance projection affect the signed contributions. Equal elevation is not equal illumination geometry, and the earlier matched-elevation argument must not be retained.
+The only RE frame and the two lowest-NCC frames contribute strongly. This motivates controlled frame and calibration checks. It does not establish that those frames are defective: illumination direction, receiving slope, support, contrast, occlusion and the joint nuisance projection affect the signed contributions.
 
 ## Width accumulates at the bank maximum
 
@@ -237,27 +298,27 @@ The only RE frame and the two lowest-NCC frames contribute strongly. This motiva
 
 The selected heights are 0.3 metres for 3 577 roots, 0.6 metres for 1 850 and 1.2 metres for 1 076. That decreasing sequence is not evidence of a physical size-frequency distribution without accounting for template sensitivity and selection under realistic null and injected scenes. Noise or structured mismatch can also prefer smaller templates.
 
-Of 6 503 retained roots, 6 052 choose the widest template, 1.2 metres. Bank-edge accumulation warrants a width-profile and model-mismatch test. It does not prove that the signal is nonphysical, nor is a 0.3-metre-high, 1.2-metre-wide rock geometrically impossible.
+Of 6 503 retained roots, 6 052 choose the widest template, 1.2 metres. Bank-edge accumulation warrants a width-profile and model-mismatch test. It does not prove that the signal is nonphysical, because a 0.3-metre-high, 1.2-metre-wide rock is geometrically possible.
 
 ## Censoring limits height interpretation
 
-The endpoint-censored flag is true for 77.1 per cent of retained roots. In this implementation it is a geometric diagnostic of the selected template: an endpoint in at least one selected frame extends beyond the root-support region after allowing for root offset and the finite solar disc. It is not an independently observed shadow endpoint.
+The endpoint-censored flag is true for 77.1 per cent of retained roots. In this implementation it is a geometric diagnostic of the selected template: an endpoint in at least one selected frame extends beyond the root-support region after allowing for root offset and the finite solar disc.
 
-The fitting patch is 25 pixels across, but the common circular root support has radius six pixels, with an additional margin in the censoring check. Root offsets and receiving slope reduce the available length further. Consequently a small caster can be flagged as censored even when its nominal level-ground shadow would fit inside the larger square patch. The percentage alone neither proves oversized objects nor establishes merged shadows.
+The fitting patch is 25 pixels across, but the common circular root support has radius six pixels, with an additional margin in the censoring check. Root offsets and receiving slope reduce the available length further. Consequently a small caster can be flagged as censored even when its nominal level-ground shadow would fit inside the larger square patch.
 
 A genuinely observed shadow continuing beyond valid support may constrain a lower bound under a valid geometric model. The present censoring flag alone does not provide that bound. Estimated heights require identifiability checks and uncertainty validated under censoring and model mismatch.
 
 !pagebreak
 
-# Evidence that resists H1
+# Evidence that goes against H1
 
 ## Synthetic controls demonstrate capability within their tested conditions
 
-The kinematics voter's current synthetic tests reject the planted crater, ridge and static-stain examples while recovering planted casters. The likelihood ranker's favourable small benchmark also recovers small injected casters and does not flag every static scene. Those results justify further investigation, but they do not establish specificity on real polar imagery. Controls from the voter cannot be transferred to the ranker.
+The kinematics voter's current synthetic tests reject the planted crater, ridge and static-stain examples while recovering planted casters. The likelihood ranker's favourable small benchmark also recovers small injected casters and does not flag every static scene. Those results justify further investigation. Controls from the voter cannot be transferred to the ranker.
 
 ## Stability across registration assumptions
 
-Raw-score Spearman correlations against the 0.25-pixel scenario are approximately 0.9987 and 0.9785 for the other two assumptions, with high spatial candidate correspondence. The pattern is not highly sensitive to these particular covariance settings. A persistent model error, shared image noise or a real feature can all remain stable because the scenarios reuse the same observations.
+Raw-score Spearman correlations against the 0.25-pixel scenario are approximately 0.9987 and 0.9785 for the other two assumptions, with high spatial candidate correspondence. A persistent model error, shared image noise or a real feature can all remain stable because the scenarios reuse the same observations.
 
 ## The translation control
 
@@ -277,6 +338,54 @@ The true geometry beat all three cyclic geometry stress scores in 25 of 61 basel
 
 !pagebreak
 
+# Campaign results, athena-watch-01
+
+The architecture and implementation review of 24 September 2026 documents a sequential campaign on the cached Athena products at commit 8347e6d, archived as athena-watch-01. Its maps reproduce the 2.5.5 replay in section 5: 14 324 of 14 884 cells assessed, 89.12 per cent of them above threshold, a touchdown shadow index of 0.9292 and no jointly qualified area. The stages below correspond to tests T2, T3 and T5 to T7 in section 13. They use synthetic controls and the cached real stack; none is independent field validation.
+
+!fig fig/fig_campaign.png | Left: warnings in the synthetic control scenarios, 56 assessable trials each. Right: real assessed cells above score 8 in each ablation, with the range over seven geometry reassignments. Numbers are transcribed from the architecture and implementation review, campaign athena-watch-01. | 1.0
+
+## Controls: sensitivity without specificity
+
+Each control scenario had 72 planned trials, of which 56 were assessable. The static background without a caster never warned. The changing background contains no rendered caster, only a changing intensity term, texture, a stain and noise, and it warned in all 56 trials. Resolved ridges also warned in all 56, but a ridge is real relief and its warning is not automatically a false hazard. Casters of 0.3, 0.6 and 1.2 metres were localised within two pixels in 55, 56 and 56 trials.
+
+Structured-null maximum scores ranged from 16.32 to 21.52, while the median maximum for the 0.3 metre caster was 17.02. A threshold above every structured-null score would leave a warning in at most 4 of 56 small-caster trials. The two distributions overlap, so raising the threshold does not help. Under these controlled conditions the ranker's small-caster sensitivity comes without the ability to reject a changing background.
+
+## Geometry reassignment
+
+Under seven cyclic reassignments of the measured Sun geometry, the median cell score fell from 24.94 to between 17.93 and 19.54, while 83.86 to 86.12 per cent of assessable cells stayed above threshold. Correct geometry therefore carries information, and the score is not blind to it. Most warnings survive without it, which is consistent with generic changing structure. These reassignments are stress tests, not exchangeable permutation samples.
+
+## Frame ablations and width
+
+!table
+| Variant | Cells above score 8 | Median cell score | Small-caster recovery |
+| --- | --- | --- | --- |
+| Baseline | 89.12 per cent | 24.94 | 55 of 56 |
+| Remove RE frame | 88.34 per cent | 21.40 | 51 of 56 |
+| Remove low-NCC pair | 81.03 per cent | 17.38 | 48 of 56 |
+| Add 2.4 m width | 90.70 per cent | 27.86 | 55 of 56 |
+!caption Ablations from athena-watch-01. Removing frames lowers both real scores and matched sensitivity; it is not an independent reason to discard those frames.
+!endtable
+
+No single frame or tested pair carries the saturation. When a 2.4 metre width was added to the bank, 89.09 per cent of deduplicated warning roots moved to the new widest bin. With the accumulation at 1.2 metres described in section 9, this shows the fit preferring structure broader than the bank offered. It is not a measured body width.
+
+## Height and registration
+
+For isolated-caster controls, the imposed height fell inside the descriptive compatible set in 42 of 144 assessable cases at six-pixel support and 13 of 168 at ten-pixel support. Median height errors were minus 0.05, minus 0.075 and minus 0.30 metres for 0.3, 0.6 and 1.2 metre casters. The baseline fitting disk has a radius of six pixels, while the bank's 0.6 and 1.2 metre heights cast level-ground shadows of about 9 to 23 pixels at the measured elevations. Heights above the smallest bank value are therefore mostly censored in the baseline, and their estimates run low.
+
+Planted integer registration shifts were recovered in all 186 measured trials. However, 2 740 of 2 926 tile trials lacked support, and only 30 real tile measurements existed, all with offsets of zero or one pixel. Local registration remains essentially unmeasured.
+
+## The local-plane guard near touchdown
+
+Four cached cells near the fixed coordinate exceeded the adaptive extension's local-plane departure limit, with proxies of about 0.20 to 0.29 metres against a limit of 0.15 metres, and stayed unresolved. A single plane does not describe the receiving surface there at the patch scale, which agrees with the broad-darkness flag at the same location. No full adaptive workstation run had completed at the time of the review.
+
+## The noise scale
+
+The ranker assumes a normalised noise sigma of 0.03 and gives every frame the same noise scale. The 2.5.4 diagnostic reported a median null residual energy of 13.50 per degree of freedom at that sigma, where a null fitting down to the noise would give about one. The whitened residual is therefore about 3.7 times larger than the model expects, from unmodelled structure, underestimated noise, or both.
+
+Scores scale inversely with the noise sigma. If the whole excess were noise, every score would shrink by about 3.7 times, taking the median of 24.94 to about 6.8. If the excess is structure, rescaling is the wrong remedy and a structural term belongs in the null. A shared noise scale may also let the frames with the largest unmodelled residuals dominate the evidence, which is one untested explanation for the uneven frame contributions in section 9. The synthetic controls were rendered with the assumed noise, so their sensitivities may not carry over to the real stack. Test T12 in section 13 is designed to separate these cases.
+
+!pagebreak
+
 # Why the question is badly posed either way
 
 ## A score threshold is not a vehicle hazard model
@@ -293,11 +402,27 @@ If evidence and a validated uncertainty bound establish an obstacle above a vehi
 
 Preserve the separate terrain and shadow maps and their fused product. Develop height profiles and explicit endpoint observability alongside model-adequacy and registration checks. A larger valid fitting region can help with censored shadows, but it may also introduce more overlap, variable slopes or photometric structure. Validate the resulting tradeoff with independent rendered scenes and held-out real data before promoting height estimates into operational thresholds.
 
+The adaptive extension now implements windows of 25, 49 and 97 pixels with fitting radii of 6, 12 and 24 pixels, together with joint height and width refinement. Its full workstation evaluation is pending, and test T16 in section 13 should come before any interpretation of its real-data output.
+
 !pagebreak
 
-# The test programme
+# The plan
 
 The following tests are complementary. Their outcomes constrain hypotheses; none has a universal binary interpretation. All thresholds and exclusions should be declared before evaluating held-out data. Start annotation and external-data feasibility work early rather than waiting until the last test.
+
+!table
+| Test | Campaign stage | Status on 24 September 2026 |
+| --- | --- | --- |
+| T1 physical response | none | Open |
+| T2 frame ablation | T2 | Run: saturation survives every tested ablation |
+| T3 geometry stress | T3 | Run: median score falls by about a quarter; most warnings persist |
+| T4 thermal comparison | T4 | Blocked: needs an external thermal product; published retrievals found stop at about 80 degrees |
+| T5 width bank | T5 | Run: 89 per cent of warning roots move to the new widest bin |
+| T6 endpoints and height | T6, T9 | Partial: heights biased low; adaptive windows implemented, full run pending |
+| T7 local registration | T7 | Partial: 30 supported tile measurements |
+| T8 annotated scenes | T8 | Implemented for the baseline engine; blocked on inputs |
+!caption Campaign stage names follow the architecture review, whose T9 to T11 are the adaptive extension, independent mesh controls and withheld-frame prediction. Tests added in this edition are numbered from T12.
+!endtable
 
 ## T1. Check physical response using identifiable comparisons
 
@@ -347,6 +472,26 @@ Identify independent polar scenes and annotation sources early, checking their r
 
 Use separate selection, calibration and held-out evaluation sets. Report detection/false-alarm tradeoffs, localisation, size-dependent recovery and abstention under the intended vehicle-relevant thresholds. New imagery, if required, is ingested only on the stationary ISIS machine. No single annotated site by itself establishes a mission-loss bound.
 
+## T12. Measure the noise scale, overall and per frame
+
+Estimate residual variance from the stack itself, per frame and overall, in areas with low scores, nominal DEM illumination and a planar receiving surface. Compare it with the assumed 0.03 and report whether the excess behaves like independent noise or has spatial structure. Then rerun the controls with rendered noise matched to the measured level, and report small-caster sensitivity and changing-background response at that level. This needs only saved products.
+
+## T13. Compete compact, extended and depression models
+
+Add explicit alternatives to the compact caster: a smooth bump and a shallow bowl several metres across, each rendered with its shading and cast shadow under every frame's Sun. Compare the models per cell by withheld-frame prediction, campaign stage T11, rather than by fitted score alone. Include the order of bright and dark along the Sun direction, which is opposite for protrusions and depressions (Li and Wu 2018). Report where each model predicts held-out frames best, and where none does.
+
+## T14. Shape-from-shading as a structural null
+
+The aligned stack, the measured Sun geometry and the coarse DEM are the inputs a multi-image shape-from-shading solver needs. Solving for a surface at an effective resolution of two to four metres, with a smoothness prior, could resolve texture and small craters while leaving sub-metre casters in the residual. Its predicted shading could then enter the null model, and its surface could give the terrain module footprint-scale support. Shape-from-shading terrain models of the Artemis III candidate regions have been published at five metres, and shape-from-shading at native image resolution has been applied at Mons Mouton. The risk is that the solver also absorbs real caster shadows, so injection controls must measure that loss before any adoption.
+
+## T15. Look for OHRC coverage
+
+Check whether Chandrayaan-2 OHRC images at about 0.25 metres per pixel cover the analysis window. OHRC has resolved sub-metre boulders under low Sun at 74.9 degrees south (Dagar et al. 2022), and multi-view OHRC images have been used for sub-metre terrain models in a 2026 preprint. Coverage of this window would give direct boulder counts, and possibly footprint-scale topography, for comparison with HATI's evidence. A post-landing image would need the area disturbed by the landing excluded.
+
+## T16. Run structured nulls through the adaptive procedure
+
+The adaptive extension searches a larger bank with refinement at 0.1 metres and keeps the score threshold of 8. A larger set of hypotheses raises the maximum score expected under any null. Run the static and changing-background controls through the complete adaptive request, expansion and stopping procedure, and report how often they reach context-supported status, before interpreting any adaptive result on real data.
+
 !pagebreak
 
 # A decision tree
@@ -364,7 +509,11 @@ Read the tests as evidence updates rather than a classifier that chooses H1 or H
 !caption These findings need not be mutually exclusive. None turns an unqualified low score into clearance.
 !endtable
 
-The central requirement is discriminating performance under independent evidence. The aim is not to find a combination of tests that makes the existing interpretation survive.
+The method must ultimately show discriminating performance under independent evidence. The tests are intended to evaluate the existing interpretation, not preserve it.
+
+## Where the campaign results land
+
+Two rows of the table apply at once. Correct geometry improves the fit, so some illumination-dependent structure is being modelled. Geometry reassignment and frame ablations leave most warnings in place, and a changing background with no caster triggers warnings in every trial, so specificity for discrete casters is not demonstrated. With the literature in section 8, the most economical reading is real, illumination-dependent relief broader than the caster template, together with an uncalibrated noise scale. That reading is a hypothesis for tests T12 to T14, not a conclusion.
 
 !pagebreak
 
@@ -378,6 +527,8 @@ Disagreement with the kinematics voter is a valuable diagnostic, not an automati
 
 Independent annotation, realistic injection and false-alarm controls should be prepared before the next scientific performance claim. Their feasibility and cost vary; a new held-out polar ingestion is not equivalent to a cheap saved-array check.
 
+On present evidence the ranker is not ready for operational hazard decisions: under the changing-background control it shows no useful false-alarm tradeoff. Its value as a research diagnostic remains open, because correct geometry measurably improves its fit.
+
 !pagebreak
 
 # Notes on the external feasibility report
@@ -388,22 +539,31 @@ For comparison with any proposed explanation, four implementation facts are esta
 
 A predicted coverage percentage from another method cannot be compared with HATI's threshold-exceedance fraction without matching the quantity, scale, mask and detection assumptions. Geological plausibility is a reason to test the physical hypothesis, not a calibration of the existing score.
 
+A literature search through the Consensus service on 24 September 2026 reached a view close to section 8: high occupancy is plausible mainly through small craters and textured regolith rather than boulders. Its citations were checked one by one. Most were confirmed. One paper was dated a year early, and one conference abstract was cited under a later year. Some numerical claims could not be confirmed at source and are not used here, including a global mean rock fraction, a rock survival half-life, a reliable shadow-size range and a distance within which elephant-hide texture occurs.
+
 !pagebreak
 
-# Reproducing and editing this document
+# References
 
-The editable source is Documents/report/report_content.txt. The existing build_report.py reads its markup and produces the branded PDF. make_figures.py draws the analytical figures from verified_run_data.json and explicitly labelled calculations. Regenerate the data snapshot from the original run and candidates when inputs change; do not substitute selection estimates for saved measured geometry.
+Literature cited in sections 8, 11 and 13. Links were checked on 24 September 2026. Conference abstracts, preprints and project pages are marked as such; they have not been through full peer review.
 
-To regenerate figures and then the PDF from Documents/report:
-
-!cmd python make_figures.py
-!cmd python build_report.py
-
-These lines describe the existing build workflow. They do not run ISIS. The marked-up text is the source of prose, tables and captions; editing it alone does not update an already generated PDF.
-
-Chapter headings begin with #, subheadings with ## or ###, and chapters are numbered in file order. Tables use !table and !endtable with vertical-bar columns. Figures use !fig followed by path, caption and optional width. !box/!endbox delimit callouts, !pagebreak inserts a page break, and !meta defines cover fields. Cross-references in this edition retain the original chapter numbering.
-
-The two run figures remain explicitly labelled as original 2.5.3 output. The separate 2.5.5 replay is described in the text; do not silently replace one run's figures with another's while keeping the original provenance.
+- Amaro et al. (2026). Effect of boulder-size distributions on thermally derived rock abundances on the Moon. Journal of Geophysical Research: Planets. https://doi.org/10.1029/2024JE008769
+- Annex (project page). Artemis III landing site digital terrain modeling via shape-from-shading. https://andrewannex.com/project/artemissfs/
+- Bandfield et al. (2011). Lunar surface rock abundance and regolith fines temperatures derived from LRO Diviner Radiometer data. Journal of Geophysical Research 116, E00H02. https://doi.org/10.1029/2011JE003866
+- Brown et al. (2025). Grid-mapping of elephant hide textures near the lunar south pole. Lunar and Planetary Science Conference, abstract 2815 (conference abstract). https://www.hou.usra.edu/meetings/lpsc2025/pdf/2815.pdf
+- Cadogan (2020). Automated precision counting of very small craters at lunar landing sites. Icarus 348, 113822.
+- Cai and Fa (2020). Meter-scale topographic roughness of the Moon: the effect of small impact craters. Journal of Geophysical Research: Planets. https://doi.org/10.1029/2020JE006429
+- Dagar et al. (2022). Analysis of boulders population around a young crater using very high resolution image of Orbiter High Resolution Camera (OHRC) on board Chandrayaan-2 mission. Icarus 386, 115168.
+- DEM refinement and validation on the lunar surface using shape-from-shading with Chandrayaan-2 OHRC imagery (2026, preprint). https://arxiv.org/abs/2604.17436
+- Enhanced topography models for selected lunar south pole regions with shape-from-shading. Planetary Science Journal. https://doi.org/10.3847/PSJ/ae5b70
+- Golombek and Rapp (1997). Size-frequency distributions of rocks on Mars and Earth analog sites: implications for future landed missions. Journal of Geophysical Research: Planets. https://doi.org/10.1029/96JE03319
+- Golombek et al. (2012). Detection and characterization of rocks and rock size-frequency distributions at the final four Mars Science Laboratory landing sites. Mars 7, 1. http://www.marsjournal.org/contents/2012/0001/
+- HATI architecture and implementation review (24 September 2026), implementation 40cf640. Documents/HATI_architecture_and_implementation_review.pdf
+- Li and Wu (2018). Analysis of rock abundance on lunar surface from orbital and descent images using automatic rock detection. Journal of Geophysical Research: Planets 123, 1061-1088. https://doi.org/10.1029/2017JE005496
+- Minton et al. (2019). The equilibrium size-frequency distribution of small craters reveals the effects of distal ejecta on lunar landscape morphology. Icarus. https://arxiv.org/abs/1902.07746
+- Powell et al. (2023). High-resolution nighttime temperature and rock abundance mapping of the Moon using the Diviner Lunar Radiometer Experiment with a model for topographic removal. Journal of Geophysical Research: Planets 128, e2022JE007532. https://doi.org/10.1029/2022JE007532
+- Sub-metre lunar DEM generation and validation from Chandrayaan-2 OHRC multi-view imagery using an open-source pipeline (2026, preprint). https://arxiv.org/abs/2604.01032
+- Xiao and Werner (2015). Size-frequency distribution of crater populations in equilibrium on the Moon. Journal of Geophysical Research: Planets 120, 2277-2292. https://doi.org/10.1002/2015JE004860
 
 !pagebreak
 
@@ -423,7 +583,11 @@ The two run figures remain explicitly labelled as original 2.5.3 output. The sep
 | Frame and bank statistics | verified_run_data.json; original run.json, candidates.csv and coreg_report.csv |
 | Original environment | Python 3.13.15; NumPy 2.5.2; SciPy 1.18.0; Rasterio 1.5.1 |
 | Text corrected | 19 September 2026 |
-!caption Original-run statistics, diagnostic experiments and later replay results are separate evidence. Proposed tests are not completed experiments.
+| Architecture review | 24 September 2026; implementation 40cf64075c331e19d7fb57c4b2b4b3b4de17be66 |
+| Campaign archive | athena-watch-01; source revision 8347e6dbfc7532bb59c3311ff888ec3f79efd9a |
+| Literature search | Consensus, 24 September 2026; each cited claim checked at source |
+| Edition 2 | 24 September 2026 |
+!caption Original-run statistics, diagnostic experiments and later replay results are separate evidence. Proposed tests are not completed experiments. Campaign results are transcribed from the architecture review; nothing was re-run for this document.
 !endtable
 
 Primary external sources used to bound the interpretation:
