@@ -17,7 +17,8 @@ import numpy as np
 
 from landing_maps import clean_json, write_tif
 from src.hati_core.regional_shadow import assess_regions
-from src.hati_core.relief_hypothesis import CLASSES, calibrate_margins, classify, compare_models, confusion
+from src.hati_core.relief_hypothesis import (CLASSES, SIGNS, calibrate_margins, classify, compare_models, confusion,
+                                             relief_sign, sign_confusion)
 from src.hati_core.relief_scenes import render_relief, relief_feature
 from src.hati_core.rock_scenes import make_rock
 
@@ -126,11 +127,12 @@ def _competition_scenes(ex, sigma, seed_offset, seeds, scales):
                  for s in cfg.get('relief_competition_sizes_m', [3., 6., 12.])
                  for sl in cfg.get('relief_competition_slopes_deg', [1., 2., 5.])]
     variants += [('none', {}), ('stripes', {})]
-    # Blank scenes set the noise floor of the margins, so they get their own, larger count.
+    # Blank scenes set the noise floor of the margins and stripes set the Sun margin,
+    # so both get their own, larger count.
     blanks = cfg.get('relief_blank_scenes', 24)
     rows = []
     for case, (truth, v) in enumerate(variants):
-        for trial in range(blanks if truth == 'none' else seeds):
+        for trial in range(blanks if truth in ('none', 'stripes') else seeds):
             seed = cfg['seed']+seed_offset+100*case+trial
             features, rocks = [], []
             if truth == 'rock':
@@ -176,6 +178,7 @@ def _athena_cells(ex, sigma, margins, scales):
             result = compare_models(d['stack'][sl], valid[sl], d['azimuths'], d['elevations'], sigma, ex.sc, ex.rc, scales, slopes)
             entry.update(result)
             entry['label'] = classify(result, margins)
+            entry['relief_sign'] = relief_sign(result, margins) if entry['label'] == 'relief_like' else None
             if entry['label'] == 'relief_like':
                 ratio = result['relief_slope_lower_bound_deg']/limit
                 entry['relief_slope_index_lower_bound'] = ratio/(1+ratio)
@@ -187,10 +190,12 @@ def _athena_cells(ex, sigma, margins, scales):
 
 def _class_fractions(rows):
     labelled = [r['label'] for r in rows if r.get('label')]
-    return dict(cells=len(labelled), **{c: (labelled.count(c)/len(labelled) if labelled else None) for c in CLASSES})
+    signs = [r['relief_sign'] for r in rows if r.get('label') == 'relief_like' and r.get('relief_sign')]
+    return dict(cells=len(labelled), **{c: (labelled.count(c)/len(labelled) if labelled else None) for c in CLASSES},
+                relief_signs={s: (signs.count(s)/len(signs) if signs else None) for s in SIGNS})
 
 
-def _plot_t13(ex, detector, matrix, athena, touchdown, margins):
+def _plot_t13(ex, detector, matrix, athena, touchdown, margins, signs):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -228,7 +233,8 @@ def _plot_t13(ex, detector, matrix, athena, touchdown, margins):
             ax.text(b, a, f'{int(table[a, b])}', ha='center', va='center', fontsize=9, color='#13283b' if share[a, b] < .6 else 'white')
     ax.set_xticks(range(len(CLASSES))); ax.set_xticklabels([c.replace('_', ' ') for c in CLASSES])
     ax.set_yticks(range(len(truths))); ax.set_yticklabels([f'true {t}' for t in truths])
-    ax.set_title('Held-out simulated scenes, calibrated margins', fontsize=10)
+    sign_text = '; '.join(f'{kind}s: ' + ', '.join(f'{v} {s}' for s, v in row.items()) for kind, row in signs.items())
+    ax.set_title('Held-out simulated scenes, calibrated margins' + (f'\nrelief-like {sign_text}' if sign_text else ''), fontsize=9)
     ax = fig.add_subplot(grid[1, len(passes)])
     groups = [('all sampled', athena), ('baseline warning', [r for r in athena if r['baseline_score'] >= ex.rc.score_scale]),
               ('near touchdown', [r for r in athena if r['near_touchdown']])]
@@ -240,7 +246,10 @@ def _plot_t13(ex, detector, matrix, athena, touchdown, margins):
         left += widths
     ax.set_yticks(range(len(groups))); ax.set_yticklabels([f'{g} ({_class_fractions(r)["cells"]})' for g, r in groups])
     ax.set_xlim(0, 1); ax.invert_yaxis(); ax.set_xlabel('share of Athena cells'); ax.legend(frameon=False, ncols=2, fontsize=8)
-    ax.set_title('Athena cells by class', fontsize=10)
+    shares = _class_fractions(athena)['relief_signs']
+    ax.set_title('Athena cells by class' + ('' if shares['protrusion'] is None else
+                 f'\nrelief-like cells: {shares["protrusion"]:.0%} protrusion, {shares["depression"]:.0%} depression, '
+                 f'{shares["undetermined"]:.0%} undetermined'), fontsize=10)
     ax = fig.add_subplot(grid[:, len(passes)+1])
     mean = np.nanmean(ex.data['stack'], axis=0)
     ax.imshow(mean, cmap='gray', vmin=np.nanpercentile(mean, 1), vmax=np.nanpercentile(mean, 99))
@@ -275,9 +284,12 @@ def t13(ex):
     evaluation = _competition_scenes(ex, sigma, 500000, seeds, scales)
     targets = dict(rock_called_relief=cfg.get('relief_target_rock_called_relief', .05),
                    relief_called_rock=cfg.get('relief_target_relief_called_rock', .10),
-                   blank_called_signal=cfg.get('relief_target_blank_called_signal', .10))
-    margins = calibrate_margins([r for r in calibration if r['truth'] != 'stripes'], targets)
+                   blank_called_signal=cfg.get('relief_target_blank_called_signal', .10),
+                   stripes_called_relief=cfg.get('relief_target_stripes_called_relief', .10),
+                   sign_error=cfg.get('relief_target_sign_error', .10))
+    margins = calibrate_margins(calibration, targets)
     matrix = confusion(evaluation, margins)
+    signs = sign_confusion(evaluation, margins)
     save(ex.out/'competition_scenes.json', dict(calibration=calibration, evaluation=evaluation))
     athena, touchdown, blocked = [], None, None
     if (ex.baseline_dir/'regional.npz').exists():
@@ -290,7 +302,7 @@ def t13(ex):
                    baseline_warning=_class_fractions([r for r in athena if r['baseline_score'] >= ex.rc.score_scale]),
                    near_touchdown=_class_fractions([r for r in athena if r['near_touchdown']]))
     nearest = min(athena, key=lambda r: r['distance_to_touchdown_px']) if athena else None
-    _plot_t13(ex, detector_summary, matrix, athena, touchdown, margins)
+    _plot_t13(ex, detector_summary, matrix, athena, touchdown, margins, signs)
     relief_rows = [s for s in detector_summary if s['kind'] != 'rock']
     return ex.result('PARTIAL', 'Relief scenes through the unchanged detector; rock and relief hypotheses compared by withheld-frame '
                      'prediction with margins calibrated on simulated scenes. Classes are research labels, not hazard decisions.',
@@ -299,9 +311,10 @@ def t13(ex):
                      relief_scenes_with_warnings=dict(scenes=sum(s['trials'] for s in relief_rows),
                                                       with_warnings=sum(s['trials_with_warning'] for s in relief_rows)),
                      relief_scales_m=list(scales), targets=targets, margins=margins,
-                     evaluation_confusion=matrix, athena_summary=summary,
-                     touchdown_cell=nearest and {k: nearest.get(k) for k in ('row_px', 'col_px', 'label', 'baseline_score', 'gain_rock',
-                                                                             'gain_relief', 'relief_slope_lower_bound_deg',
+                     evaluation_confusion=matrix, evaluation_sign_confusion=signs, athena_summary=summary,
+                     touchdown_cell=nearest and {k: nearest.get(k) for k in ('row_px', 'col_px', 'label', 'relief_sign', 'baseline_score',
+                                                                             'gain_rock', 'gain_relief', 'gain_mound', 'gain_bowl',
+                                                                             'sun_margin', 'relief_slope_lower_bound_deg',
                                                                              'distance_to_touchdown_px')},
                      slope_limit_deg=_slope_limit(ex), athena_blocked=blocked,
                      limitations=['Relief slopes come from linearised shading and are lower bounds above the Sun elevation.',

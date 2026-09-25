@@ -20,7 +20,7 @@ from src.hati_core.adaptive_shadow import AdaptiveConfig
 from src.hati_core.landing_terrain import LandingConfig
 from src.hati_core.noise_scale import NoiseScaleConfig, relief_consistency
 from src.hati_core.regional_shadow import RegionalConfig
-from src.hati_core.relief_hypothesis import calibrate_margins, compare_models, confusion
+from src.hati_core.relief_hypothesis import calibrate_margins, compare_models, confusion, sign_confusion
 from src.hati_core.relief_scenes import lit_fraction, relief_feature, render_relief
 from src.hati_core.rock_scenes import make_rock
 from src.hati_core.sfs import rock_factor, solve_sfs
@@ -94,17 +94,36 @@ class CompetitionTests(unittest.TestCase):
         self.assertGreater(mound['gain_relief'], 2*mound['gain_rock'])
         self.assertGreater(rock['gain_rock'], 2*rock['gain_relief'])
 
+    def test_mound_and_bowl_signs_and_the_sun_check(self):
+        mound = self.compare(features=[relief_feature('mound', 6., 2.)])
+        bowl = self.compare(features=[relief_feature('bowl', 6., 2.)])
+        stripes = self.compare(structured_null=True)
+        self.assertGreater(mound['gain_mound'], 5*max(mound['gain_bowl'], .1))
+        self.assertGreater(bowl['gain_bowl'], 5*max(bowl['gain_mound'], .1))
+        # Relief follows the Sun; stripes that merely change between frames do not.
+        self.assertGreater(mound['sun_margin'], 1.)
+        self.assertLess(stripes['sun_margin'], .5)
+
     def test_margins_meet_their_declared_targets(self):
         rng = np.random.default_rng(0)
-        rows = [dict(truth='rock', status='assessed', gain_rock=2+rng.normal(), gain_relief=1+rng.normal()) for _ in range(200)]
-        rows += [dict(truth='relief', status='assessed', gain_rock=1+rng.normal(), gain_relief=3+rng.normal()) for _ in range(200)]
-        rows += [dict(truth='none', status='assessed', gain_rock=abs(rng.normal(0, .1)), gain_relief=abs(rng.normal(0, .1)))
+        def row(truth, rock, mound, bowl, sun, kind=None):
+            return dict(truth=truth, kind=kind, status='assessed', gain_rock=rock, gain_mound=mound, gain_bowl=bowl,
+                        gain_relief=max(mound, bowl), sun_margin=sun)
+        rows = [row('rock', 2+rng.normal(), 1+rng.normal(), 1+rng.normal(), rng.normal(0, .3)) for _ in range(200)]
+        rows += [row('relief', 1+rng.normal(), 3+rng.normal(), rng.normal(0, .3), 2+rng.normal(), 'mound') for _ in range(100)]
+        rows += [row('relief', 1+rng.normal(), rng.normal(0, .3), 3+rng.normal(), 2+rng.normal(), 'bowl') for _ in range(100)]
+        rows += [row('none', *np.abs(rng.normal(0, .1, 3)), rng.normal(0, .1)) for _ in range(200)]
+        rows += [row('stripes', 1+rng.normal(0, .3), 1.5+rng.normal(0, .3), 1.5+rng.normal(0, .3), -.5+rng.normal(0, .3))
                  for _ in range(200)]
-        margins = calibrate_margins(rows, dict(rock_called_relief=.05, relief_called_rock=.1, blank_called_signal=.1))
-        table = confusion(rows, margins)
+        margins = calibrate_margins(rows, dict(rock_called_relief=.05, relief_called_rock=.1, blank_called_signal=.1,
+                                               stripes_called_relief=.1, sign_error=.1))
+        table, signs = confusion(rows, margins), sign_confusion(rows, margins)
         self.assertLessEqual(table['rock']['relief_like'], 10)
         self.assertLessEqual(table['relief']['rock_like'], 20)
         self.assertGreaterEqual(table['none']['none'], 180)
+        self.assertLessEqual(table['stripes']['relief_like'], 20)
+        self.assertLessEqual(signs['mound']['depression'], 10)
+        self.assertLessEqual(signs['bowl']['protrusion'], 10)
 
 
 class ShapeFromShadingTests(unittest.TestCase):

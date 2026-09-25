@@ -118,7 +118,8 @@ def validate_config(cfg):
                      ('sfs_injection_sites', 0), ('sfs_injection_spacing_px', 20)):
         if key in cfg and (type(cfg[key]) is not int or cfg[key] < low):
             raise ValueError(f'{key} must be an integer of at least {low}')
-    for key in ('relief_target_rock_called_relief', 'relief_target_relief_called_rock', 'relief_target_blank_called_signal'):
+    for key in ('relief_target_rock_called_relief', 'relief_target_relief_called_rock', 'relief_target_blank_called_signal',
+                'relief_target_stripes_called_relief', 'relief_target_sign_error'):
         if key in cfg and not 0 < cfg[key] < 1:
             raise ValueError(f'{key} must lie in (0, 1)')
     if cfg.get('relief_background_slope_deg') is not None and not 0 < cfg['relief_background_slope_deg'] < 45:

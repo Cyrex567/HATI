@@ -66,6 +66,8 @@
   "relief_target_rock_called_relief": 0.05,
   "relief_target_relief_called_rock": 0.1,
   "relief_target_blank_called_signal": 0.1,
+  "relief_target_stripes_called_relief": 0.1,
+  "relief_target_sign_error": 0.1,
   "relief_athena_cells": 2000,
   "relief_touchdown_radius_px": 24,
   "sfs_grid_px": 2,

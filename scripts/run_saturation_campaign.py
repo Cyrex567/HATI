@@ -241,9 +241,16 @@ def evidence_summary(output, records):
                 findings.append(f'Athena cells ({group.replace("_", " ")}, {row["cells"]}): ' + ', '.join(
                     f'{row[c]:.1%} {c.replace("_", " ")}' for c in ('rock_like', 'relief_like', 'ambiguous', 'none')) +
                     '. Research labels from withheld-frame prediction; relief-like goes to the terrain module as a slope hazard.')
+        signs = ((compete.get('athena_summary') or {}).get('all_sampled') or {}).get('relief_signs') or {}
+        if signs.get('protrusion') is not None:
+            findings.append(f'Relief-like Athena cells by sign: {signs["protrusion"]:.1%} protrusion, {signs["depression"]:.1%} depression, '
+                            f'{signs["undetermined"]:.1%} undetermined (extended against depression model, withheld-frame prediction).')
+        for kind, row in compete.get('evaluation_sign_confusion', {}).items():
+            findings.append(f'Held-out simulated {kind}s called relief-like: ' + ', '.join(f'{v} {s}' for s, v in row.items()) + '.')
         cell = compete.get('touchdown_cell')
         if cell:
-            findings.append(f'Cell nearest the touchdown: {str(cell["label"]).replace("_", " ")} (baseline score {cell["baseline_score"]:.1f}).')
+            sign = f', {cell["relief_sign"]}' if cell.get('relief_sign') else ''
+            findings.append(f'Cell nearest the touchdown: {str(cell["label"]).replace("_", " ")}{sign} (baseline score {cell["baseline_score"]:.1f}).')
     sfs = read('T14')
     if sfs.get('sfs'):
         e = sfs.get('exceedance', {})
