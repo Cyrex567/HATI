@@ -130,6 +130,11 @@ def validate_config(cfg):
         raise ValueError('sfs_clearance_m must be positive')
     if 'sfs_shadow_sigma' in cfg and not cfg['sfs_shadow_sigma'] > 0:
         raise ValueError('sfs_shadow_sigma must be positive')
+    if cfg.get('sfs_model', 'linear') not in ('linear', 'nonlinear'):
+        raise ValueError('sfs_model must be linear or nonlinear')
+    for key in ('sfs_gauss_newton', 'sfs_iterations_per_step'):
+        if key in cfg and (type(cfg[key]) is not int or cfg[key] < 1):
+            raise ValueError(f'{key} must be a positive integer')
     if 'sfs_smoothness' in cfg and not cfg['sfs_smoothness'] >= 0:
         raise ValueError('sfs_smoothness must be nonnegative')
     if 'sfs_dark_ratio' in cfg and not 0 <= cfg['sfs_dark_ratio'] < 1:

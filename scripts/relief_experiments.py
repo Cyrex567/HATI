@@ -473,15 +473,20 @@ def t14(ex):
     """Shape-from-shading as a structural null (report section 13)."""
     from rasterio.crs import CRS as RasterCRS
     from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale
-    from src.hati_core.sfs import rock_factor, solve_sfs
+    from src.hati_core.sfs import rock_factor, solve_sfs, solve_sfs_nonlinear
     cfg, d = ex.cfg, ex.data
     valid = (np.nan_to_num(np.asarray(d['visibility'], float), nan=0.) >= .99) & np.isfinite(d['stack'])
     options = dict(grid_px=cfg.get('sfs_grid_px', 2), smoothness=cfg.get('sfs_smoothness', 3.),
-                   dark_ratio=cfg.get('sfs_dark_ratio', .5), iterations=cfg.get('sfs_iterations', 1500),
-                   passes=cfg.get('sfs_passes', 1), shadow_sigma=cfg.get('sfs_shadow_sigma', 3.))
+                   dark_ratio=cfg.get('sfs_dark_ratio', .5), shadow_sigma=cfg.get('sfs_shadow_sigma', 3.))
+    if cfg.get('sfs_model', 'linear') == 'nonlinear':
+        solver = solve_sfs_nonlinear
+        options.update(iterations=cfg.get('sfs_iterations_per_step', 800), gauss_newton=cfg.get('sfs_gauss_newton', 6))
+    else:
+        solver = solve_sfs
+        options.update(iterations=cfg.get('sfs_iterations', 1500), passes=cfg.get('sfs_passes', 1))
     ex.live.update(force=True, kind='stage', message='T14: solving shape from shading')
     started = time.monotonic()
-    solved = solve_sfs(d['stack'], valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options)
+    solved = solver(d['stack'], valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options)
     print(f'T14 shape from shading: explained {solved["explained_fraction"]:.3f} of the frame-to-frame ratio variance '
           f'in {time.monotonic()-started:.0f}s ({solved["lsqr_iterations"]} iterations)', flush=True)
     crs = RasterCRS.from_wkt(ex.crs.to_wkt())
@@ -532,7 +537,7 @@ def t14(ex):
         factor = rock_factor(d['stack'].shape[1:], placed, d['azimuths'], d['elevations'], ex.sc.pixel_m,
                              seed=cfg['seed']+710000, supersample=cfg.get('relief_supersample', 4))
         injected = d['stack']*factor
-        solved_injected = solve_sfs(injected, valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options)
+        solved_injected = solver(injected, valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options)
         half = ex.sc.radius_px+12; last = [0.]
         for i, (r, c, height) in enumerate(placed):
             window = np.s_[int(r)-half:int(r)+half+1, int(c)-half:int(c)+half+1]

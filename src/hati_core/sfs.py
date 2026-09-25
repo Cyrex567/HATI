@@ -1,4 +1,4 @@
-"""Linearised multi-image shape from shading on the aligned stack (campaign T14).
+"""Multi-image shape from shading on the aligned stack (campaign T14): linearised and Gauss-Newton.
 
 Ratio images remove albedo: Y_k / Ybar - 1 = -grad(h) . w_k + p_k(x) + noise,
 where w_k is cot(e_k) times the horizontal direction toward the Sun, minus its
@@ -141,6 +141,162 @@ def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothn
                 lsqr_stop=int(solution[1]), lsqr_iterations=int(solution[2]),
                 configuration=dict(grid_px=grid_px, smoothness=smoothness, dark_ratio=dark_ratio, passes=passes,
                                    shadow_sigma=shadow_sigma, iterations=iterations, tolerance=tolerance, pixel_m=pixel_m))
+
+
+def _sun_vector(azimuth_deg, elevation_deg):
+    """Unit vector toward the Sun in (row, col, up); azimuth clockwise from map up."""
+    a, e = np.radians(azimuth_deg), np.radians(elevation_deg)
+    return np.array([-np.cos(a)*np.cos(e), np.sin(a)*np.cos(e), np.sin(e)])
+
+
+def lunar_lambert(p, q, sun, L=.5):
+    """Lunar-Lambert brightness relative to flat ground, nadir view, and its slope derivatives.
+
+    p and q are dh/drow and dh/dcol in m/m. Returns R, dR/dp and dR/dq, with R
+    and its derivatives zero where the surface faces away from the Sun.
+    """
+    norm = np.sqrt(1+p*p+q*q)
+    mu0 = (-p*sun[0]-q*sun[1]+sun[2])/norm
+    mu = 1/norm
+    flat = 2*L*sun[2]/(sun[2]+1)+(1-L)*sun[2]
+    lit = mu0 > 0
+    m0 = np.where(lit, mu0, 0.)
+    R = (2*L*m0/(m0+mu)+(1-L)*m0)/flat
+    dR_dmu0 = (2*L*mu/(m0+mu)**2+(1-L))/flat
+    dR_dmu = -2*L*m0/(m0+mu)**2/flat
+    dmu0_dp, dmu0_dq = -sun[0]/norm-mu0*p/norm**2, -sun[1]/norm-mu0*q/norm**2
+    dmu_dp, dmu_dq = -p/norm**3, -q/norm**3
+    return (R, np.where(lit, dR_dmu0*dmu0_dp+dR_dmu*dmu_dp, 0.),
+            np.where(lit, dR_dmu0*dmu0_dq+dR_dmu*dmu_dq, 0.))
+
+
+def solve_sfs_nonlinear(stack, valid, azimuths, elevations, pixel_m, *, grid_px=1, smoothness=1.,
+                        dark_ratio=.5, iterations=800, tolerance=1e-8, gauss_newton=6, shadow_sigma=3.,
+                        dark_model=.35, lunar_lambert_l=.5, max_correction=2.):
+    """Non-linear multi-image shape from shading in log brightness, by Gauss-Newton.
+
+    log Y_k(x) = a(x) + b_k(x) + log R_k(grad h(x)) + noise: a is the per-pixel
+    albedo, removed by subtracting the mean over frames; b_k is a brightness
+    plane per frame; R_k is the Lunar-Lambert brightness relative to flat ground
+    under frame k's Sun. At grazing Sun a slope of one or two degrees already
+    moves R far from linear, which the linearised solver cannot follow. Each
+    Gauss-Newton step solves the linear solver's sparse problem with slope
+    sensitivities evaluated on the current surface, with a step-halving line
+    search. Left out of the fit: samples observed dark (below dark_ratio of the
+    pixel mean), samples the model puts near self-shadow (R below dark_model),
+    and, from the second step, samples more than shadow_sigma robust scales
+    darker than the model (cast shadows, rock shadows included).
+
+    Returns the same fields as solve_sfs. The corrected stack divides out each
+    frame's predicted shading relative to the mean over frames, clamped to
+    max_correction and left untouched where the model predicts self-shadow.
+    """
+    stack = np.asarray(stack, float)
+    n, H, W = stack.shape
+    if n < 3 or type(grid_px) is not int or grid_px < 1 or smoothness < 0 or not 0 <= dark_ratio < 1:
+        raise ValueError('need three frames, an integer grid and nonnegative smoothness')
+    if type(gauss_newton) is not int or gauss_newton < 1 or not shadow_sigma > 0 or not 0 < dark_model < 1 or not max_correction > 1:
+        raise ValueError('invalid Gauss-Newton settings')
+    usable = np.asarray(valid, bool) & np.isfinite(stack) & (stack > 0)
+    common = usable.all(axis=0)
+    if common.sum() < 100:
+        raise ValueError('too few pixels valid in every frame')
+    log_y = np.log(np.where(usable, stack, 1.))
+    z = log_y-log_y.mean(axis=0)[None]
+    mean = np.where(common, stack.mean(axis=0), np.nan)
+    observed = np.asarray([common & (stack[k] >= dark_ratio*mean) for k in range(n)])
+    suns = [_sun_vector(a, e) for a, e in zip(azimuths, elevations)]
+    interp, coarse = _bilinear((H, W), grid_px)
+    grad_r = (sparse.kron(_derivative(H, pixel_m), sparse.identity(W))@interp).tocsr()
+    grad_c = (sparse.kron(sparse.identity(H), _derivative(W, pixel_m))@interp).tocsr()
+    rr, cc = np.indices((H, W), dtype=float)
+    rr = ((rr-H/2)/H).ravel(); cc = ((cc-W/2)/W).ravel()
+    unknowns = interp.shape[1]
+    penalty = np.sqrt(smoothness)*_smoothness(coarse)
+    anchor = sparse.hstack([1e-6*sparse.identity(unknowns), sparse.csr_matrix((unknowns, 3*n))])
+    regulariser = sparse.vstack([sparse.hstack([penalty, sparse.csr_matrix((penalty.shape[0], 3*n))]), anchor])
+
+    def model(heights):
+        p, q = (grad_r@heights).reshape(H, W), (grad_c@heights).reshape(H, W)
+        R, dp, dq = (np.asarray(v) for v in zip(*[lunar_lambert(p, q, s, lunar_lambert_l) for s in suns]))
+        rho = np.log(np.maximum(R, dark_model))
+        lit = R > dark_model
+        return p, q, R, np.where(lit, dp/np.maximum(R, dark_model), 0.), np.where(lit, dq/np.maximum(R, dark_model), 0.), lit, rho
+
+    def planes_image(planes):
+        return (planes[:, 0, None]+planes[:, 1, None]*rr[None]+planes[:, 2, None]*cc[None]).reshape(n, H, W)
+
+    def cost(heights, planes, kept):
+        *_, rho = model(heights)
+        left = (z-(rho-rho.mean(axis=0))-planes_image(planes))[kept]
+        smooth = penalty@heights
+        return float(left@left+smooth@smooth)
+
+    heights, planes = np.zeros(unknowns), np.zeros((n, 3))
+    shadow_keep = np.ones((n, H, W), bool)
+    history, lsqr_total, stop = [], 0, 0
+    for step_index in range(gauss_newton):
+        p, q, R, jr, jc, lit, rho = model(heights)
+        kept = observed & lit & shadow_keep
+        residual = z-(rho-rho.mean(axis=0))-planes_image(planes)
+        jr, jc = jr-jr.mean(axis=0), jc-jc.mean(axis=0)
+        blocks, targets = [], []
+        for k in range(n):
+            idx = np.flatnonzero(kept[k].ravel())
+            slope_part = sparse.diags(jr[k].ravel()[idx])@grad_r[idx]+sparse.diags(jc[k].ravel()[idx])@grad_c[idx]
+            plane = sparse.csr_matrix((np.column_stack([np.ones(len(idx)), rr[idx], cc[idx]]).ravel(),
+                                       (np.repeat(np.arange(len(idx)), 3), np.tile(np.arange(3*k, 3*k+3), len(idx)))),
+                                      shape=(len(idx), 3*n))
+            blocks.append(sparse.hstack([slope_part, plane]))
+            targets.append(residual[k].ravel()[idx])
+        system = sparse.vstack([sparse.vstack(blocks), regulariser]).tocsr()
+        rhs = np.concatenate([*targets, -(penalty@heights), np.zeros(unknowns)])
+        solution = lsqr(system, rhs, atol=tolerance, btol=tolerance, iter_lim=iterations)
+        lsqr_total += int(solution[2]); stop = int(solution[1])
+        delta_h, delta_p = solution[0][:unknowns], solution[0][unknowns:].reshape(n, 3)
+        before = cost(heights, planes, kept)
+        step = 1.
+        for _ in range(5):
+            trial = cost(heights+step*delta_h, planes+step*delta_p, kept)
+            if trial < before:
+                break
+            step /= 2
+        else:
+            history.append(dict(step=step_index, cost=before, accepted=False)); break
+        heights, planes = heights+step*delta_h, planes+step*delta_p
+        history.append(dict(step=step_index, cost=trial, relative_change=(before-trial)/before, step_length=step,
+                            lsqr_iterations=int(solution[2]), kept_fraction=float(kept[:, common].mean())))
+        if step_index == 0:
+            # Cast shadows from the first fit: far darker than any modelled shading.
+            *_, rho = model(heights)
+            left = z-(rho-rho.mean(axis=0))-planes_image(planes)
+            values = left[kept]
+            scale = 1.4826*float(np.median(np.abs(values-np.median(values))))
+            shadow_keep = left >= -shadow_sigma*scale
+        elif (before-trial)/before < 1e-3:
+            break
+    p, q, R, _, _, lit, rho = model(heights)
+    kept = observed & lit & shadow_keep
+    shading = rho-rho.mean(axis=0)
+    before = z-planes_image(planes)
+    after = before-shading
+    explained = 1-float(np.sum(after[kept]**2)/max(np.sum(before[kept]**2), 1e-30))
+    factor = np.clip(np.exp(-shading), 1/max_correction, max_correction)
+    corrected = np.where(common[None] & lit, stack*factor, stack)
+    h = (interp@heights).reshape(H, W)
+    return dict(height_m=np.where(common, h-h[common].mean(), np.nan),
+                slope_deg=np.where(common, np.degrees(np.arctan(np.hypot(p, q))), np.nan),
+                predicted_ratio=np.where(common[None], np.exp(shading)-1, np.nan), corrected=corrected,
+                common=common, used=kept, planes=planes, explained_fraction=explained,
+                ratio_rms_before=float(np.sqrt(np.mean(before[kept]**2))), ratio_rms_after=float(np.sqrt(np.mean(after[kept]**2))),
+                used_fraction_per_frame=[float(u[common].mean()) for u in kept],
+                shadow_excluded_fraction=float(1-shadow_keep[observed].mean()),
+                model_shadow_fraction=float(1-lit[:, common].mean()),
+                lsqr_stop=stop, lsqr_iterations=lsqr_total, gauss_newton=history,
+                configuration=dict(model='nonlinear', grid_px=grid_px, smoothness=smoothness, dark_ratio=dark_ratio,
+                                   dark_model=dark_model, shadow_sigma=shadow_sigma, gauss_newton=gauss_newton,
+                                   iterations=iterations, tolerance=tolerance, lunar_lambert_l=lunar_lambert_l,
+                                   max_correction=max_correction, pixel_m=pixel_m))
 
 
 def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersample=4, window_px=32):

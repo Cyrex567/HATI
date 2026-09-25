@@ -180,6 +180,22 @@ class ShapeFromShadingTests(unittest.TestCase):
         kept = two['corrected'][near]-base['corrected'][near]
         self.assertGreater(float(np.sum(kept*signal)/np.sum(signal*signal)), .8)
 
+    def test_gauss_newton_photometry_and_recovery(self):
+        from src.hati_core.sfs import _sun_vector, lunar_lambert, solve_sfs_nonlinear
+        from src.hati_core.relief_scenes import shading
+        rng = np.random.default_rng(0)
+        p, q = rng.normal(0, .03, 50), rng.normal(0, .03, 50); sun = _sun_vector(40., 3.6); e = 1e-6
+        R, dp, dq = lunar_lambert(p, q, sun); lit = R > 0
+        np.testing.assert_allclose(dp[lit], ((lunar_lambert(p+e, q, sun)[0]-R)/e)[lit], atol=1e-4)
+        np.testing.assert_allclose(dq[lit], ((lunar_lambert(p, q+e, sun)[0]-R)/e)[lit], atol=1e-4)
+        h = np.cumsum(np.cumsum(rng.normal(0, .002, (40, 40)), 0), 1); gr, gc = np.gradient(h, .9)
+        np.testing.assert_allclose(lunar_lambert(gr, gc, sun)[0], shading(h, .9, 40., 3.6), atol=1e-12)
+        out = render_relief((72, 72), AZ, EL, pixel_m=.9, seed=5, noise=.01,
+                            features=[relief_feature('ripples', 5., 2.5, seed=2), relief_feature('mound', 10., 3.)])
+        solved = solve_sfs_nonlinear(out['stack'], np.ones_like(out['stack'], bool), AZ, EL, .9, grid_px=1, smoothness=1.)
+        self.assertGreater(solved['explained_fraction'], .9)
+        self.assertTrue(all(g['relative_change'] >= 0 for g in solved['gauss_newton'] if 'relative_change' in g))
+
     def test_residual_follows_the_sun_for_relief_but_not_for_noise(self):
         out = render_relief((96, 96), AZ, EL, pixel_m=.9, seed=5, noise=.01,
                             features=[relief_feature('ripples', 6., 2., seed=4)], texture=0., stain=0., frame_plane=0.)
