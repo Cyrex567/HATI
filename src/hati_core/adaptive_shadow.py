@@ -127,8 +127,13 @@ def _refined_axis(knots, values, step):
 
 
 def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
-              slopes=(0., 0.), *, selected_frames=None, display=False):
-    """Profile every original root, using bounded memory and exact pixel crops."""
+              slopes=(0., 0.), *, selected_frames=None, display=False, terrain=None):
+    """Profile every original root, using bounded memory and exact pixel crops.
+
+    terrain, if given, is the relative receiving surface in metres on the patch
+    grid widened by rc.cell_px on every side; shadows are cast onto it instead of
+    onto the plane given by slopes.
+    """
     patch = np.asarray(patch, float); azimuths = np.asarray(azimuths); elevations = np.asarray(elevations)
     if patch.ndim != 3 or patch.shape[1:] != (2*sc.radius_px+1,)*2 or np.shape(visibility) != patch.shape:
         raise ValueError('patch and visibility must match the declared extraction radius')
@@ -156,6 +161,9 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
     residual = p.apply(data)
     offsets = np.arange(rc.cell_px)-(rc.cell_px-1)/2
     pad = rc.cell_px; base = float(offsets[0]); shape = common.shape
+    if terrain is not None and np.shape(terrain) != (shape[0]+2*pad, shape[1]+2*pad):
+        raise ValueError('terrain must cover the patch widened by the cell size on every side')
+    inner = None if terrain is None else np.asarray(terrain, float)[pad:-pad, pad:-pad]
     evaluated = {}
     def evaluate(heights, widths):
         for ht in heights:
@@ -164,7 +172,8 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
                     continue
                 try:
                     canvas = shadow_template((shape[0]+2*pad, shape[1]+2*pad),
-                        (radius+pad+base,)*2, azimuths[selected], elevations[selected], ht, width, sc, slopes)[0]
+                        (radius+pad+base,)*2, azimuths[selected], elevations[selected], ht, width, sc, slopes,
+                        terrain=terrain)[0]
                 except ValueError:
                     return False
                 best = None
@@ -205,16 +214,18 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
     boundary = any(np.isclose(v['height_m'], (cfg.heights_m[0], cfg.heights_m[-1])).any() or
                    np.isclose(v['width_m'], (cfg.widths_m[0], cfg.widths_m[-1])).any() for v in compatible)
     endpoints = endpoint_support(shape, np.array([radius, radius])+best['root_offset'],
-        azimuths[selected], elevations[selected], best['height_m'], sc, slopes, valid=valid[selected], common=common)
+        azimuths[selected], elevations[selected], best['height_m'], sc, slopes, valid=valid[selected], common=common,
+        terrain=inner)
     compatible_context = True
     for candidate in compatible:
         checks = endpoint_support(shape, np.array([radius, radius])+candidate['root_offset'],
-            azimuths[selected], elevations[selected], candidate['height_m'], sc, slopes, valid=valid[selected], common=common)
+            azimuths[selected], elevations[selected], candidate['height_m'], sc, slopes, valid=valid[selected], common=common,
+            terrain=inner)
         compatible_context &= all(v['endpoint_supported'] and v['background_supported'] for v in checks)
     for item, frame in zip(endpoints, selected):
         item['frame'] = int(frame)
     template = shadow_template(shape, np.array([radius, radius])+best['root_offset'], azimuths[selected],
-                               elevations[selected], best['height_m'], best['width_m'], sc, slopes)[0]
+                               elevations[selected], best['height_m'], best['width_m'], sc, slopes, terrain=inner)[0]
     rt = p.apply(template); after = residual+best['contrast']*rt
     best['frame_delta_chi2'] = np.sum(residual**2-after**2, axis=1).tolist()
     result = dict(status='assessed', best=best, frames=selected.tolist(), common_fraction=fraction,
@@ -226,6 +237,7 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
                   surface=[[v['height_m'], v['width_m'], v['score']] for v in fitted],
                   compatible_pairs=[[v['height_m'], v['width_m']] for v in compatible],
                   hypotheses_evaluated=len(evaluated)*rc.cell_px**2, spatial_degree=cfg.spatial_degree,
+                  receiving_surface='terrain' if terrain is not None else 'plane',
                   null_energy=float(np.sum(residual**2)), fitted_energy=float(np.sum(after**2)),
                   uncertainty='Descriptive grid compatibility, no calibrated confidence level; height/width are equivalent rectangular-shadow parameters.')
     if display:
@@ -234,9 +246,34 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
     return result
 
 
+def _receiving_surface(window, slopes, pixel_m, centre, support_px, max_missing=.25):
+    """DEM tilt at the cell centre plus metre-scale relief from a surface model.
+
+    The surface model's own plane is removed inside the window: shape from
+    shading does not observe planes shared by every frame, the DEM does. Holes
+    in the model (pixels shadowed in some frame) carry no relief beyond the
+    plane; None when more than max_missing of the fitting support is a hole.
+    """
+    window = np.asarray(window, float)
+    yy, xx = (np.indices(window.shape)-centre)*pixel_m
+    finite = np.isfinite(window)
+    if finite.sum() < 12 or 1-finite[np.hypot(yy, xx) <= support_px*pixel_m].mean() > max_missing:
+        return None
+    design = np.column_stack([np.ones(finite.sum()), yy[finite], xx[finite]])
+    plane = np.linalg.lstsq(design, window[finite], rcond=None)[0]
+    relief = np.where(finite, window-(plane[0]+plane[1]*yy+plane[2]*xx), 0.)
+    return relief+slopes[0]*yy+slopes[1]*xx
+
+
 def refine_cell(stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, centre,
-                slope_row, slope_col, *, observer=None):
-    """Expand real context; freeze initial eligible frames throughout this cell."""
+                slope_row, slope_col, *, observer=None, terrain=None):
+    """Expand real context; freeze initial eligible frames throughout this cell.
+
+    terrain, an optional full-image surface model (relative heights in metres),
+    replaces the planar receiving surface: shadows are cast onto the DEM tilt plus
+    the model's metre-scale relief, and the plane-departure gate no longer applies
+    because the departure is modelled rather than assumed away.
+    """
     r, c = map(int, centre); h, w = stack.shape[1:]
     history = []; frozen = None; previous = None; state = 'unresolved_scale_limit'
     for scale in cfg.scale_factors:
@@ -256,10 +293,22 @@ def refine_cell(stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, cen
         departure = float(np.max(np.hypot(sr[support]-slopes[0], scol[support]-slopes[1]))*
                           current.root_support_px*sc.pixel_m)
         entry['plane_departure_proxy_m'] = departure
-        if departure > cfg.max_plane_departure_m:
-            entry.update(status='terrain_plane_limit'); history.append(entry); state='unresolved_terrain'; break
+        surface = None
+        if terrain is None:
+            if departure > cfg.max_plane_departure_m:
+                entry.update(status='terrain_plane_limit'); history.append(entry); state='unresolved_terrain'; break
+        else:
+            pad = rc.cell_px
+            if r-radius-pad < 0 or c-radius-pad < 0 or r+radius+pad >= h or c+radius+pad >= w:
+                entry.update(status='image_edge'); history.append(entry); state='unresolved_image_edge'; break
+            surface = _receiving_surface(np.asarray(terrain)[r-radius-pad:r+radius+pad+1, c-radius-pad:c+radius+pad+1],
+                                         slopes, sc.pixel_m, radius+pad, current.root_support_px)
+            if surface is None:
+                entry.update(status='missing_terrain'); history.append(entry); state='unresolved_terrain'; break
+            entry['receiving_surface'] = 'terrain'
         fit = fit_patch(stack[(slice(None), *sl)], visibility[(slice(None), *sl)], azimuths, elevations,
-                        sigma, current, rc, cfg, slopes, selected_frames=frozen, display=observer is not None)
+                        sigma, current, rc, cfg, slopes, selected_frames=frozen, display=observer is not None,
+                        terrain=surface)
         sample = fit.pop('_display', None)
         entry.update(fit); history.append(entry)
         if observer is not None:
@@ -289,10 +338,10 @@ def _init_worker(inputs):
 
 
 def _worker_cell(q):
-    stack, visibility, az, el, sigma, sc, rc, cfg, sr, scol, display = _WORKER_INPUTS
+    stack, visibility, az, el, sigma, sc, rc, cfg, sr, scol, display, terrain = _WORKER_INPUTS
     events = []
     result = refine_cell(stack, visibility, az, el, sigma, sc, rc, cfg, q['centre'], sr, scol,
-                         observer=events.append if display else None)
+                         observer=events.append if display else None, terrain=terrain)
     return result, events
 
 
@@ -305,7 +354,7 @@ def _ordered_cells(queue, inputs, observer, load_record):
             if cached is not None:
                 yield q, cached
             else:
-                result = refine_cell(*inputs[:8], q['centre'], *inputs[8:10], observer=observer)
+                result = refine_cell(*inputs[:8], q['centre'], *inputs[8:10], observer=observer, terrain=inputs[11])
                 yield q, result
         return
     with ProcessPoolExecutor(max_workers=cfg.workers, mp_context=multiprocessing.get_context('spawn'),
@@ -336,10 +385,15 @@ def _ordered_cells(queue, inputs, observer, load_record):
 
 
 def refine_regions(stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, baseline,
-                   slope_row, slope_col, *, on_record=None, observer=None, progress=None, load_record=None):
-    """Run the queue without an implicit top-score cap; stream cell histories."""
+                   slope_row, slope_col, *, on_record=None, observer=None, progress=None, load_record=None, terrain=None):
+    """Run the queue without an implicit top-score cap; stream cell histories.
+
+    terrain: optional full-image surface model passed to every refine_cell.
+    """
     if np.shape(stack) != np.shape(visibility) or np.shape(stack)[1:] != baseline['status'].shape:
         raise ValueError('adaptive inputs must share the original image grid')
+    if terrain is not None and np.shape(terrain) != np.shape(stack)[1:]:
+        raise ValueError('terrain must share the original image grid')
     plan = plan_regions(baseline, sc, rc, cfg); shape = stack.shape[1:]
     keys = ('score', 'height_m', 'width_m', 'height_low_m', 'height_high_m', 'width_low_m', 'width_high_m',
             'pass_scale', 'endpoint_censored_count', 'endpoint_missing_count')
@@ -347,7 +401,7 @@ def refine_regions(stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, 
     status_map = np.zeros(shape, np.uint8); status_map[plan['requested']] = 1
     counts = {}; processed = 0
     queue = plan['queue'][:cfg.max_cells] if cfg.max_cells else plan['queue']
-    inputs = (stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, slope_row, slope_col, observer is not None)
+    inputs = (stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, slope_row, slope_col, observer is not None, terrain)
     for q, result in _ordered_cells(queue, inputs, observer, load_record):
         record = {**q, **{k: v for k, v in result.items() if k != 'centre'}}
         if on_record:

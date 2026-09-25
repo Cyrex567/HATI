@@ -138,8 +138,23 @@ class RegistrationProjector(NuisanceProjector):
         return a-((a@self.modes)*self.attenuation)@self.modes.T
 
 
+def _terrain_length(terrain, root, direction, tan_e, height_m, pixel_m):
+    """Shadow length (m) along one down-Sun line over a relative terrain grid.
+
+    The shadow ends where the terrain rises above the line from the caster top.
+    Beyond the grid the terrain continues flat at its edge value.
+    """
+    reach = height_m/tan_e+np.hypot(*terrain.shape)*pixel_m
+    a = np.arange(0., reach, pixel_m/4)
+    pts = np.asarray(root, float)[:, None]+a[None, :]/pixel_m*np.asarray(direction, float)[:, None]
+    base = ndi.map_coordinates(terrain, np.asarray(root, float)[:, None], order=1, mode='nearest')[0]
+    dh = ndi.map_coordinates(terrain, pts, order=1, mode='nearest')-base
+    beyond = np.flatnonzero(a*tan_e+dh > height_m)
+    return float(a[beyond[0]]) if len(beyond) else float(reach)
+
+
 def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
-                    cfg, slope_rc=(0.0, 0.0)):
+                    cfg, slope_rc=(0.0, 0.0), terrain=None):
     """Pixel-integrated rectangular shadow on a local receiving plane.
 
     Azimuth: clockwise from map up. Image rows increase down. slope_rc is
@@ -148,6 +163,11 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
     a Gaussian approximates optical blur and supplied registration uncertainty.
     Returns coverage and whether any shadow endpoint falls outside the patch.
     Censored templates support a root ranking, not a measured object height.
+
+    terrain, if given, replaces the plane: relative heights in metres on the
+    template grid, and the shadow covers ground below the line from the caster
+    top (slope_rc is then unused). Ground that dips and rises again behind a
+    terrain bump is still counted, a first-order approximation for gentle relief.
     """
     az = np.radians(np.asarray(azimuths, float))
     el = np.asarray(elevations, float)
@@ -167,6 +187,14 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
     offsets = np.linspace(-0.8, 0.8, 5)
     weights = np.sqrt(1 - offsets**2)
     weights /= weights.sum()
+    if terrain is not None:
+        terrain = np.asarray(terrain, float)
+        if terrain.shape != tuple(shape) or not np.isfinite(terrain).all():
+            raise ValueError("terrain must be finite and match the template grid")
+        gy = (np.arange(padded[0] * ss) + 0.5) / ss - 0.5 - pad
+        gx = (np.arange(padded[1] * ss) + 0.5) / ss - 0.5 - pad
+        relief = ndi.map_coordinates(terrain, np.meshgrid(gy, gx, indexing="ij"), order=1, mode="nearest")
+        relief -= ndi.map_coordinates(terrain, np.asarray(root, float)[:, None], order=1, mode="nearest")[0]
     result, censored = [], False
     for a, e in zip(az, el):
         dr, dc = np.cos(a), -np.sin(a)  # down-Sun
@@ -174,14 +202,20 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
         beta = slope_rc[0] * dr + slope_rc[1] * dc
         cover = np.zeros((len(rr), len(cc)), float)
         for off, weight in zip(offsets, weights):
-            denom = np.tan(np.radians(e + off * cfg.solar_radius_deg)) + beta
-            if denom <= 0:
-                raise ValueError("receiving plane has no finite shadow intersection")
-            length = height_m / denom
+            if terrain is None:
+                denom = np.tan(np.radians(e + off * cfg.solar_radius_deg)) + beta
+                if denom <= 0:
+                    raise ValueError("receiving plane has no finite shadow intersection")
+                length = height_m / denom
+                shadow = (along >= 0) & (along <= length)
+            else:
+                tan_e = np.tan(np.radians(e + off * cfg.solar_radius_deg))
+                length = _terrain_length(terrain, root, (dr, dc), tan_e, height_m, cfg.pixel_m)
+                shadow = (along >= 0) & (along * tan_e + relief <= height_m)
             er, ec = root[0] + dr * length / cfg.pixel_m, root[1] + dc * length / cfg.pixel_m
             censored |= not (1 <= er < shape[0] - 2 and 1 <= ec < shape[1] - 2)
             censored |= np.hypot(er-(shape[0]-1)/2,ec-(shape[1]-1)/2) > cfg.root_support_px - 0.75
-            cover += weight * ((along >= 0) & (along <= length) & (abs(across) <= width_m / 2))
+            cover += weight * (shadow & (abs(across) <= width_m / 2))
         # Render beyond the patch so a censored shadow does not acquire a false
         # blurred endpoint at the crop boundary.
         if sigma > 0:
@@ -208,11 +242,12 @@ def fit_template(projector, residual, template, cfg):
 
 
 def endpoint_support(shape, root, azimuths, elevations, height_m, cfg,
-                     slope_rc=(0., 0.), *, valid=None, common=None, beyond_px=2.):
+                     slope_rc=(0., 0.), *, valid=None, common=None, beyond_px=2., terrain=None):
     """Per-frame *predicted* endpoint support, never an observed edge claim.
 
     Check both extreme solar strips and background beyond the longest shadow.
     Coordinates use the original patch grid, with no clipping or extrapolation.
+    With terrain, the endpoints follow the relative terrain as in shadow_template.
     """
     if valid is None:
         valid = np.ones((len(azimuths), *shape), bool)
@@ -222,13 +257,19 @@ def endpoint_support(shape, root, azimuths, elevations, height_m, cfg,
     rows = []
     for i, (az, el) in enumerate(zip(azimuths, elevations)):
         direction = np.array([np.cos(np.radians(az)), -np.sin(np.radians(az))])
-        beta = np.dot(slope_rc, direction)
-        denom = np.tan(np.radians(el + np.array([-.8, .8])*cfg.solar_radius_deg))+beta
-        if not np.isfinite(denom).all() or np.any(denom <= 0):
-            rows.append(dict(frame=i, reason='invalid_geometry', censored=True,
-                             endpoint_supported=False, background_supported=False))
-            continue
-        ends = np.asarray(root)+height_m/denom[:, None]/cfg.pixel_m*direction
+        if terrain is not None:
+            tans = np.tan(np.radians(el + np.array([-.8, .8])*cfg.solar_radius_deg))
+            lengths = np.array([_terrain_length(np.asarray(terrain, float), root, direction, t, height_m, cfg.pixel_m)
+                                for t in tans])
+            ends = np.asarray(root)+lengths[:, None]/cfg.pixel_m*direction
+        else:
+            beta = np.dot(slope_rc, direction)
+            denom = np.tan(np.radians(el + np.array([-.8, .8])*cfg.solar_radius_deg))+beta
+            if not np.isfinite(denom).all() or np.any(denom <= 0):
+                rows.append(dict(frame=i, reason='invalid_geometry', censored=True,
+                                 endpoint_supported=False, background_supported=False))
+                continue
+            ends = np.asarray(root)+height_m/denom[:, None]/cfg.pixel_m*direction
         beyond = ends[0]+beyond_px*direction
         def check(pos):
             r, c = np.rint(pos).astype(int)

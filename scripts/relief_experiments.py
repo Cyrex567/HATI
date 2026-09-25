@@ -350,10 +350,12 @@ def _t13_rule(ex):
     return (d['margins'], d['competition_sigma'], tuple(d.get('relief_scales_m', [.9, 1.8, 3.6]))) if d.get('margins') else None
 
 
-def _size_casters(ex, stack, cells, sigma):
+def _size_casters(ex, stack, cells, sigma, terrain=None):
     """Adaptive height and width refinement (T9's machinery) at the given cells of a stack.
 
-    Returns one record per cell. A shadow that runs past the fitting window only
+    terrain, the shape-from-shading surface, replaces the planar receiving surface
+    so larger windows need not be refused for relief. Returns one record per
+    cell. A shadow that runs past the fitting window only
     bounds the height from below. Where the widest warning fit is censored, the
     bound is geometric: the height whose shadow at the lowest Sun elevation just
     reaches the window edge. Otherwise it is the lower end of the compatible
@@ -373,7 +375,8 @@ def _size_casters(ex, stack, cells, sigma):
                     endpoint_censored=np.zeros(shape), endpoint_missing_count=np.zeros(shape))
     records = []
     refine_regions(stack, ex.data['visibility'], ex.data['azimuths'], ex.data['elevations'], sigma, ex.sc, ex.rc,
-                   replace(cfg, max_cells=0), baseline, ex.data['slope_row'], ex.data['slope_col'], on_record=records.append)
+                   replace(cfg, max_cells=0), baseline, ex.data['slope_row'], ex.data['slope_col'], on_record=records.append,
+                   terrain=terrain)
     clearance = ex.cfg.get('sfs_clearance_m', .3)
     out = []
     for record in records:
@@ -558,7 +561,8 @@ def t14(ex):
         table = cell_table(d['stack'].shape[1:], ex.sc, ex.rc)
         site_cells = [_cell_containing(table, int(r), int(c)) for r, c, _ in placed]
         by_cell = {(s['row_px'], s['col_px']): s for s in
-                   _size_casters(ex, solved_injected['corrected'], [row for row in site_cells if row is not None], sigma_after)}
+                   _size_casters(ex, solved_injected['corrected'], [row for row in site_cells if row is not None], sigma_after,
+                                 terrain=solved_injected['height_m'])}
         for row, cell in zip(injection, site_cells):
             size = by_cell.get((int(cell[4]), int(cell[5]))) if cell is not None else None
             row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
@@ -602,7 +606,7 @@ def t14(ex):
             _progress(ex, 'T14 relief check on caster candidates', i+1, len(examined), started, last)
     # Relief-like cells go to the terrain module; 'none' means no model predicts the withheld frames.
     keep = [row for row in examined if not rule or labels.get((int(row[4]), int(row[5]))) in ('rock_like', 'ambiguous')]
-    casters = _size_casters(ex, solved['corrected'], keep, sigma_after) if keep else []
+    casters = _size_casters(ex, solved['corrected'], keep, sigma_after, terrain=solved['height_m']) if keep else []
     for row in casters:
         row['relief_check'] = labels.get((row['row_px'], row['col_px']))
         row['distance_to_touchdown_m'] = float(np.hypot(row['row_px']-touchdown[0], row['col_px']-touchdown[1])*ex.sc.pixel_m)

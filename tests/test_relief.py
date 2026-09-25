@@ -79,6 +79,27 @@ class GeneratorTests(unittest.TestCase):
         self.assertLess(factor[0, 32, 20:32].min(), .8)
 
 
+class TerrainTemplateTests(unittest.TestCase):
+    sc = ShadowConfig(radius_px=12, root_support_px=6, supersample=4)
+
+    def test_a_tilted_plane_as_terrain_reproduces_the_planar_template(self):
+        from src.hati_core.shadow_likelihood import shadow_template
+        rows, cols = np.indices((25, 25), dtype=float); root = (12.3, 12.2); slope = (.01, -.02)
+        plane = (slope[0]*(rows-root[0])+slope[1]*(cols-root[1]))*.9
+        planar = shadow_template((25, 25), root, [90.], [3.5], .3, .6, self.sc, slope)[0]
+        terrain = shadow_template((25, 25), root, [90.], [3.5], .3, .6, self.sc, terrain=plane)[0]
+        np.testing.assert_allclose(planar, terrain, atol=.01)
+
+    def test_rising_ground_shortens_the_shadow_and_a_dip_lengthens_it(self):
+        from src.hati_core.shadow_likelihood import shadow_template
+        cols = np.indices((25, 25), dtype=float)[1]
+        def coverage(terrain):
+            return shadow_template((25, 25), (12.3, 12.2), [90.], [3.5], .3, .6, self.sc, terrain=terrain)[0].sum()
+        flat = coverage(np.zeros((25, 25)))
+        self.assertLess(coverage(np.where(cols < 10, .12, 0.)), .8*flat)
+        self.assertGreater(coverage(np.where(cols < 10, -.12, 0.)), 1.2*flat)
+
+
 class CompetitionTests(unittest.TestCase):
     sc = ShadowConfig(radius_px=12, root_support_px=6, supersample=4)
     rc = RegionalConfig()
