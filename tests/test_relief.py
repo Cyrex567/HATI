@@ -160,6 +160,26 @@ class ShapeFromShadingTests(unittest.TestCase):
         window = np.s_[6, 36:46, 60:73]
         self.assertAlmostEqual(out['stack'][window].min(), solved['corrected'][window].min(), delta=.05)
 
+    def test_a_second_pass_leaves_cast_shadows_out_and_keeps_the_rock(self):
+        # Same seed with and without the rock: identical noise and relief, so the
+        # difference of the corrected stacks is the rock signal the correction kept.
+        features = [relief_feature('ripples', 6., 1.5, seed=2)]
+        rock = make_rock(9, (40.3, 72.2), .6, .6, aspect=1.35)
+        scene = dict(pixel_m=.9, seed=5, noise=.01, features=features)
+        with_rock = render_relief((96, 96), AZ, EL, rocks=[rock], **scene)['stack']
+        without = render_relief((96, 96), AZ, EL, **scene)['stack']
+        ones = np.ones_like(with_rock, bool)
+        one = solve_sfs(with_rock, ones, AZ, EL, .9, grid_px=1, smoothness=1.)
+        two = solve_sfs(with_rock, ones, AZ, EL, .9, grid_px=1, smoothness=1., passes=2)
+        base = solve_sfs(without, ones, AZ, EL, .9, grid_px=1, smoothness=1., passes=2)
+        self.assertEqual(one['shadow_excluded_fraction'], 0.)
+        self.assertGreater(two['shadow_excluded_fraction'], 0.)
+        self.assertLess(two['shadow_excluded_fraction'], .05)
+        near = np.s_[:, 28:54, 50:80]
+        signal = with_rock[near]-without[near]
+        kept = two['corrected'][near]-base['corrected'][near]
+        self.assertGreater(float(np.sum(kept*signal)/np.sum(signal*signal)), .8)
+
     def test_residual_follows_the_sun_for_relief_but_not_for_noise(self):
         out = render_relief((96, 96), AZ, EL, pixel_m=.9, seed=5, noise=.01,
                             features=[relief_feature('ripples', 6., 2., seed=4)], texture=0., stain=0., frame_plane=0.)

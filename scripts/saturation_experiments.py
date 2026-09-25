@@ -115,7 +115,7 @@ def validate_config(cfg):
         raise ValueError('control_generator must be control or relief')
     for key, low in (('relief_seeds', 1), ('relief_calibration_seeds', 2), ('relief_blank_scenes', 4), ('relief_supersample', 1), ('relief_scene_px', 16),
                      ('relief_athena_cells', 0), ('relief_touchdown_radius_px', 0), ('sfs_grid_px', 1), ('sfs_iterations', 1),
-                     ('sfs_injection_sites', 0), ('sfs_injection_spacing_px', 20), ('sfs_sizing_cells', 0)):
+                     ('sfs_injection_sites', 0), ('sfs_injection_spacing_px', 20), ('sfs_sizing_cells', 0), ('sfs_passes', 1)):
         if key in cfg and (type(cfg[key]) is not int or cfg[key] < low):
             raise ValueError(f'{key} must be an integer of at least {low}')
     for key in ('relief_target_rock_called_relief', 'relief_target_relief_called_rock', 'relief_target_blank_called_signal',
@@ -128,6 +128,8 @@ def validate_config(cfg):
         raise ValueError('relief_background_wavelength_m must be positive')
     if 'sfs_clearance_m' in cfg and not cfg['sfs_clearance_m'] > 0:
         raise ValueError('sfs_clearance_m must be positive')
+    if 'sfs_shadow_sigma' in cfg and not cfg['sfs_shadow_sigma'] > 0:
+        raise ValueError('sfs_shadow_sigma must be positive')
     if 'sfs_smoothness' in cfg and not cfg['sfs_smoothness'] >= 0:
         raise ValueError('sfs_smoothness must be nonnegative')
     if 'sfs_dark_ratio' in cfg and not 0 <= cfg['sfs_dark_ratio'] < 1:

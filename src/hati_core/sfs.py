@@ -54,17 +54,21 @@ def _smoothness(shape):
 
 
 def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothness=1.,
-              dark_ratio=.5, iterations=600, tolerance=1e-8):
+              dark_ratio=.5, iterations=600, tolerance=1e-8, passes=1, shadow_sigma=3.):
     """Fit a relative height field; return it with its predicted shading and a corrected stack.
 
     corrected = stack - Ybar * predicted relief ratio, on pixels valid in every
     frame; elsewhere the stack is unchanged. The static part of the shading is
     not removed: it cannot be told from albedo and the detector's null absorbs it.
+    With passes > 1, samples more than shadow_sigma robust scales darker than
+    the previous fit are treated as cast shadows and left out of the next one.
     """
     stack = np.asarray(stack, float)
     n, H, W = stack.shape
     if n < 3 or type(grid_px) is not int or grid_px < 1 or smoothness < 0 or not 0 <= dark_ratio < 1:
         raise ValueError('need three frames, an integer grid and nonnegative smoothness')
+    if type(passes) is not int or passes < 1 or not shadow_sigma > 0:
+        raise ValueError('passes must be a positive integer and shadow_sigma positive')
     usable = np.asarray(valid, bool) & np.isfinite(stack)
     common = usable.all(axis=0)
     if common.sum() < 100:
@@ -82,31 +86,47 @@ def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothn
     grad_c = (sparse.kron(sparse.identity(H), _derivative(W, pixel_m))@interp).tocsr()
     rr, cc = np.indices((H, W), dtype=float)
     rr = ((rr-H/2)/H).ravel(); cc = ((cc-W/2)/W).ravel()
-    blocks, targets, kept = [], [], []
-    for k in range(n):
-        keep = common & (stack[k] >= dark_ratio*mean)
-        idx = np.flatnonzero(keep.ravel())
-        slope_part = -(w[k, 0]*grad_r[idx]+w[k, 1]*grad_c[idx])
-        plane = sparse.csr_matrix((np.column_stack([np.ones(len(idx)), rr[idx], cc[idx]]).ravel(),
-                                   (np.repeat(np.arange(len(idx)), 3), np.tile(np.arange(3*k, 3*k+3), len(idx)))),
-                                  shape=(len(idx), 3*n))
-        blocks.append(sparse.hstack([slope_part, plane]))
-        targets.append(ratio[k].ravel()[idx]); kept.append(keep)
-    data = sparse.vstack(blocks).tocsr(); b = np.concatenate(targets)
     unknowns = interp.shape[1]
     penalty = _smoothness(coarse)
-    anchor = sparse.hstack([1e-6*sparse.identity(unknowns), sparse.csr_matrix((unknowns, 3*n))])
-    system = sparse.vstack([data, sparse.hstack([np.sqrt(smoothness)*penalty, sparse.csr_matrix((penalty.shape[0], 3*n))]),
-                            anchor]).tocsr()
-    rhs = np.concatenate([b, np.zeros(penalty.shape[0]+unknowns)])
-    solution = lsqr(system, rhs, atol=tolerance, btol=tolerance, iter_lim=iterations)
-    heights, planes = solution[0][:unknowns], solution[0][unknowns:].reshape(n, 3)
+    regulariser = sparse.vstack([sparse.hstack([np.sqrt(smoothness)*penalty, sparse.csr_matrix((penalty.shape[0], 3*n))]),
+                                 sparse.hstack([1e-6*sparse.identity(unknowns), sparse.csr_matrix((unknowns, 3*n))])])
+
+    def solve(kept, start):
+        blocks, targets = [], []
+        for k in range(n):
+            idx = np.flatnonzero(kept[k].ravel())
+            slope_part = -(w[k, 0]*grad_r[idx]+w[k, 1]*grad_c[idx])
+            plane = sparse.csr_matrix((np.column_stack([np.ones(len(idx)), rr[idx], cc[idx]]).ravel(),
+                                       (np.repeat(np.arange(len(idx)), 3), np.tile(np.arange(3*k, 3*k+3), len(idx)))),
+                                      shape=(len(idx), 3*n))
+            blocks.append(sparse.hstack([slope_part, plane]))
+            targets.append(ratio[k].ravel()[idx])
+        system = sparse.vstack([sparse.vstack(blocks), regulariser]).tocsr()
+        rhs = np.concatenate([*targets, np.zeros(regulariser.shape[0])])
+        return lsqr(system, rhs, atol=tolerance, btol=tolerance, iter_lim=iterations, x0=start)
+
+    def evaluate(solution):
+        heights, planes = solution[0][:unknowns], solution[0][unknowns:].reshape(n, 3)
+        gr, gc = (grad_r@heights).reshape(H, W), (grad_c@heights).reshape(H, W)
+        predicted = -(w[:, 0, None, None]*gr[None]+w[:, 1, None, None]*gc[None])
+        plane_part = (planes[:, 0, None, None]+planes[:, 1, None, None]*rr.reshape(H, W)[None]
+                      + planes[:, 2, None, None]*cc.reshape(H, W)[None])
+        return heights, planes, gr, gc, predicted, ratio-plane_part
+
+    kept = np.asarray([common & (stack[k] >= dark_ratio*mean) for k in range(n)])
+    dark_kept = kept.copy()
+    solution = solve(kept, None)
+    for _ in range(passes-1):
+        # Samples far darker than the fitted shading are cast shadows, rock shadows
+        # included: leave them out and refit, so the surface does not bend to them.
+        *_, predicted, before = evaluate(solution)
+        left = (before-predicted)[kept]
+        scale = 1.4826*float(np.median(np.abs(left-np.median(left))))
+        kept = dark_kept & ((before-predicted) >= -shadow_sigma*scale)
+        solution = solve(kept, solution[0])
+    heights, planes, gr, gc, predicted, before = evaluate(solution)
     h = (interp@heights).reshape(H, W)
-    gr, gc = (grad_r@heights).reshape(H, W), (grad_c@heights).reshape(H, W)
-    predicted = -(w[:, 0, None, None]*gr[None]+w[:, 1, None, None]*gc[None])
-    plane_part = planes[:, 0, None, None]+planes[:, 1, None, None]*rr.reshape(H, W)[None]+planes[:, 2, None, None]*cc.reshape(H, W)[None]
-    used = np.asarray(kept)
-    before = ratio-plane_part
+    used = kept
     after = before-predicted
     explained = 1-float(np.sum(after[used]**2)/max(np.sum(before[used]**2), 1e-30))
     corrected = np.where(common[None], stack-np.where(common, mean, 0.)[None]*predicted, stack)
@@ -117,9 +137,10 @@ def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothn
                 ratio_rms_before=float(np.sqrt(np.mean(before[used]**2))),
                 ratio_rms_after=float(np.sqrt(np.mean(after[used]**2))),
                 used_fraction_per_frame=[float(u[common].mean()) for u in used],
+                shadow_excluded_fraction=float(1-used[dark_kept].mean()),
                 lsqr_stop=int(solution[1]), lsqr_iterations=int(solution[2]),
-                configuration=dict(grid_px=grid_px, smoothness=smoothness, dark_ratio=dark_ratio,
-                                   iterations=iterations, tolerance=tolerance, pixel_m=pixel_m))
+                configuration=dict(grid_px=grid_px, smoothness=smoothness, dark_ratio=dark_ratio, passes=passes,
+                                   shadow_sigma=shadow_sigma, iterations=iterations, tolerance=tolerance, pixel_m=pixel_m))
 
 
 def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersample=4, window_px=32):

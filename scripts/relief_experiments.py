@@ -477,7 +477,8 @@ def t14(ex):
     cfg, d = ex.cfg, ex.data
     valid = (np.nan_to_num(np.asarray(d['visibility'], float), nan=0.) >= .99) & np.isfinite(d['stack'])
     options = dict(grid_px=cfg.get('sfs_grid_px', 2), smoothness=cfg.get('sfs_smoothness', 3.),
-                   dark_ratio=cfg.get('sfs_dark_ratio', .5), iterations=cfg.get('sfs_iterations', 1500))
+                   dark_ratio=cfg.get('sfs_dark_ratio', .5), iterations=cfg.get('sfs_iterations', 1500),
+                   passes=cfg.get('sfs_passes', 1), shadow_sigma=cfg.get('sfs_shadow_sigma', 3.))
     ex.live.update(force=True, kind='stage', message='T14: solving shape from shading')
     started = time.monotonic()
     solved = solve_sfs(d['stack'], valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options)
