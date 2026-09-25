@@ -354,10 +354,12 @@ def _size_casters(ex, stack, cells, sigma):
     """Adaptive height and width refinement (T9's machinery) at the given cells of a stack.
 
     Returns one record per cell. A shadow that runs past the fitting window only
-    bounds the height from below, so every record carries the lower end of the
-    compatible height range at the widest scale where the fit still warned; a
-    height estimate is reported only when the context expansion reached stable,
-    endpoint-supported dimensions.
+    bounds the height from below. Where the widest warning fit is censored, the
+    bound is geometric: the height whose shadow at the lowest Sun elevation just
+    reaches the window edge. Otherwise it is the lower end of the compatible
+    height range, which injected rocks show can overshoot. A height estimate is
+    reported only when the context expansion reached stable, endpoint-supported
+    dimensions.
     """
     from dataclasses import replace
     from src.hati_core.adaptive_shadow import AdaptiveConfig, refine_regions
@@ -380,10 +382,13 @@ def _size_casters(ex, stack, cells, sigma):
                    scales_warning=[h['scale'] for h in warned], height_lower_bound_m=None, height_m=None)
         if warned:
             last = warned[-1]
-            row.update(score=float(last['best']['score']), width_m=float(last['best']['width_m']),
-                       height_lower_bound_m=float(last['height_range_m'][0]), height_upper_m=float(last['height_range_m'][1]),
-                       censored=bool(last['endpoint_censored']),
-                       exceeds_clearance=bool(last['height_range_m'][0] >= clearance))
+            censored = bool(last['endpoint_censored'])
+            reach_m = (last['support_px']-float(np.hypot(*last['best']['root_offset'])))*ex.sc.pixel_m
+            geometric = reach_m*float(np.tan(np.radians(np.min(np.asarray(ex.data['elevations'])[last['frames']]))))
+            bound = geometric if censored else float(last['height_range_m'][0])
+            row.update(score=float(last['best']['score']), width_m=float(last['best']['width_m']), censored=censored,
+                       height_lower_bound_m=bound, compatible_range_m=[float(v) for v in last['height_range_m']],
+                       exceeds_clearance=bool(bound >= clearance))
             final = record.get('final')
             if record['status'] == 'context_supported_unvalidated' and final:
                 row.update(height_m=float(final['best']['height_m']), height_range_m=[float(v) for v in final['height_range_m']])
@@ -595,7 +600,8 @@ def t14(ex):
                 labels[(int(cr), int(cc))] = classify(compare_models(solved['corrected'][sl], valid[sl], d['azimuths'], d['elevations'],
                                                                      sigma13, ex.sc, ex.rc, scales, slopes_rc), margins)
             _progress(ex, 'T14 relief check on caster candidates', i+1, len(examined), started, last)
-    keep = [row for row in examined if labels.get((int(row[4]), int(row[5]))) != 'relief_like']
+    # Relief-like cells go to the terrain module; 'none' means no model predicts the withheld frames.
+    keep = [row for row in examined if not rule or labels.get((int(row[4]), int(row[5]))) in ('rock_like', 'ambiguous')]
     casters = _size_casters(ex, solved['corrected'], keep, sigma_after) if keep else []
     for row in casters:
         row['relief_check'] = labels.get((row['row_px'], row['col_px']))
