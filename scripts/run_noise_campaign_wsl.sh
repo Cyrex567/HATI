@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Relief and noise campaign (T1 -> T12 -> T13 -> T14 -> T16) with HATI Watch open in
-# the browser. Uses cached arrays only; never invokes ISIS. Software checks run
-# first, as in every campaign. Prints the run folder and the Windows copy of the ZIP.
+# Full saturation campaign with HATI Watch open in the browser: the map replay, the
+# earlier tests (T1-T3, T5-T7, T9-T11) and the relief and noise tests (T12-T14, T16).
+# T4 and T8 need external thermal and annotated data and are left out by default.
+# Uses cached arrays only; never invokes ISIS. Software checks run first, as in
+# every campaign. Prints the run folder and the Windows copy of the ZIP.
 #
 #   bash scripts/run_noise_campaign_wsl.sh [hati_diagnostic_bundle.zip]
 #
 # Optional environment: CONFIG, STAGES, OUT, EXPORT_DIR, PORT, NO_BROWSER=1.
-# The first noise-only campaign used CONFIG=configs/saturation_campaign_noise_workstation.json STAGES=T1,T12,T16.
+# Only the relief tests: STAGES=T1,T12,T13,T14,T16.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 BUNDLE="${1:-output/athena/landing_maps_v253/20260912T072640Z/registration-0.5/diagnostics_v254/hati_diagnostic_bundle.zip}"
 CONFIG="${CONFIG:-configs/saturation_campaign_relief_workstation.json}"
-STAGES="${STAGES:-T1,T12,T13,T14,T16}"
+STAGES="${STAGES:-maps,T1,T2,T3,T5,T6,T7,T9,T10,T11,T12,T13,T14,T16}"
 OUT="${OUT:-output/athena/saturation_campaign/relief-$(date -u +%Y%m%dT%H%M%SZ)}"
 EXPORT_DIR="${EXPORT_DIR:-/mnt/c/Users/Public/Downloads/HATI}"
 PORT="${PORT:-8765}"
