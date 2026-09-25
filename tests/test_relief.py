@@ -217,8 +217,14 @@ class ReliefCampaignTests(unittest.TestCase):
             self.assertGreater(sfs['sfs']['explained_fraction'], .5)
             self.assertGreater(sfs['injected_sites'], 0)
             self.assertIsNotNone(sfs['exceedance']['after_assumed_sigma'])
-            for name in ('shape_from_shading.png', 'sfs_height_m.tif', 'sfs_slope_deg.tif', 'injection.json'):
+            for name in ('shape_from_shading.png', 'sfs_height_m.tif', 'sfs_slope_deg.tif', 'injection.json',
+                         'subpixel_casters.json', 'subpixel_casters.png'):
                 self.assertTrue((out/'stages/T14'/name).exists(), name)
+            casters = sfs['subpixel_casters']
+            self.assertEqual(casters['relief_check'], 'T13 calibrated margins on the relief-corrected stack')
+            self.assertEqual(set(casters['injected_rock_sizing']), {'0.3 m', '0.6 m', '1.2 m'})
+            injected = json.loads((out/'stages/T14/injection.json').read_text())
+            self.assertTrue(all('sized_state' in r for r in injected))
             nulls = run('T16', t16)
             self.assertIn('relief_corrected_sigma', nulls['render_noise_source'])
             self.assertIn('ripples_2deg', {s['kind'] for s in nulls['summaries']})

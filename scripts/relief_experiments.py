@@ -16,6 +16,7 @@ import time
 import numpy as np
 
 from landing_maps import clean_json, write_tif
+from src.hati_core.adaptive_shadow import cell_table
 from src.hati_core.regional_shadow import assess_regions
 from src.hati_core.relief_hypothesis import (CLASSES, SIGNS, calibrate_margins, classify, compare_models, confusion,
                                              relief_sign, sign_confusion)
@@ -340,6 +341,63 @@ def _injection_sites(common, count, spacing, margin, touchdown, seed):
     return chosen
 
 
+def _t13_rule(ex):
+    """T13's calibrated margins and the sigma they were calibrated at, if this campaign ran T13."""
+    path = ex.args.campaign/'stages/T13/result.json'
+    if not path.exists():
+        return None
+    d = json.loads(path.read_text(encoding='utf-8'))
+    return (d['margins'], d['competition_sigma'], tuple(d.get('relief_scales_m', [.9, 1.8, 3.6]))) if d.get('margins') else None
+
+
+def _size_casters(ex, stack, cells, sigma):
+    """Adaptive height and width refinement (T9's machinery) at the given cells of a stack.
+
+    Returns one record per cell. A shadow that runs past the fitting window only
+    bounds the height from below, so every record carries the lower end of the
+    compatible height range at the widest scale where the fit still warned; a
+    height estimate is reported only when the context expansion reached stable,
+    endpoint-supported dimensions.
+    """
+    from dataclasses import replace
+    from src.hati_core.adaptive_shadow import AdaptiveConfig, refine_regions
+    cfg = AdaptiveConfig(**ex.cfg.get('adaptive', {}))
+    shape = stack.shape[1:]
+    chosen = np.zeros(shape, bool)
+    for r0, r1, c0, c1, *_ in cells:
+        chosen[r0:r1, c0:c1] = True
+    # A queue of exactly these cells: plan_regions requests baseline warnings only.
+    baseline = dict(status=chosen.astype(np.uint8), score=np.where(chosen, cfg.warning_score+1., 0.),
+                    endpoint_censored=np.zeros(shape), endpoint_missing_count=np.zeros(shape))
+    records = []
+    refine_regions(stack, ex.data['visibility'], ex.data['azimuths'], ex.data['elevations'], sigma, ex.sc, ex.rc,
+                   replace(cfg, max_cells=0), baseline, ex.data['slope_row'], ex.data['slope_col'], on_record=records.append)
+    clearance = ex.cfg.get('sfs_clearance_m', .3)
+    out = []
+    for record in records:
+        warned = [h for h in record['history'] if h.get('status') == 'assessed' and h['best']['score'] >= cfg.warning_score]
+        row = dict(row_px=int(record['centre'][0]), col_px=int(record['centre'][1]), state=record['status'],
+                   scales_warning=[h['scale'] for h in warned], height_lower_bound_m=None, height_m=None)
+        if warned:
+            last = warned[-1]
+            row.update(score=float(last['best']['score']), width_m=float(last['best']['width_m']),
+                       height_lower_bound_m=float(last['height_range_m'][0]), height_upper_m=float(last['height_range_m'][1]),
+                       censored=bool(last['endpoint_censored']),
+                       exceeds_clearance=bool(last['height_range_m'][0] >= clearance))
+            final = record.get('final')
+            if record['status'] == 'context_supported_unvalidated' and final:
+                row.update(height_m=float(final['best']['height_m']), height_range_m=[float(v) for v in final['height_range_m']])
+        out.append(row)
+    return out
+
+
+def _cell_containing(table, r, c):
+    for row in table:
+        if row[0] <= r < row[1] and row[2] <= c < row[3]:
+            return row
+    return None
+
+
 def _root_score(fit, root, radius=2.):
     evidence = fit['root_evidence']
     if not len(evidence):
@@ -490,13 +548,78 @@ def t14(ex):
                                                                          float(ex.noise)/sigma_after),
                                   surface_change_near_rock_m=float(np.nanmax(change[half-4:half+5, half-4:half+5]))))
             _progress(ex, 'T14 injected sites', i+1, len(placed), started, last)
+        # The same sizing on rocks of known height, in the relief-corrected injected images.
+        ex.live.update(force=True, kind='stage', message='T14: sizing the injected rocks')
+        table = cell_table(d['stack'].shape[1:], ex.sc, ex.rc)
+        site_cells = [_cell_containing(table, int(r), int(c)) for r, c, _ in placed]
+        by_cell = {(s['row_px'], s['col_px']): s for s in
+                   _size_casters(ex, solved_injected['corrected'], [row for row in site_cells if row is not None], sigma_after)}
+        for row, cell in zip(injection, site_cells):
+            size = by_cell.get((int(cell[4]), int(cell[5]))) if cell is not None else None
+            row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
+                       sized_height_lower_bound_m=size and size['height_lower_bound_m'])
     save(ex.out/'injection.json', injection)
     recovery = {}
     for height in heights:
         for key in RECOVERY:
             clean = [r['recovered_'+key] for r in injection if r['height_m'] == height and r['recovered_'+key] is not None]
             recovery.setdefault(f'{height:g} m', {})[key] = dict(recovered=int(sum(clean)), quiet_sites=len(clean))
+    sizing_check = {}
+    for height in heights:
+        rows = [r for r in injection if r['height_m'] == height]
+        bounds = [r['sized_height_lower_bound_m'] for r in rows if r.get('sized_height_lower_bound_m') is not None]
+        estimates = [r['sized_height_m'] for r in rows if r.get('sized_height_m') is not None]
+        sizing_check[f'{height:g} m'] = dict(
+            sites=len(rows), with_warning_evidence=len(bounds), sized=len(estimates),
+            lower_bound_holds=sum(b <= height+.05 for b in bounds),
+            lower_bound_median_m=float(np.median(bounds)) if bounds else None,
+            estimate_median_m=float(np.median(estimates)) if estimates else None)
+    # Sub-pixel casters: warning cells that survive the relief correction at the residual scale
+    # measured after it, checked against relief with T13's rule where available, then sized.
+    ex.live.update(force=True, kind='stage', message='T14: sizing sub-pixel casters')
+    scale = float(ex.noise)/sigma_after
+    candidates = [row for row in corrected['cell_table'] if corrected['status'][row[4], row[5]] == 1
+                  and corrected['score'][row[4], row[5]]*scale >= ex.rc.score_scale]
+    examined = candidates
+    cap = cfg.get('sfs_sizing_cells', 1500)
+    if cap and len(candidates) > cap:
+        rng = np.random.default_rng(cfg['seed']+800000)
+        examined = [candidates[i] for i in sorted(rng.choice(len(candidates), cap, replace=False))]
+    rule = _t13_rule(ex); labels = {}
+    if rule:
+        margins, sigma13, scales = rule; radius = ex.sc.radius_px; last = [0.]; started = time.monotonic()
+        for i, (r0, r1, c0, c1, cr, cc) in enumerate(examined):
+            sl = np.s_[:, cr-radius:cr+radius+1, cc-radius:cc+radius+1]
+            slopes_rc = (float(d['slope_row'][cr, cc]), float(d['slope_col'][cr, cc]))
+            if np.isfinite(slopes_rc).all():
+                labels[(int(cr), int(cc))] = classify(compare_models(solved['corrected'][sl], valid[sl], d['azimuths'], d['elevations'],
+                                                                     sigma13, ex.sc, ex.rc, scales, slopes_rc), margins)
+            _progress(ex, 'T14 relief check on caster candidates', i+1, len(examined), started, last)
+    keep = [row for row in examined if labels.get((int(row[4]), int(row[5]))) != 'relief_like']
+    casters = _size_casters(ex, solved['corrected'], keep, sigma_after) if keep else []
+    for row in casters:
+        row['relief_check'] = labels.get((row['row_px'], row['col_px']))
+        row['distance_to_touchdown_m'] = float(np.hypot(row['row_px']-touchdown[0], row['col_px']-touchdown[1])*ex.sc.pixel_m)
+    save(ex.out/'subpixel_casters.json', casters)
+    clearance = cfg.get('sfs_clearance_m', .3)
+    area_ha = float((corrected['status'] == 1).sum())*ex.sc.pixel_m**2/1e4
+    exceeding = [c for c in casters if c.get('exceeds_clearance')]
+    bounds = [c['height_lower_bound_m'] for c in casters if c['height_lower_bound_m'] is not None]
+    estimates = [c['height_m'] for c in casters if c['height_m'] is not None]
+    nearest = min(exceeding, key=lambda c: c['distance_to_touchdown_m']) if exceeding else None
+    subpixel = dict(candidate_cells=len(candidates), examined_cells=len(examined), sigma=sigma_after,
+                    relief_check='T13 calibrated margins on the relief-corrected stack' if rule else None,
+                    relief_check_classes={c: sum(v == c for v in labels.values()) for c in CLASSES} if rule else None,
+                    sized_cells=len(casters), with_warning_evidence=len(bounds), context_supported=len(estimates),
+                    clearance_m=clearance, exceeding_clearance=len(exceeding),
+                    exceeding_clearance_cells_per_ha=(len(exceeding)*len(candidates)/max(len(examined), 1)/area_ha) if area_ha else None,
+                    height_lower_bound_m=dict(zip(('p10', 'median', 'p90'), np.percentile(bounds, [10, 50, 90]).tolist())) if bounds else None,
+                    height_estimate_m=dict(zip(('p10', 'median', 'p90'), np.percentile(estimates, [10, 50, 90]).tolist())) if estimates else None,
+                    nearest_exceeding_clearance=nearest and {k: nearest.get(k) for k in ('row_px', 'col_px', 'distance_to_touchdown_m',
+                                                                                          'height_lower_bound_m', 'height_m', 'state')},
+                    injected_rock_sizing=sizing_check)
     _plot_t14(ex, solved, before, corrected, injection, sigma_after, touchdown)
+    _plot_subpixel(ex, casters, injection, touchdown, clearance, sigma_after)
     slopes = solved['slope_deg'][np.isfinite(solved['slope_deg'])]
     limit = _slope_limit(ex)
     return ex.result('PARTIAL', 'Linearised shape-from-shading surface used as a structural null; the unchanged detector reruns on the '
@@ -510,8 +633,51 @@ def t14(ex):
                      dem_slope_agreement=dem, residual_scale_after=dict(pooled_sigma=after_scale['pooled_sigma'],
                                                                          per_frame_sigma=after_scale['per_frame_sigma'],
                                                                          structure=after_scale['structure'], patches=after_scale['patches']),
-                     exceedance=exceedance, injection_recovery=recovery, injected_sites=len(placed),
+                     exceedance=exceedance, injection_recovery=recovery, injected_sites=len(placed), subpixel_casters=subpixel,
                      limitations=['First-order shading: slopes above the Sun elevation are underestimated and cast shadows are excluded, not modelled.',
                                   'The surface is relative; its mean and planes shared by every frame are unobserved.',
                                   'Recovery is counted only where the corrected background was quiet at the site.',
-                                  'Injected rocks are rendered on flat ground and multiplied into the real images.'])
+                                  'Injected rocks are rendered on flat ground and multiplied into the real images.',
+                                  'Caster heights are equivalent rectangular-shadow heights; a shadow that leaves the fitting window gives '
+                                  'only a lower bound. Warning cells are not object counts: one rock can set off neighbouring cells.',
+                                  'The clearance value is illustrative, not a verified lander limit.'])
+
+
+def _plot_subpixel(ex, casters, injection, touchdown, clearance, sigma):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(1, 3, figsize=(20, 6.8), layout='constrained')
+    ax = axes[0]
+    mean = np.nanmean(ex.data['stack'], axis=0)
+    ax.imshow(mean, cmap='gray', vmin=np.nanpercentile(mean, 1), vmax=np.nanpercentile(mean, 99))
+    bounded = [c for c in casters if c['height_lower_bound_m'] is not None]
+    if bounded:
+        pts = np.array([[c['col_px'], c['row_px'], c['height_lower_bound_m']] for c in bounded])
+        im = ax.scatter(pts[:, 0], pts[:, 1], c=pts[:, 2], s=14, cmap='viridis', vmin=0, vmax=max(1.2, pts[:, 2].max()),
+                        edgecolors='white', linewidths=.3)
+        fig.colorbar(im, ax=ax, shrink=.75, label='height lower bound (m)')
+    ax.plot(touchdown[1], touchdown[0], marker='+', color='white', ms=18, mew=2.5)
+    ax.set_title(f'Sub-pixel caster cells after relief correction (sigma {sigma:.3f}; + touchdown)', fontsize=10)
+    ax = axes[1]
+    ax.set_axisbelow(True)
+    values = [c['height_lower_bound_m'] for c in bounded]
+    if values:
+        ax.hist(values, bins=np.arange(0, max(values)+.2, .1), color='#1f3a5f')
+    ax.axvline(clearance, color='#c1121f', ls='--', lw=1.2, label=f'illustrative clearance {clearance:g} m')
+    ax.set_xlabel('height lower bound (m)'); ax.set_ylabel('cells'); ax.legend(frameon=False)
+    ax.set_title(f'{sum(v >= clearance for v in values)} of {len(values)} cells bounded at or above clearance', fontsize=10)
+    ax = axes[2]
+    ax.set_axisbelow(True)
+    for key, marker, colour, label in (('sized_height_lower_bound_m', 'v', '#5b7fa6', 'lower bound'),
+                                       ('sized_height_m', 'o', '#1f3a5f', 'context-supported estimate')):
+        pts = np.array([[r['height_m'], r[key]] for r in injection if r.get(key) is not None]).reshape(-1, 2)
+        jitter = np.random.default_rng(0).uniform(-.03, .03, len(pts))
+        ax.scatter(pts[:, 0]+jitter, pts[:, 1], marker=marker, color=colour, s=36, label=label)
+    top = max([1.4]+[r[k] for r in injection for k in ('sized_height_lower_bound_m', 'sized_height_m') if r.get(k) is not None])
+    ax.plot([0, top], [0, top], color='#80909d', lw=1, ls=':')
+    ax.set_xlim(0, top); ax.set_ylim(0, top)
+    ax.set_xlabel('true height of the injected rock (m)'); ax.set_ylabel('recovered height (m)')
+    ax.legend(frameon=False, loc='upper left'); ax.set_title('Rocks injected into the real images, sized the same way', fontsize=10)
+    fig.suptitle('HATI T14 | sub-pixel casters after relief correction | research diagnostic, not a hazard map')
+    fig.savefig(ex.out/'subpixel_casters.png', dpi=130); plt.close(fig)

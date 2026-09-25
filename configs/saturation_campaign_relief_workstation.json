@@ -74,7 +74,9 @@
   "sfs_smoothness": 3.0,
   "sfs_dark_ratio": 0.5,
   "sfs_iterations": 3000,
-  "sfs_injection_sites": 24,
-  "sfs_injection_spacing_px": 40,
-  "sfs_injection_heights_m": [0.3, 0.6, 1.2]
+  "sfs_injection_sites": 48,
+  "sfs_injection_spacing_px": 56,
+  "sfs_injection_heights_m": [0.3, 0.6, 1.2],
+  "sfs_sizing_cells": 1500,
+  "sfs_clearance_m": 0.3
 }

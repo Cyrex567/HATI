@@ -261,6 +261,19 @@ def evidence_summary(output, records):
             findings.append(f'With relief shading removed, exceedance moves {before}to {e["after_assumed_sigma"]:.1%} at the assumed sigma and '
                             f'{e["after_measured_sigma"]:.1%} at the residual scale measured after correction '
                             f'({sfs["residual_scale_after"]["pooled_sigma"] or float("nan"):.4f}).')
+        casters = sfs.get('subpixel_casters') or {}
+        if casters.get('examined_cells'):
+            check = casters.get('relief_check_classes') or {}
+            relief = f'; {check.get("relief_like", 0)} relief-like by the T13 rule and left out' if check else ''
+            findings.append(f'Sub-pixel caster candidates after relief correction: {casters["candidate_cells"]} warning cells at the residual '
+                            f'scale {casters["sigma"]:.4f}, {casters["examined_cells"]} examined{relief}. {casters["with_warning_evidence"]} keep '
+                            f'warning evidence under context expansion; {casters["exceeding_clearance"]} have a height lower bound at or above '
+                            f'the illustrative {casters["clearance_m"]:g} m clearance and {casters["context_supported"]} reach a stable height estimate. '
+                            'Cells are not object counts.')
+            for height, row in (casters.get('injected_rock_sizing') or {}).items():
+                findings.append(f'Injected {height} rocks sized after relief correction: {row["with_warning_evidence"]}/{row["sites"]} keep warning '
+                                f'evidence, lower bound holds for {row["lower_bound_holds"]}, {row["sized"]} reach a stable estimate'
+                                + (f' (median {row["estimate_median_m"]:.2f} m)' if row['estimate_median_m'] is not None else '') + '.')
         for height, row in sfs.get('injection_recovery', {}).items():
             m, a, u = row['corrected_measured'], row['corrected_assumed'], row['original_assumed']
             findings.append(f'Injected {height} rocks recovered on quiet sites: {m["recovered"]}/{m["quiet_sites"]} after the relief correction '
