@@ -66,6 +66,18 @@ class GeneratorTests(unittest.TestCase):
         shadow = np.flatnonzero(lit[20] < .5)
         self.assertAlmostEqual(30-shadow.min(), 1/np.tan(np.radians(5))/.5, delta=1.5)
 
+    def test_ground_tilted_toward_the_sun_casts_no_shadow(self):
+        # Terrain beyond the grid continues at its edge height. A zero fill stood as a wall above
+        # Sun-facing ground and cast false shadow strips into tilted scenes (6-21% of a 90 m canvas).
+        rows, cols = np.indices((120, 120), dtype=float)
+        for az, el in ((43.1, 4.35), (6., 3.28), (326.7, 3.58)):
+            toward = np.array([-np.cos(np.radians(az)), np.sin(np.radians(az))])
+            h = -.03*(toward[0]*(rows-60)+toward[1]*(cols-60))*.5
+            self.assertEqual(float((lit_fraction(h, .5, az, el) < .5).mean()), 0.)
+        # An Athena-like tilt of 2 deg toward the Sun: uniformly brighter, never shadowed.
+        out = render_relief((96, 96), [43.1], [4.35], plane_slope_rc=(.03, -.02), **QUIET)
+        self.assertGreater(out['stack'].min(), 1.)
+
     def test_rock_has_a_bright_face_and_a_long_thin_shadow(self):
         rock = make_rock(3, (32.3, 40.2), .6, .6, aspect=1.35, yaw_deg=0)
         f = render_relief((64, 64), [90.], [3.5], rocks=[rock], **QUIET)['stack'][0]

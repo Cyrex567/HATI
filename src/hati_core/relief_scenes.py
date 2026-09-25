@@ -112,7 +112,9 @@ def lit_fraction(h, spacing_m, azimuth_deg, elevation_deg, solar_radius_deg=.266
     Resample onto a lattice aligned with the down-Sun direction; a point is in
     shadow when any sunward point rises above its Sun line, i.e. when the running
     maximum of h + distance * tan(elevation) exceeds its own value. Terrain beyond
-    the grid is taken as flat.
+    the grid continues at the height of its nearest edge, so it casts no shadow
+    into the grid: a fixed height of zero stood as a wall above ground that
+    descends toward the Sun and put false shadow strips into tilted scenes.
     """
     a = np.radians(azimuth_deg)
     down = np.array([np.cos(a), -np.sin(a)])       # down-Sun, (row, col); azimuth clockwise from map up
@@ -125,8 +127,7 @@ def lit_fraction(h, spacing_m, azimuth_deg, elevation_deg, solar_radius_deg=.266
     ui, vi = u0+np.arange(nu), v0+np.arange(nv)
     rows = ui[:, None]*down[0]+vi[None, :]*across[0]
     cols = ui[:, None]*down[1]+vi[None, :]*across[1]
-    rotated = ndi.map_coordinates(h, [rows, cols], order=1, mode='constant', cval=np.nan)
-    base = np.where(np.isfinite(rotated), rotated, 0.)
+    base = ndi.map_coordinates(h, [rows, cols], order=1, mode='nearest')
     distance = (ui*spacing_m)[:, None]
     offsets = np.linspace(-.8, .8, 5); weights = np.sqrt(1-offsets**2); weights /= weights.sum()
     lit = np.zeros_like(base)
