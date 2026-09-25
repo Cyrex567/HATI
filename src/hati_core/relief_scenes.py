@@ -32,6 +32,47 @@ def relief_feature(kind, size_m, max_slope_deg, *, centre_px=None, seed=0):
                 centre_px=None if centre_px is None else [float(v) for v in centre_px], seed=int(seed))
 
 
+def boulder_field(abundance, *, exponent=3., d_min_m=.2, d_max_m=2., height_ratio=.5, seed=0):
+    """A population of small rocks stamped into the height field as steep domes.
+
+    Diameters follow a truncated power law, cumulative number proportional to
+    D**-exponent between d_min_m and d_max_m; rocks are added until they cover
+    the fraction `abundance` of the scene. Height is height_ratio times the
+    diameter. Positions are uniform and may overlap.
+    """
+    if not 0 < abundance < .5 or not exponent > 0 or not 0 < d_min_m < d_max_m or not 0 < height_ratio <= 1:
+        raise ValueError('abundance in (0, 0.5), positive exponent, 0 < d_min < d_max and height ratio in (0, 1] required')
+    return dict(kind='boulders', abundance=float(abundance), exponent=float(exponent), d_min_m=float(d_min_m),
+                d_max_m=float(d_max_m), height_ratio=float(height_ratio), seed=int(seed), centre_px=None)
+
+
+def boulder_layer(feature, rows_m, cols_m, spacing_m):
+    """Heights and footprint mask of a boulder field on the supersampled grid."""
+    rng = np.random.default_rng(feature['seed'])
+    area = (len(rows_m)*spacing_m)*(len(cols_m)*spacing_m)
+    lo, hi, b = feature['d_min_m']**-feature['exponent'], feature['d_max_m']**-feature['exponent'], feature['exponent']
+    diameters, covered = [], 0.
+    while covered < feature['abundance']*area:
+        for d in (lo-rng.uniform(size=4096)*(lo-hi))**(-1/b):
+            diameters.append(float(d)); covered += np.pi*d*d/4
+            if covered >= feature['abundance']*area:
+                break
+    layer = np.zeros((len(rows_m), len(cols_m)))
+    centres = np.column_stack([rng.uniform(rows_m[0], rows_m[-1], len(diameters)), rng.uniform(cols_m[0], cols_m[-1], len(diameters))])
+    for (r, c), d in zip(centres, diameters):
+        radius = d/2
+        i0, i1 = np.searchsorted(rows_m, [r-radius, r+radius]); j0, j1 = np.searchsorted(cols_m, [c-radius, c+radius])
+        if i1 <= i0 or j1 <= j0:
+            continue
+        dr, dc = rows_m[i0:i1, None]-r, cols_m[None, j0:j1]-c
+        dome = feature['height_ratio']*d*np.sqrt(np.clip(1-(dr*dr+dc*dc)/(radius*radius), 0, None))
+        layer[i0:i1, j0:j1] = np.maximum(layer[i0:i1, j0:j1], dome)
+    d = np.asarray(diameters)
+    return layer, layer > 0, dict(count=len(d), area_fraction=float(covered/area), exponent=feature['exponent'],
+                                  diameter_m=dict(zip(('min', 'median', 'p90', 'max'), np.percentile(d, [0, 50, 90, 100]).tolist())),
+                                  taller_than_0_3m=int(np.sum(feature['height_ratio']*d >= .3)))
+
+
 def _feature_shape(feature, rows_m, cols_m, centre_m):
     """Unit-amplitude shape on the supersampled grid, in metres."""
     kind, size = feature['kind'], feature['size_m']
@@ -55,6 +96,8 @@ def _feature_shape(feature, rows_m, cols_m, centre_m):
 def height_field(rows_m, cols_m, features, centres_m, spacing_m):
     h = np.zeros((len(rows_m), len(cols_m)))
     for feature, centre in zip(features, centres_m):
+        if feature['kind'] == 'boulders':
+            continue                                   # stamped separately by boulder_layer
         shape = _feature_shape(feature, rows_m, cols_m, centre)
         gr, gc = np.gradient(shape, spacing_m)
         steepest = float(np.max(np.hypot(gr, gc)))
@@ -201,10 +244,16 @@ def render_relief(shape, azimuths, elevations, *, pixel_m, seed, noise=.015, fea
                for f in features]
     h = height_field(rows_m, cols_m, list(features), centres, spacing)
     h = h+plane_slope_rc[0]*(rows_m-rows_m.mean())[:, None]+plane_slope_rc[1]*(cols_m-cols_m.mean())[None, :]
+    stones = np.zeros(h.shape, bool); populations = []
+    for feature in features:
+        if feature['kind'] == 'boulders':
+            layer, footprint, info = boulder_layer(feature, rows_m, cols_m, spacing)
+            h += layer; stones |= footprint; populations.append(info)
     rows, cols = np.indices(shape)
     albedo = 1+texture*ndi.gaussian_filter(rng.normal(size=shape), 1.2)-stain*np.exp(
         -((rows-shape[0]*.3)**2+(cols-shape[1]*.7)**2)/8)
     albedo_ss = np.kron(np.pad(albedo, pad, mode='edge'), np.ones((ss, ss)))
+    albedo_ss = np.where(stones, rock_albedo*albedo_ss, albedo_ss)
     frames, shifts = [], []
     for i, (az, el) in enumerate(zip(azimuths, elevations)):
         relative = shading(h, spacing, az, el, lunar_lambert_l)
@@ -230,7 +279,8 @@ def render_relief(shape, azimuths, elevations, *, pixel_m, seed, noise=.015, fea
     height_px = h.reshape(padded[0], ss, padded[1], ss).mean(axis=(1, 3))[pad:pad+shape[0], pad:pad+shape[1]]
     slope_px = slope.reshape(padded[0], ss, padded[1], ss).max(axis=(1, 3))[pad:pad+shape[0], pad:pad+shape[1]]
     return dict(stack=np.asarray(frames), height_m=height_px, slope_deg=slope_px,
-                truth=dict(seed=seed, features=list(features), rocks=[r['truth'] for r in rocks], shape=list(shape),
+                truth=dict(seed=seed, features=list(features), rocks=[r['truth'] for r in rocks], boulder_fields=populations,
+                           shape=list(shape),
                            pixel_m=pixel_m, azimuths=azimuths.tolist(), elevations=elevations.tolist(),
                            noise_sigma=noise, supersample=ss, solar_radius_deg=solar_radius_deg,
                            lunar_lambert_l=lunar_lambert_l, rock_albedo=rock_albedo, shadow_floor=shadow_floor,

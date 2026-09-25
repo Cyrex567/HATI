@@ -72,6 +72,19 @@ class GeneratorTests(unittest.TestCase):
         self.assertGreater(f[32, 40], 1.2)
         self.assertGreater(len(np.flatnonzero(f[32, :40] < .9)), 6)   # about 11 px expected
 
+    def test_boulder_fields_meet_their_cover_and_cast_shadows(self):
+        from src.hati_core.relief_scenes import boulder_field
+        out = render_relief((32, 32), [90.], [3.5], supersample=12, features=[boulder_field(.04, d_min_m=.1, seed=2)], **QUIET)
+        info = out['truth']['boulder_fields'][0]
+        self.assertAlmostEqual(info['area_fraction'], .04, delta=.002)
+        self.assertGreaterEqual(info['diameter_m']['min'], .1)
+        self.assertLessEqual(info['diameter_m']['max'], 2.)
+        frame = out['stack'][0]
+        self.assertLess(frame.min(), .8)            # shadows
+        self.assertGreater(frame.max(), 1.05)       # lit rock faces, brighter rock albedo
+        with self.assertRaises(ValueError):
+            boulder_field(.6)
+
     def test_injected_rock_factor_is_one_away_from_sites(self):
         factor = rock_factor((64, 64), [(32.3, 32.2, .6)], [90.], [3.5], .9, seed=2, window_px=32)
         self.assertEqual(factor.shape, (1, 64, 64))
