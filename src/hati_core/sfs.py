@@ -15,7 +15,7 @@ steep walls are smoothed and their slopes underestimated.
 """
 import numpy as np
 from scipy import sparse
-from scipy.sparse.linalg import lsqr
+from scipy.sparse.linalg import LinearOperator, aslinearoperator, lsqr
 
 from .noise_scale import sun_loadings
 
@@ -53,8 +53,24 @@ def _smoothness(shape):
                           np.sqrt(2)*sparse.kron(first(Hc), first(Wc))]).tocsr()
 
 
+def _counted(system, report):
+    """The operator lsqr builds from system, with every transposed product counted.
+
+    lsqr makes one product and one transposed product per iteration. Delegating
+    to aslinearoperator(system) keeps the arithmetic identical to passing the
+    matrix itself; only the count is added.
+    """
+    base = aslinearoperator(system)
+    calls = [0]
+    def rmatvec(v):
+        calls[0] += 1
+        report(calls[0])
+        return base.rmatvec(v)
+    return LinearOperator(system.shape, matvec=base.matvec, rmatvec=rmatvec, dtype=base.dtype)
+
+
 def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothness=1.,
-              dark_ratio=.5, iterations=600, tolerance=1e-8, passes=1, shadow_sigma=3.):
+              dark_ratio=.5, iterations=600, tolerance=1e-8, passes=1, shadow_sigma=3., progress=None):
     """Fit a relative height field; return it with its predicted shading and a corrected stack.
 
     corrected = stack - Ybar * predicted relief ratio, on pixels valid in every
@@ -62,6 +78,8 @@ def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothn
     not removed: it cannot be told from albedo and the detector's null absorbs it.
     With passes > 1, samples more than shadow_sigma robust scales darker than
     the previous fit are treated as cast shadows and left out of the next one.
+    progress, if given, receives dict(pass_index, passes, iteration, iterations)
+    during each solve, for display; it does not change the result.
     """
     stack = np.asarray(stack, float)
     n, H, W = stack.shape
@@ -91,7 +109,10 @@ def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothn
     regulariser = sparse.vstack([sparse.hstack([np.sqrt(smoothness)*penalty, sparse.csr_matrix((penalty.shape[0], 3*n))]),
                                  sparse.hstack([1e-6*sparse.identity(unknowns), sparse.csr_matrix((unknowns, 3*n))])])
 
+    current = [0]
+
     def solve(kept, start):
+        current[0] += 1
         blocks, targets = [], []
         for k in range(n):
             idx = np.flatnonzero(kept[k].ravel())
@@ -103,6 +124,9 @@ def solve_sfs(stack, valid, azimuths, elevations, pixel_m, *, grid_px=2, smoothn
             targets.append(ratio[k].ravel()[idx])
         system = sparse.vstack([sparse.vstack(blocks), regulariser]).tocsr()
         rhs = np.concatenate([*targets, np.zeros(regulariser.shape[0])])
+        if progress is not None:
+            system = _counted(system, lambda i: progress(dict(pass_index=current[0], passes=passes, iteration=i,
+                                                              iterations=iterations)))
         return lsqr(system, rhs, atol=tolerance, btol=tolerance, iter_lim=iterations, x0=start)
 
     def evaluate(solution):

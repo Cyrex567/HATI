@@ -21,7 +21,16 @@ def atomic_json(path, value):
                                          prefix=path.stem+'-', suffix='.part', delete=False) as f:
             name = f.name
             json.dump(value, f, allow_nan=False, separators=(',', ':'))
-        os.replace(name, path)
+        # On Windows the rename is refused while the viewer has the old file open for
+        # a read; that takes milliseconds, so retry briefly before giving up.
+        for attempt in range(20):
+            try:
+                os.replace(name, path)
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(.025)
     finally:
         if name and Path(name).exists():
             Path(name).unlink()
@@ -180,7 +189,7 @@ class LiveFeedback:
         except Exception as exc:
             self.failure(exc)
 
-    def adaptive(self, info):
+    def adaptive(self, info, subrun='adaptive context'):
         """A pass snapshot, including the actual larger extraction patch."""
         try:
             import numpy as np
@@ -200,7 +209,7 @@ class LiveFeedback:
                     observed=display_array(sample['patch']), template=display_array(sample['template']),
                     residual=display_array(residual), common_mask=sample['common'].tolist(),
                     meaning='Experimental adaptive pass. Equivalent shadow dimensions and uncalibrated score; no hazard-probability or measured dimension-accuracy claim.')
-            self.update(force=True, kind='adaptive', subrun='adaptive context', fit=fit,
+            self.update(force=True, kind='adaptive', subrun=subrun, fit=fit,
                 regional_updated=timestamp(), message=f'Adaptive pass {result["scale"]}x at {info["centre"]}',
                 adaptive=dict(centre=info['centre'], scale=result['scale'], radius_px=result['radius_px'],
                     support_px=result['support_px'], status=result['status'],
@@ -210,7 +219,7 @@ class LiveFeedback:
         except Exception as exc:
             self.failure(exc)
 
-    def adaptive_progress(self, info):
+    def adaptive_progress(self, info, label='Adaptive context'):
         try:
             last = info['last']; fields = {}
             if self.state.get('adaptive', {}).get('centre') != last['centre']:
@@ -218,7 +227,64 @@ class LiveFeedback:
             self.update(kind='adaptive', cells_visited=info['processed'], cells_total=info['requested'],
                 cells_assessed=info['processed'], score=display_array(info['score']),
                 assessment=display_array(info['status']),
-                message=f'Adaptive context: {info["processed"]}/{info["requested"]}; {last["status"]}', **fields)
+                message=f'{label}: {info["processed"]}/{info["requested"]}; {last["status"]}', **fields)
+        except Exception as exc:
+            self.failure(exc)
+
+    # One row per finished cell, as a list in SIZING_COLUMNS order: a few kilobytes
+    # per hundred cells, so the viewer can map every measurement as it arrives.
+    SIZING_COLUMNS = ('row_px', 'col_px', 'height_lower_bound_m', 'height_m', 'state', 'relief_check',
+                      'distance_to_touchdown_m', 'censored', 'score')
+
+    def sizing_start(self, phase, total, *, image_shape, touchdown, pixel_m, clearance_m):
+        """Begin a sizing phase ('relief check', 'planted rocks', 'detections')."""
+        try:
+            self.sizing_state = dict(phase=phase, total=int(total), done=0, started=timestamp(), updated=timestamp(),
+                                     image_shape=[int(v) for v in image_shape], pixel_m=float(pixel_m),
+                                     touchdown=[float(v) for v in touchdown] if touchdown is not None else None,
+                                     clearance_m=float(clearance_m), columns=list(self.SIZING_COLUMNS), casters=[],
+                                     relief=dict(rock_like=0, relief_like=0, ambiguous=0, none=0, unchecked=0),
+                                     counts=dict(sized=0, with_warning_evidence=0, context_supported=0, exceeding_clearance=0),
+                                     current=None)
+            self.update(force=True, sizing=self.sizing_state)
+        except Exception as exc:
+            self.failure(exc)
+
+    def sizing_relief(self, row_px, col_px, label):
+        """One candidate through T13's relief check."""
+        try:
+            s = self.sizing_state
+            s['done'] += 1; s['updated'] = timestamp()
+            s['relief'][label if label in s['relief'] else 'unchecked'] += 1
+            s['current'] = dict(row_px=int(row_px), col_px=int(col_px), relief_check=label)
+            self.update(sizing=s, force=s['done'] == s['total'])
+        except Exception as exc:
+            self.failure(exc)
+
+    def sizing_row(self, row, relief=None):
+        """One cell sized; row is T14's caster record."""
+        try:
+            import math
+            s = self.sizing_state
+            def number(value):
+                return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else None
+            distance = None
+            if s['touchdown'] is not None:
+                distance = math.hypot(row['row_px']-s['touchdown'][0], row['col_px']-s['touchdown'][1])*s['pixel_m']
+            entry = dict(row, relief_check=relief, distance_to_touchdown_m=distance)
+            s['casters'].append([number(entry.get(k)) if k not in ('state', 'relief_check', 'censored') else entry.get(k)
+                                 for k in self.SIZING_COLUMNS])
+            s['done'] += 1; s['updated'] = timestamp()
+            counts = s['counts']; counts['sized'] += 1
+            bound = number(row.get('height_lower_bound_m'))
+            if bound is not None:
+                counts['with_warning_evidence'] += 1
+                counts['exceeding_clearance'] += bound >= s['clearance_m']
+            counts['context_supported'] += number(row.get('height_m')) is not None
+            s['current'] = dict(row_px=int(row['row_px']), col_px=int(row['col_px']), state=row.get('state'),
+                                height_lower_bound_m=bound, height_m=number(row.get('height_m')), relief_check=relief,
+                                distance_to_touchdown_m=number(distance))
+            self.update(sizing=s, force=s['done'] == s['total'])
         except Exception as exc:
             self.failure(exc)
 

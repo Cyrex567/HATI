@@ -4,7 +4,7 @@ No job manager, shell endpoint, write route or pipeline controls. The server
 binds only to loopback and reads the selected run directory.
 """
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
@@ -15,6 +15,13 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent/'watch'
+
+
+def read_bytes(path):
+    # Read and close at once: on Windows an open handle blocks the writers' rename,
+    # and they retry only briefly.
+    with open(path, 'rb') as f:
+        return f.read()
 
 
 def safe_file(root, relative):
@@ -28,14 +35,40 @@ def read_json(path, default=None, limit=4*1024*1024):
     try:
         if path.stat().st_size > limit:
             return default
-        return json.loads(path.read_text(encoding='utf-8'))
+        return json.loads(read_bytes(path).decode('utf-8'))
     except (OSError, ValueError):
         return default
 
 
+def stage_titles():
+    try:
+        sys.path.insert(0, str(ROOT/'scripts'))
+        from run_saturation_campaign import STAGES
+        return dict(STAGES)
+    except Exception:
+        return {}
+
+
+def when(value):
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+# A stage started directly, without the campaign runner, has no campaign.json or
+# heartbeat. Its live snapshot and log still show whether it is working.
+QUIET_SECONDS = 900
+
+
+def natural(stage_id):
+    digits = ''.join(ch for ch in stage_id if ch.isdigit())
+    return (0 if stage_id == 'maps' else 1, int(digits) if digits else 0, stage_id)
+
+
 def tail(path, limit=18000):
     try:
-        with path.open('rb') as f:
+        with open(path, 'rb') as f:
             f.seek(max(0, path.stat().st_size-limit))
             return f.read(limit).decode('utf-8', errors='replace')
     except OSError:
@@ -50,6 +83,7 @@ class WatchStore:
         self.input_metadata = None
         self.images = {}
         self.input_error = None
+        self.titles = None
 
     def inputs(self):
         meta = read_json(self.root/'live/inputs.json')
@@ -74,9 +108,58 @@ class WatchStore:
                     self.input_error = str(exc); self.input_metadata = None; self.images = {}
         return self.input_metadata
 
+    def activity(self, stage):
+        """Latest sign of work for one stage: its snapshot time, snapshot file or log."""
+        times = []
+        snapshot = read_json(self.root/'live'/f'{stage}.json', {}) or {}
+        for value in (snapshot.get('updated'), (snapshot.get('sizing') or {}).get('updated')):
+            if when(value):
+                times.append(when(value))
+        for p in (self.root/'live'/f'{stage}.json', self.root/'logs'/f'{stage}.log'):
+            if p.is_file():
+                times.append(datetime.fromtimestamp(p.stat().st_mtime, timezone.utc))
+        return max(times) if times else None
+
+    def inferred(self, now):
+        """Stages and a heartbeat from live snapshots, logs and results, for runs without the runner."""
+        if self.titles is None:
+            self.titles = stage_titles()
+        titles = self.titles
+        ids = {p.stem for p in (self.root/'live').glob('*.json') if p.stem not in ('inputs', 'runtime', 'maps')}
+        ids |= {p.parent.name for p in (self.root/'stages').glob('*/result.json')}
+        ids |= {p.stem for p in (self.root/'logs').glob('*.log')}
+        rows, seen_by = [], {}
+        for stage in sorted(ids, key=natural):
+            seen = self.activity(stage)
+            result_path = self.root/'stages'/stage/'result.json'
+            result = read_json(result_path, {}) or {}
+            finished = datetime.fromtimestamp(result_path.stat().st_mtime, timezone.utc) if result_path.is_file() else None
+            # A result older than the stage's latest activity belongs to an earlier run of it.
+            if result.get('status') and (seen is None or finished >= seen-timedelta(seconds=60)):
+                status, reason = result['status'], result.get('reason', '')
+            elif seen is not None and (now-seen).total_seconds() < QUIET_SECONDS:
+                status, reason = 'RUNNING', ''
+            else:
+                status, reason = 'STALE', 'No result and no recent activity.'
+            rows.append(dict(id=stage, title=titles.get(stage, stage), status=status, reason=reason))
+            if seen:
+                seen_by[stage] = seen
+        running = [r['id'] for r in rows if r['status'] == 'RUNNING']
+        state = 'running' if running else 'stale' if any(r['status'] == 'STALE' for r in rows) else 'finished'
+        # Liveness follows the running stage; a finished stage's files say nothing about it.
+        times = [seen_by[s] for s in (running or seen_by) if s in seen_by]
+        heartbeat = dict(state=state, updated=max(times).isoformat()) if times else {}
+        return rows, heartbeat
+
     def state(self, selected=None):
         campaign = read_json(self.root/'campaign.json', {})
         stages = campaign.get('stages', [])
+        now = datetime.now(timezone.utc)
+        inferred = not stages
+        if inferred:
+            stages, heartbeat = self.inferred(now)
+        else:
+            heartbeat = read_json(self.root/'live/runtime.json', {})
         active = next((r for r in stages if r['status'] == 'RUNNING'), None)
         chosen = next((r for r in stages if r['id'] == selected), None) if selected else None
         chosen = chosen or active or next((r for r in reversed(stages) if r['status'] != 'PENDING'), None)
@@ -88,13 +171,17 @@ class WatchStore:
                 return None
         snapshot = under(f'live/{stage}.json') if stage else None
         log = under(f'logs/{stage}.log') if stage else None
-        heartbeat = read_json(self.root/'live/runtime.json', {})
-        now = datetime.now(timezone.utc)
         try:
             age = max(0, (now-datetime.fromisoformat(heartbeat['updated'])).total_seconds())
         except (KeyError, ValueError, TypeError):
             age = None
-        health = ('live' if age is not None and age < 10 else 'stale') if heartbeat.get('state') == 'running' else heartbeat.get('state', 'no_heartbeat')
+        if heartbeat.get('state') != 'running':
+            health = heartbeat.get('state', 'no_heartbeat')
+        elif not inferred:
+            health = 'live' if age is not None and age < 10 else 'stale'
+        else:
+            # Without a runner heartbeat, silence during one long step is not failure.
+            health = 'live' if age is not None and age < 30 else 'quiet' if age is not None and age < QUIET_SECONDS else 'stale'
         artifacts = []
         for p in sorted((self.root/'stages').rglob('*.png')):
             if p.resolve().is_relative_to(self.root):
@@ -102,6 +189,7 @@ class WatchStore:
                                       title=p.stem.replace('_', ' ')))
         return dict(run_name=self.root.name, stages=stages, selected_stage=stage,
                     active_stage=active['id'] if active else None, health=health, heartbeat_age_seconds=age,
+                    heartbeat_source='inferred' if inferred else 'runner',
                     snapshot=read_json(snapshot) if snapshot else None,
                     terrain=(read_json(self.root/'live/maps.json', {}) or {}).get('terrain'),
                     log=tail(log) if log else '', inputs=self.inputs(), input_error=self.input_error,
@@ -141,14 +229,14 @@ def make_handler(store):
                     if name not in names:
                         raise FileNotFoundError(name)
                     p = store.root/'live'/name
-                    payload = safe_file(store.root, 'live/'+name).read_bytes() if p.exists() else store.images[name]
+                    payload = read_bytes(safe_file(store.root, 'live/'+name)) if p.exists() else store.images[name]
                     self.respond(200, payload, 'image/png')
                 elif path.startswith('/artifact/'):
                     p = safe_file(store.root, path.removeprefix('/artifact/'))
                     if p.suffix.lower() not in ('.png', '.json', '.csv', '.txt', '.md'):
                         raise FileNotFoundError(path)
                     mime = 'image/png' if p.suffix == '.png' else 'text/plain; charset=utf-8'
-                    self.respond(200, p.read_bytes(), mime)
+                    self.respond(200, read_bytes(p), mime)
                 elif path == '/logo.png':
                     self.respond(200, (ROOT/'dashboard/static/assets/hati_logo.png').read_bytes(), 'image/png')
                 else:

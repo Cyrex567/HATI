@@ -128,6 +128,92 @@ function renderMaps(){
   if(s?.kind==='field'&&s.metrics)extra=Object.entries(s.metrics).map(([k,v])=>`${k.replaceAll('_',' ')}: ${typeof v==='number'?fmt(v,3):v}`).join(' · ');
   text('extra',extra);
 }
+const SIZING_PHASES={'relief check':'Relief check on every detection','planted rocks':'Sizing the planted rocks','detections':'Sizing every detection'};
+const HEIGHT_TOP=1.5;
+const human=v=>v===null||v===undefined?'--':String(v).replaceAll('_',' ');
+const rampColor=b=>{const [r,g,b2]=heat(.28+.72*Math.min(1,Math.max(0,b)/HEIGHT_TOP));return `rgb(${r},${g},${b2})`;};
+let sizingPoints=[];
+function sizingColumns(s){return Object.fromEntries((s.columns||[]).map((k,i)=>[k,i]));}
+function distanceTo(s,row,col){return s.touchdown?Math.hypot(row-s.touchdown[0],col-s.touchdown[1])*s.pixel_m:null;}
+function currentCell(s){const a=state.snapshot?.kind==='adaptive'?state.snapshot.adaptive:null;return a?.centre||(s.current?[s.current.row_px,s.current.col_px]:null);}
+function drawSizingMap(s){
+  const canvas=$('sizing-map'),ctx=canvas.getContext('2d'),[H,W]=s.image_shape,col=sizingColumns(s);
+  const scale=Math.min(canvas.width/W,canvas.height/H),w=W*scale,h=H*scale,ox=(canvas.width-w)/2,oy=(canvas.height-h)/2;
+  ctx.fillStyle='#0b1521';ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(sourceImage){ctx.globalAlpha=.42;ctx.imageSmoothingEnabled=false;ctx.drawImage(sourceImage,ox,oy,w,h);ctx.globalAlpha=1;}
+  sizingPoints=[];
+  for(const r of s.casters){
+    const x=ox+(r[col.col_px]+.5)*scale,y=oy+(r[col.row_px]+.5)*scale,b=r[col.height_lower_bound_m];
+    ctx.beginPath();
+    if(Number.isFinite(b)){ctx.arc(x,y,2.4+2.4*Math.min(1,b/HEIGHT_TOP),0,2*Math.PI);ctx.fillStyle=rampColor(b);ctx.fill();ctx.lineWidth=1.2;ctx.strokeStyle='#0b1521';ctx.stroke();}
+    else{ctx.arc(x,y,2.2,0,2*Math.PI);ctx.lineWidth=1;ctx.strokeStyle='#7d8fa1';ctx.stroke();}
+    sizingPoints.push({x,y,r});
+  }
+  if(s.touchdown){
+    const tx=ox+(s.touchdown[1]+.5)*scale,ty=oy+(s.touchdown[0]+.5)*scale;
+    ctx.setLineDash([5,4]);ctx.lineWidth=1.3;ctx.strokeStyle='rgba(255,255,255,.8)';ctx.beginPath();ctx.arc(tx,ty,20/s.pixel_m*scale,0,2*Math.PI);ctx.stroke();ctx.setLineDash([]);
+    ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(tx-7,ty);ctx.lineTo(tx+7,ty);ctx.moveTo(tx,ty-7);ctx.lineTo(tx,ty+7);ctx.strokeStyle='white';ctx.stroke();
+  }
+  const cur=currentCell(s);
+  if(cur){ctx.lineWidth=2;ctx.strokeStyle='#69dfd0';ctx.beginPath();ctx.arc(ox+(cur[1]+.5)*scale,oy+(cur[0]+.5)*scale,9,0,2*Math.PI);ctx.stroke();}
+  const lx=ox+12,ly=oy+h-26,lw=150;
+  for(let i=0;i<lw;i++){ctx.fillStyle=rampColor(i/(lw-1)*HEIGHT_TOP);ctx.fillRect(lx+i,ly,1,8);}
+  ctx.fillStyle='#c5d7e6';ctx.font='11px system-ui';ctx.textAlign='left';ctx.fillText('0 m',lx,ly+21);ctx.textAlign='right';ctx.fillText(`${HEIGHT_TOP} m+ lower bound`,lx+lw+64,ly+21);
+}
+function sizingTip(event){
+  const s=state?.snapshot?.sizing,tip=$('sizing-tip');if(!s){tip.hidden=true;return;}
+  const canvas=$('sizing-map'),rect=canvas.getBoundingClientRect(),mx=(event.clientX-rect.left)*canvas.width/rect.width,my=(event.clientY-rect.top)*canvas.height/rect.height;
+  let best=null,bestD=10;for(const p of sizingPoints){const d=Math.hypot(p.x-mx,p.y-my);if(d<bestD){best=p;bestD=d;}}
+  if(!best){tip.hidden=true;return;}
+  const col=sizingColumns(s),r=best.r,b=r[col.height_lower_bound_m],hgt=r[col.height_m],dist=r[col.distance_to_touchdown_m];
+  tip.textContent=`Row ${r[col.row_px]}, column ${r[col.col_px]}${Number.isFinite(dist)?` · ${fmt(dist,1)} m from the touchdown`:''}\n`+
+    (Number.isFinite(b)?`Height lower bound ${fmt(b,2)} m${r[col.censored]?' (shadow leaves the window)':''}`:'No warning evidence at any scale')+
+    `\nHeight ${Number.isFinite(hgt)?fmt(hgt,2)+' m':'not resolved'} · score ${fmt(r[col.score],1)}\nState: ${human(r[col.state])} · relief check: ${human(r[col.relief_check])}`;
+  tip.hidden=false;const x=(event.clientX-rect.left)+14,y=(event.clientY-rect.top)+14;
+  tip.style.left=Math.min(x,rect.width-270)+'px';tip.style.top=Math.min(y,rect.height-90)+'px';
+}
+function drawSizingHistogram(s){
+  const canvas=$('sizing-hist'),ctx=canvas.getContext('2d'),col=sizingColumns(s);
+  const bounds=s.casters.map(r=>r[col.height_lower_bound_m]).filter(Number.isFinite);
+  ctx.fillStyle='#0b1521';ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(!bounds.length){ctx.fillStyle='#91a6ba';ctx.font='12px system-ui';ctx.textAlign='center';ctx.fillText('No height bounds yet',canvas.width/2,canvas.height/2);return;}
+  const top=Math.max(HEIGHT_TOP,Math.ceil(Math.max(...bounds)*10)/10),bins=Math.round(top/.1),counts=new Array(bins).fill(0);
+  for(const b of bounds)counts[Math.min(bins-1,Math.floor(b/.1))]++;
+  const left=34,right=12,bottom=24,topPad=12,pw=canvas.width-left-right,ph=canvas.height-bottom-topPad,max=Math.max(...counts),bw=pw/bins;
+  ctx.strokeStyle='#293a4d';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,topPad+ph+.5);ctx.lineTo(left+pw,topPad+ph+.5);ctx.stroke();
+  counts.forEach((n,i)=>{if(!n)return;const bh=n/max*ph,x=left+i*bw+1,y=topPad+ph-bh;ctx.fillStyle=rampColor((i+.5)*.1);ctx.beginPath();ctx.roundRect(x,y,Math.max(1,bw-2),bh,[3,3,0,0]);ctx.fill();});
+  ctx.fillStyle='#91a6ba';ctx.font='10px system-ui';ctx.textAlign='center';
+  for(let v=0;v<=top+1e-9;v+=.3)ctx.fillText(v.toFixed(1),left+v/.1*bw,canvas.height-8);
+  ctx.textAlign='right';ctx.fillText(String(max),left-6,topPad+8);ctx.fillText('0',left-6,topPad+ph);
+  const cx=left+s.clearance_m/.1*bw;ctx.setLineDash([4,3]);ctx.strokeStyle='rgba(255,255,255,.7)';ctx.beginPath();ctx.moveTo(cx,topPad);ctx.lineTo(cx,topPad+ph);ctx.stroke();ctx.setLineDash([]);
+  ctx.textAlign='left';ctx.fillStyle='#c5d7e6';ctx.fillText(`${s.clearance_m} m`,cx+4,topPad+9);
+}
+function renderSizing(){
+  const s=state.snapshot?.sizing;$('sizing-panel').hidden=!s;if(!s)return;
+  text('sizing-title',SIZING_PHASES[s.phase]||human(s.phase));
+  $('sizing-progress').max=s.total||1;$('sizing-progress').value=s.done||0;
+  const elapsed=(Date.parse(s.updated)-Date.parse(s.started))/1000,rate=elapsed>=10&&s.done>=3?s.done/elapsed:0;
+  const left=rate>0?(s.total-s.done)/rate:null,eta=left===null?'':left<90?` · about ${Math.round(left)} s left`:` · about ${Math.round(left/60)} min left`;
+  text('sizing-count',`${s.done.toLocaleString()} / ${s.total.toLocaleString()} cells${rate>0?` · ${(rate*60).toFixed(rate*60<10?1:0)} per min`:''}${s.done<s.total?eta:' · done'}`);
+  const cur=currentCell(s),a=state.snapshot?.kind==='adaptive'?state.snapshot.adaptive:null;
+  let now='';
+  if(cur){const d=distanceTo(s,cur[0],cur[1]);now=`${a?'Now measuring':'Last cell'}: row ${cur[0]}, column ${cur[1]}${d!==null?`, ${fmt(d,1)} m from the touchdown`:''}.`;
+    if(a)now+=` Pass ${a.scale}×, fitting radius ${a.support_px} px, ${human(a.status)}. Height compatibility ${a.height_range_m?.map(v=>fmt(v,2)).join('–')??'not yet'} m.`;
+    else if(s.current?.relief_check&&s.phase==='relief check')now+=` Relief check: ${human(s.current.relief_check)}.`;}
+  text('sizing-now',now||'Waiting for the first cell.');
+  drawSizingMap(s);drawSizingHistogram(s);
+  const counts=$('sizing-counts');counts.replaceChildren();
+  const add=(k,v)=>{const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v;counts.append(dt,dd);};
+  const c=s.counts;
+  if(s.phase!=='relief check'){add('Cells measured',`${c.sized.toLocaleString()} of ${s.total.toLocaleString()}`);add('With warning evidence',c.with_warning_evidence.toLocaleString());
+    add('Height estimated',c.context_supported.toLocaleString());add(`Lower bound ≥ ${s.clearance_m} m`,c.exceeding_clearance.toLocaleString());}
+  const rel=s.relief||{},checked=Object.values(rel).reduce((m,v)=>m+v,0);
+  if(checked)add('Relief check',`${rel.rock_like||0} rock-like · ${rel.ambiguous||0} ambiguous · ${rel.relief_like||0} relief-like · ${rel.none||0} none`);
+  const col=sizingColumns(s),body=$('sizing-nearest');body.replaceChildren();
+  const near=s.casters.filter(r=>Number.isFinite(r[col.distance_to_touchdown_m])).sort((x,y)=>x[col.distance_to_touchdown_m]-y[col.distance_to_touchdown_m]).slice(0,8);
+  for(const r of near){const tr=document.createElement('tr');for(const v of [fmt(r[col.distance_to_touchdown_m],1)+' m',Number.isFinite(r[col.height_lower_bound_m])?fmt(r[col.height_lower_bound_m],2)+' m':'--',Number.isFinite(r[col.height_m])?fmt(r[col.height_m],2)+' m':'--',human(r[col.state]),human(r[col.relief_check])]){const td=document.createElement('td');td.textContent=v;tr.append(td);}body.append(tr);}
+  if(!near.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent=s.phase==='relief check'?'Measurements start after the relief check.':'No measured cells yet.';tr.append(td);body.append(tr);}
+}
 function renderProducts(){
   const select=$('products'), previous=select.value, items=state.artifacts||[];
   const ids=JSON.stringify(items.map(a=>a.path));
@@ -139,12 +225,15 @@ function renderProducts(){
 }
 function render(){
   text('run-name',state.run_name);text('activity',state.snapshot?.message||state.stages.find(r=>r.id===state.selected_stage)?.title||'Waiting for the campaign to start');
-  const label={live:'Live',stale:'No recent heartbeat',finished:'Run finished',interrupted:'Run interrupted',no_heartbeat:'Saved output / no heartbeat'}[state.health]||state.health;
+  const label={live:'Live',quiet:'Running · quiet step',stale:'No recent heartbeat',finished:'Run finished',interrupted:'Run interrupted',no_heartbeat:'Saved output / no heartbeat'}[state.health]||state.health;
   text('health',label);$('health').className='badge '+state.health;
-  text('heartbeat',state.heartbeat_age_seconds===null?'No heartbeat from this runner':`Last heartbeat ${Math.round(state.heartbeat_age_seconds)}s ago`);
-  const notice=state.health==='stale'?'The runner has stopped sending heartbeats. The displayed results are saved snapshots; its process may have stopped or lost access to the output folder.':state.health==='no_heartbeat'?'This run has no live heartbeat. Saved images and logs are available; live calculation snapshots require the updated runner.':state.input_error?`Input preview unavailable: ${state.input_error}`:'';
+  const inferred=state.heartbeat_source==='inferred',age=state.heartbeat_age_seconds;
+  text('heartbeat',age===null?'No heartbeat from this runner':inferred?`Last activity ${age<120?Math.round(age)+'s':Math.round(age/60)+' min'} ago · stages started directly`:`Last heartbeat ${Math.round(age)}s ago`);
+  const notice=state.health==='quiet'?`No new snapshot for ${Math.round(age/60)} min. Long steps, such as the shape-from-shading solve, report only when they finish.`:
+    state.health==='stale'?(inferred?'No stage has written a snapshot or log line for 15 minutes. The displayed results are saved snapshots; the process may have stopped.':'The runner has stopped sending heartbeats. The displayed results are saved snapshots; its process may have stopped or lost access to the output folder.'):
+    state.health==='no_heartbeat'?'This run has no live heartbeat. Saved images and logs are available; live calculation snapshots require the updated runner.':state.input_error?`Input preview unavailable: ${state.input_error}`:'';
   $('notice').hidden=!notice;text('notice',notice);
-  renderStages();renderFrames();renderTerrain();renderCalculation();renderMaps();renderProducts();
+  renderStages();renderFrames();renderTerrain();renderCalculation();renderSizing();renderMaps();renderProducts();
   const log=$('log'), atBottom=log.scrollHeight-log.scrollTop-log.clientHeight<40;log.textContent=state.log||'Waiting for output…';if(atBottom)log.scrollTop=log.scrollHeight;
 }
 let fetching=false;
@@ -153,5 +242,8 @@ $('frames').onchange=()=>{selectedFrame=Number($('frames').value);renderFrames()
 $('play').onclick=()=>{playing=!playing;$('play').setAttribute('aria-pressed',String(playing));text('play',playing?'Pause frames':'Play frames');};
 $('follow').onclick=()=>{selectedStage=null;updateFollow();poll();};
 $('products').onchange=renderProducts;
+$('sizing-map').onmousemove=sizingTip;$('sizing-map').onmouseleave=()=>{$('sizing-tip').hidden=true;};
 setInterval(()=>{if(playing&&state?.inputs?.frames.length){selectedFrame=(selectedFrame+1)%state.inputs.frames.length;renderFrames();renderCalculation();}},1000);
 setInterval(poll,2000);poll();
+// Browsers throttle timers in background tabs; catch up as soon as the tab is shown.
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});

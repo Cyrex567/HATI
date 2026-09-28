@@ -1,5 +1,7 @@
 """Read-only observer, numerical invariance, path boundaries and heartbeat tests."""
+from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -43,6 +45,28 @@ class LiveWatchTests(unittest.TestCase):
             self.assertAlmostEqual(sum(fit['frame_delta_chi2']),fit['score']**2,places=8)
             self.assertAlmostEqual(fit['index'],fit['score']/(fit['score']+fit['score_scale']))
             self.assertEqual(len(fit['observed']),len(fit['frames']))
+
+    def test_runner_record_survives_a_viewer_read_during_its_update(self):
+        from run_saturation_campaign import write_json
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/'campaign.json';write_json(target,dict(stage=1))
+            reader=open(target,'rb')                   # HATI Watch mid-read
+            threading.Timer(.15,reader.close).start()  # the read finishes shortly after
+            write_json(target,dict(stage=2))           # the runner's update waits instead of aborting
+            self.assertEqual(json.loads(target.read_text())['stage'],2)
+            self.assertEqual(list(Path(tmp).glob('*.part')),[])
+
+    def test_snapshot_write_retries_while_the_viewer_holds_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real=os.replace;calls=[0]
+            def busy(src,dst):
+                calls[0]+=1
+                if calls[0]<3:raise PermissionError(5,'Access is denied')
+                return real(src,dst)
+            with patch('live_feedback.os.replace',side_effect=busy):
+                atomic_json(Path(tmp)/'live/T14.json',dict(message='written'))
+            self.assertEqual(json.loads((Path(tmp)/'live/T14.json').read_text())['message'],'written')
+            self.assertEqual(calls[0],3);self.assertEqual(list((Path(tmp)/'live').glob('*.part')),[])
 
     def test_display_write_failure_is_nonfatal(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -134,6 +158,47 @@ class LiveWatchTests(unittest.TestCase):
             self.assertEqual(state['health'],'stale');self.assertIsNone(state['snapshot'])
             heartbeat=Heartbeat(run);heartbeat.start();heartbeat.close()
             self.assertEqual(WatchStore(run).state()['health'],'finished')
+
+    def test_stages_started_without_the_runner_are_followed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run=Path(tmp);now=datetime.now(timezone.utc)
+            atomic_json(run/'live/T13.json',dict(stage='T13',updated=(now-timedelta(minutes=30)).isoformat()))
+            atomic_json(run/'stages/T13/result.json',dict(status='PARTIAL',reason='classes are research labels'))
+            atomic_json(run/'live/T14.json',dict(stage='T14',kind='stage',message='T14: sizing',updated=now.isoformat()))
+            # A result left by an earlier run of T14 must not mark the rerun finished.
+            old=run/'stages/T14/result.json';atomic_json(old,dict(status='PARTIAL'))
+            stamp=(now-timedelta(hours=2)).timestamp();os.utime(old,(stamp,stamp))
+            state=WatchStore(run).state()
+            self.assertEqual([(r['id'],r['status']) for r in state['stages']],[('T13','PARTIAL'),('T14','RUNNING')])
+            self.assertEqual((state['active_stage'],state['health'],state['heartbeat_source']),('T14','live','inferred'))
+            self.assertEqual(state['snapshot']['message'],'T14: sizing')
+            # A long silent step is quiet, not stale; a stage silent for hours with no result is stale.
+            for minutes,health,status in ((5,'quiet','RUNNING'),(120,'stale','STALE')):
+                atomic_json(run/'live/T14.json',dict(stage='T14',updated=(now-timedelta(minutes=minutes)).isoformat()))
+                stamp=(now-timedelta(minutes=minutes)).timestamp();os.utime(run/'live/T14.json',(stamp,stamp))
+                os.utime(old,(stamp-7200,stamp-7200))
+                state=WatchStore(run).state()
+                self.assertEqual((state['health'],state['stages'][1]['status']),(health,status))
+
+    def test_sizing_feed_streams_every_cell_without_nan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live=LiveFeedback(tmp,'T14',interval=0)
+            live.sizing_start('relief check',2,image_shape=(64,64),touchdown=(10.,10.),pixel_m=.9,clearance_m=.3)
+            live.sizing_relief(5,5,'rock_like');live.sizing_relief(6,6,None)
+            self.assertEqual(live.sizing_state['relief']['rock_like'],1);self.assertEqual(live.sizing_state['relief']['unchecked'],1)
+            live.sizing_start('detections',2,image_shape=(64,64),touchdown=(10.,10.),pixel_m=.9,clearance_m=.3)
+            live.sizing_row(dict(row_px=12,col_px=10,state='context_supported_unvalidated',height_lower_bound_m=.45,
+                                 height_m=.6,censored=False,score=11.),relief='rock_like')
+            live.sizing_row(dict(row_px=40,col_px=40,state='unresolved_scale_limit',height_lower_bound_m=None,height_m=float('nan')))
+            s=json.loads((Path(tmp)/'live/T14.json').read_text())['sizing']
+            self.assertEqual((s['phase'],s['done'],s['total']),('detections',2,2))
+            self.assertEqual(s['counts'],dict(sized=2,with_warning_evidence=1,context_supported=1,exceeding_clearance=1))
+            col={k:i for i,k in enumerate(s['columns'])}
+            self.assertAlmostEqual(s['casters'][0][col['distance_to_touchdown_m']],2*.9)
+            self.assertEqual(s['casters'][0][col['relief_check']],'rock_like')
+            self.assertIsNone(s['casters'][1][col['height_m']])
+            json.dumps(WatchStore(tmp).state(),allow_nan=False)   # the viewer re-serialises strictly
+            self.assertFalse(live.warned)
 
     def test_source_preview_of_existing_bundle_does_not_modify_run(self):
         from test_saturation_campaign import tiny_bundle

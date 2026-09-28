@@ -173,6 +173,19 @@ class CompetitionTests(unittest.TestCase):
 
 
 class ShapeFromShadingTests(unittest.TestCase):
+    def test_solver_progress_is_display_only(self):
+        stack = render_relief((40, 40), AZ, EL, pixel_m=.9, seed=4, noise=.01,
+                              features=[relief_feature('mound', 8., 3., centre_px=(20, 20))])['stack']
+        valid = np.ones_like(stack, bool)
+        plain = solve_sfs(stack, valid, AZ, EL, .9, grid_px=1, iterations=300, passes=2)
+        seen = []
+        watched = solve_sfs(stack, valid, AZ, EL, .9, grid_px=1, iterations=300, passes=2, progress=seen.append)
+        for key in ('height_m', 'corrected', 'predicted_ratio', 'planes'):
+            np.testing.assert_array_equal(plain[key], watched[key], err_msg=key)
+        self.assertEqual(plain['lsqr_iterations'], watched['lsqr_iterations'])
+        self.assertEqual({s['pass_index'] for s in seen}, {1, 2})
+        self.assertLessEqual(max(s['iteration'] for s in seen), 302)
+
     def test_planted_relief_is_recovered_and_rock_shadows_survive(self):
         features = [relief_feature('mound', 8., 2., centre_px=(30, 30)), relief_feature('bowl', 10., 3., centre_px=(66, 70)),
                     relief_feature('ripples', 6., 1., seed=2)]

@@ -61,7 +61,16 @@ def write_json(path, value):
     path = Path(path)
     temp = path.with_suffix(path.suffix+'.part')
     temp.write_text(json.dumps(value, indent=2, allow_nan=False)+'\n', encoding='utf-8')
-    temp.replace(path)
+    # On Windows the rename is refused while HATI Watch has the old file open for a
+    # read, and the run used to abort on it; the read takes milliseconds, so retry.
+    for attempt in range(40):
+        try:
+            temp.replace(path)
+            return
+        except PermissionError:
+            if attempt == 39:
+                raise
+            time.sleep(.025)
 
 
 def utc():

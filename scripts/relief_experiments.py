@@ -52,6 +52,19 @@ def _slope_limit(ex):
     return float(ex.run.get('landing', {}).get('slope_limit_deg', ex.cfg.get('relief_slope_limit_deg', 8.)))
 
 
+def _solver_progress(ex, what, every=2.):
+    """HATI Watch message for a running shape-from-shading solve; display only."""
+    last = [-float('inf')]
+    def report(info):
+        if time.monotonic()-last[0] < every:
+            return
+        last[0] = time.monotonic()
+        ex.live.update(force=True, kind='stage', solver=info,
+                       message=f'T14: {what} · pass {info["pass_index"]} of {info["passes"]} · '
+                               f'iteration {info["iteration"]:,} of at most {info["iterations"]:,}')
+    return report
+
+
 def _progress(ex, message, done, total, started, last):
     if time.monotonic()-last[0] > 15 or done == total:
         rate = (time.monotonic()-started)/max(done, 1)
@@ -350,7 +363,7 @@ def _t13_rule(ex):
     return (d['margins'], d['competition_sigma'], tuple(d.get('relief_scales_m', [.9, 1.8, 3.6]))) if d.get('margins') else None
 
 
-def _size_casters(ex, stack, cells, sigma, terrain=None):
+def _size_casters(ex, stack, cells, sigma, terrain=None, phase=None, relief=None, touchdown=None):
     """Adaptive height and width refinement (T9's machinery) at the given cells of a stack.
 
     terrain, the shape-from-shading surface, replaces the planar receiving surface
@@ -361,7 +374,8 @@ def _size_casters(ex, stack, cells, sigma, terrain=None):
     reaches the window edge. Otherwise it is the lower end of the compatible
     height range, which injected rocks show can overshoot. A height estimate is
     reported only when the context expansion reached stable, endpoint-supported
-    dimensions.
+    dimensions. With a phase name, every pass and finished cell also goes to HATI
+    Watch; relief maps cell centres to T13 labels for that display.
     """
     from dataclasses import replace
     from src.hati_core.adaptive_shadow import AdaptiveConfig, refine_regions
@@ -373,30 +387,44 @@ def _size_casters(ex, stack, cells, sigma, terrain=None):
     # A queue of exactly these cells: plan_regions requests baseline warnings only.
     baseline = dict(status=chosen.astype(np.uint8), score=np.where(chosen, cfg.warning_score+1., 0.),
                     endpoint_censored=np.zeros(shape), endpoint_missing_count=np.zeros(shape))
-    records = []
-    refine_regions(stack, ex.data['visibility'], ex.data['azimuths'], ex.data['elevations'], sigma, ex.sc, ex.rc,
-                   replace(cfg, max_cells=0), baseline, ex.data['slope_row'], ex.data['slope_col'], on_record=records.append,
-                   terrain=terrain)
     clearance = ex.cfg.get('sfs_clearance_m', .3)
-    out = []
-    for record in records:
-        warned = [h for h in record['history'] if h.get('status') == 'assessed' and h['best']['score'] >= cfg.warning_score]
-        row = dict(row_px=int(record['centre'][0]), col_px=int(record['centre'][1]), state=record['status'],
-                   scales_warning=[h['scale'] for h in warned], height_lower_bound_m=None, height_m=None)
-        if warned:
-            last = warned[-1]
-            censored = bool(last['endpoint_censored'])
-            reach_m = (last['support_px']-float(np.hypot(*last['best']['root_offset'])))*ex.sc.pixel_m
-            geometric = reach_m*float(np.tan(np.radians(np.min(np.asarray(ex.data['elevations'])[last['frames']]))))
-            bound = geometric if censored else float(last['height_range_m'][0])
-            row.update(score=float(last['best']['score']), width_m=float(last['best']['width_m']), censored=censored,
-                       height_lower_bound_m=bound, compatible_range_m=[float(v) for v in last['height_range_m']],
-                       exceeds_clearance=bool(bound >= clearance))
-            final = record.get('final')
-            if record['status'] == 'context_supported_unvalidated' and final:
-                row.update(height_m=float(final['best']['height_m']), height_range_m=[float(v) for v in final['height_range_m']])
-        out.append(row)
-    return out
+    records, watch = [], {}
+    if phase is not None:
+        # HATI Watch follows every pass and every finished cell; display only.
+        label = f'T14 sizing {phase}'
+        ex.live.sizing_start(phase, len(cells), image_shape=shape, touchdown=touchdown, pixel_m=ex.sc.pixel_m,
+                             clearance_m=clearance)
+        watch = dict(observer=lambda info: ex.live.adaptive(info, subrun=label),
+                     progress=lambda info: ex.live.adaptive_progress(info, label=label))
+    def collect(record):
+        records.append(record)
+        if phase is not None:
+            row = _caster_row(ex, cfg, record, clearance)
+            ex.live.sizing_row(row, relief=(relief or {}).get((row['row_px'], row['col_px'])))
+    refine_regions(stack, ex.data['visibility'], ex.data['azimuths'], ex.data['elevations'], sigma, ex.sc, ex.rc,
+                   replace(cfg, max_cells=0), baseline, ex.data['slope_row'], ex.data['slope_col'], on_record=collect,
+                   terrain=terrain, **watch)
+    return [_caster_row(ex, cfg, record, clearance) for record in records]
+
+
+def _caster_row(ex, cfg, record, clearance):
+    """T14's record for one sized cell: warning scales, height lower bound and, where supported, a height."""
+    warned = [h for h in record['history'] if h.get('status') == 'assessed' and h['best']['score'] >= cfg.warning_score]
+    row = dict(row_px=int(record['centre'][0]), col_px=int(record['centre'][1]), state=record['status'],
+               scales_warning=[h['scale'] for h in warned], height_lower_bound_m=None, height_m=None)
+    if warned:
+        last = warned[-1]
+        censored = bool(last['endpoint_censored'])
+        reach_m = (last['support_px']-float(np.hypot(*last['best']['root_offset'])))*ex.sc.pixel_m
+        geometric = reach_m*float(np.tan(np.radians(np.min(np.asarray(ex.data['elevations'])[last['frames']]))))
+        bound = geometric if censored else float(last['height_range_m'][0])
+        row.update(score=float(last['best']['score']), width_m=float(last['best']['width_m']), censored=censored,
+                   height_lower_bound_m=bound, compatible_range_m=[float(v) for v in last['height_range_m']],
+                   exceeds_clearance=bool(bound >= clearance))
+        final = record.get('final')
+        if record['status'] == 'context_supported_unvalidated' and final:
+            row.update(height_m=float(final['best']['height_m']), height_range_m=[float(v) for v in final['height_range_m']])
+    return row
 
 
 def _cell_containing(table, r, c):
@@ -485,8 +513,11 @@ def t14(ex):
         solver = solve_sfs
         options.update(iterations=cfg.get('sfs_iterations', 1500), passes=cfg.get('sfs_passes', 1))
     ex.live.update(force=True, kind='stage', message='T14: solving shape from shading')
+    def watch(what):
+        return dict(progress=_solver_progress(ex, what)) if solver is solve_sfs else {}
     started = time.monotonic()
-    solved = solver(d['stack'], valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options)
+    solved = solver(d['stack'], valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,
+                    **watch('solving shape from shading'))
     print(f'T14 shape from shading: explained {solved["explained_fraction"]:.3f} of the frame-to-frame ratio variance '
           f'in {time.monotonic()-started:.0f}s ({solved["lsqr_iterations"]} iterations)', flush=True)
     crs = RasterCRS.from_wkt(ex.crs.to_wkt())
@@ -534,10 +565,13 @@ def t14(ex):
     placed = [(r+.3, c+.2, heights[i % len(heights)]) for i, (r, c) in enumerate(sites)]
     injection = []
     if placed:
+        ex.live.update(force=True, kind='stage', message=f'T14: rendering {len(placed)} planted rocks into the real images')
         factor = rock_factor(d['stack'].shape[1:], placed, d['azimuths'], d['elevations'], ex.sc.pixel_m,
                              seed=cfg['seed']+710000, supersample=cfg.get('relief_supersample', 4))
         injected = d['stack']*factor
-        solved_injected = solver(injected, valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options)
+        ex.live.update(force=True, kind='stage', message='T14: solving shape from shading with the planted rocks')
+        solved_injected = solver(injected, valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,
+                                 **watch('solving shape from shading with the planted rocks'))
         half = ex.sc.radius_px+12; last = [0.]
         for i, (r, c, height) in enumerate(placed):
             window = np.s_[int(r)-half:int(r)+half+1, int(c)-half:int(c)+half+1]
@@ -568,7 +602,7 @@ def t14(ex):
         site_cells = [_cell_containing(table, int(r), int(c)) for r, c, _ in placed]
         by_cell = {(s['row_px'], s['col_px']): s for s in
                    _size_casters(ex, solved_injected['corrected'], [row for row in site_cells if row is not None], sigma_after,
-                                 terrain=solved_injected['height_m'])}
+                                 terrain=solved_injected['height_m'], phase='planted rocks', touchdown=touchdown)}
         for row, cell in zip(injection, site_cells):
             size = by_cell.get((int(cell[4]), int(cell[5]))) if cell is not None else None
             row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
@@ -603,16 +637,20 @@ def t14(ex):
     rule = _t13_rule(ex); labels = {}
     if rule:
         margins, sigma13, scales = rule; radius = ex.sc.radius_px; last = [0.]; started = time.monotonic()
+        ex.live.sizing_start('relief check', len(examined), image_shape=d['stack'].shape[1:], touchdown=touchdown,
+                             pixel_m=ex.sc.pixel_m, clearance_m=cfg.get('sfs_clearance_m', .3))
         for i, (r0, r1, c0, c1, cr, cc) in enumerate(examined):
             sl = np.s_[:, cr-radius:cr+radius+1, cc-radius:cc+radius+1]
             slopes_rc = (float(d['slope_row'][cr, cc]), float(d['slope_col'][cr, cc]))
             if np.isfinite(slopes_rc).all():
                 labels[(int(cr), int(cc))] = classify(compare_models(solved['corrected'][sl], valid[sl], d['azimuths'], d['elevations'],
                                                                      sigma13, ex.sc, ex.rc, scales, slopes_rc), margins)
+            ex.live.sizing_relief(cr, cc, labels.get((int(cr), int(cc))))
             _progress(ex, 'T14 relief check on caster candidates', i+1, len(examined), started, last)
     # Relief-like cells go to the terrain module; 'none' means no model predicts the withheld frames.
     keep = [row for row in examined if not rule or labels.get((int(row[4]), int(row[5]))) in ('rock_like', 'ambiguous')]
-    casters = _size_casters(ex, solved['corrected'], keep, sigma_after, terrain=solved['height_m']) if keep else []
+    casters = _size_casters(ex, solved['corrected'], keep, sigma_after, terrain=solved['height_m'], phase='detections',
+                            relief=labels, touchdown=touchdown) if keep else []
     for row in casters:
         row['relief_check'] = labels.get((row['row_px'], row['col_px']))
         row['distance_to_touchdown_m'] = float(np.hypot(row['row_px']-touchdown[0], row['col_px']-touchdown[1])*ex.sc.pixel_m)
