@@ -253,4 +253,106 @@ class LandingTests(unittest.TestCase):
             self.assertEqual(report['shadow_buffer_method'],'all_sampled_roots_exact_distance_v1')
 
 
+class ReliefMapTests(unittest.TestCase):
+    """Relief option: SfS before the shadow search, terrain shadows and the merged-surface terrain map."""
+    AZ=[43.1,43.5,69.,73.7,326.7,354.6,6.,24.9]; EL=[4.35,3.59,3.47,3.38,3.58,3.63,3.28,3.69]
+
+    def test_merged_surface_keeps_the_dem_broad_and_the_sfs_fine(self):
+        from src.hati_core.relief_terrain import merged_surface,_lowpass
+        yy,xx=np.indices((96,96),dtype=float)
+        broad=.02*yy+1.5*np.sin(xx/30.)                     # DEM-scale shape
+        fine=.3*np.sin(xx/1.4)*np.cos(yy/1.7)                # metre-scale relief the DEM cannot resolve
+        detail=fine+.8*np.sin(xx/30.+1)                      # SfS also carries (wrong) broad content
+        surface,kept=merged_surface(broad,detail,3.6,.9)
+        inner=np.s_[12:-12,12:-12]; sigma=3.6/.9
+        np.testing.assert_allclose(_lowpass(surface,sigma)[inner],_lowpass(broad,sigma)[inner],atol=.05)
+        self.assertGreater(np.corrcoef(kept[inner].ravel(),fine[inner].ravel())[0,1],.95)
+
+    def test_relief_shadow_and_lower_bound_follow_the_sun(self):
+        from src.hati_core.relief_terrain import relief_visibility,slope_lower_bound,combine_visibility,lower_bound_terrain
+        z=np.zeros((60,120)); z[:,30:]=1.                    # 1 m step up toward the east
+        vis=relief_visibility(z,.5,[90.],[5.],20.)[0]        # Sun in the east: shadow west of the step
+        shadow=np.flatnonzero(vis[30]<.5)
+        self.assertAlmostEqual(30-shadow.min(),1/np.tan(np.radians(5))/.5,delta=2)
+        self.assertTrue((vis[30,31:79]>.99).all())           # on top, rays stay on the grid
+        self.assertTrue(np.isnan(vis[30,85:]).all())         # rays leaving the grid establish nothing
+        ramp=np.indices((40,40))[1]*.9*np.tan(np.radians(8.))  # rises toward the east at 8 degrees
+        self.assertTrue(slope_lower_bound(ramp,.9,[90.],[4.])[5:-5,5:-5].all())     # Sun in the east: it faces away
+        self.assertFalse(slope_lower_bound(ramp,.9,[270.],[4.]).any())               # Sun in the west: it faces the Sun
+        self.assertFalse(slope_lower_bound(ramp,.9,[90.],[10.]).any())               # Sun higher than the slope
+        both=combine_visibility(np.ones((2,4,4)),np.full((2,4,4),.5),lit=np.array([[[True]*4]*4,[[False]*4]*4]))
+        self.assertEqual((both[0,0,0],both[1,0,0]),(.5,0.))
+        score=np.full((20,20),.3); score[15,15]=.7; lower=np.zeros((20,20),bool); lower[15,14]=True
+        kept,touched=lower_bound_terrain(score,lower,1.,4.)
+        self.assertTrue(np.isnan(kept[15,12]) and kept[15,15]==.7 and kept[2,2]==.3 and touched[15,12])
+
+    def relief_inputs(self):
+        from affine import Affine
+        from rasterio.crs import CRS
+        from src.hati_core.relief_scenes import relief_feature,render_relief
+        from src.hati_core.rock_scenes import make_rock
+        crs=CRS.from_string('+proj=stere +lat_0=-90 +lon_0=0 +R=1737400 +units=m')
+        rock=make_rock(5,(40.3,24.2),.6,.6,aspect=1.35)
+        stack=render_relief((64,64),self.AZ,self.EL,pixel_m=.9,seed=7,noise=.01,
+                            features=[relief_feature('mound',10.,3.,centre_px=(24,40)),relief_feature('ripples',6.,1.,seed=2)],
+                            rocks=[rock])['stack']
+        sweep=dict(stack=stack,azimuths=self.AZ,elevations=self.EL,transform=Affine(.9,0,0,0,-.9,0),crs=crs,pixel_m=.9)
+        # A flat DEM at 3.6 m posting reaching 43.2 m beyond the window: it cannot see the relief.
+        context=dict(dem=np.zeros((40,40)),pixel_m=3.6,transform=Affine(3.6,0,-43.2,0,-3.6,43.2),crs=crs,
+                     source='synthetic flat DEM',halo_m=43.2)
+        cfg=LandingConfig(baselines_m=(8.,16.),horizon_distance_m=10.,dem_vertical_sigma_m=0.,navigation_margin_m=0.)
+        return sweep,context,cfg
+
+    def test_relief_off_never_calls_the_solver(self):
+        from landing_maps import run
+        sweep,context,cfg=self.relief_inputs()
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch('src.hati_core.relief_terrain.solve_relief',side_effect=AssertionError('relief solver called')):
+            outputs=[]
+            for relief in (None,dict(model='none')):
+                folder=Path(tmp)/str(len(outputs))
+                report=run(sweep,context,folder,cfg,ShadowConfig(registration_sigma_px=.25),
+                           RegionalConfig(heights_m=(.3,),widths_m=(.6,)),.01,relief=relief)
+                self.assertNotIn('relief',report); self.assertFalse(report['footprint_resolved'])
+                outputs.append({p.name:p.read_bytes() for p in folder.glob('*.tif')})
+            self.assertEqual(outputs[0],outputs[1])
+            self.assertFalse(any(name.startswith(('relief_','surface_')) for name in outputs[0]))
+
+    def test_relief_corrects_measures_noise_masks_shadows_and_qualifies_terrain(self):
+        import rasterio
+        from landing_maps import run
+        sweep,context,cfg=self.relief_inputs()
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp)/'out'
+            report=run(sweep,context,out,cfg,ShadowConfig(registration_sigma_px=.25),
+                       RegionalConfig(heights_m=(.3,),widths_m=(.6,)),.01,
+                       relief=dict(model='linear',solver=dict(iterations=600),horizon_m=20.))
+            r=report['relief']
+            self.assertEqual((r['model'],r['solver']['grid_px'],r['solver']['passes'],r['solver']['iterations']),('linear',1,2,600))
+            self.assertGreater(r['explained_fraction'],.5)
+            self.assertGreaterEqual(r['noise_sigma_used'],r['noise_sigma_assumed'])
+            self.assertEqual(report['shadow_configuration']['noise_sigma'],r['noise_sigma_used'])
+            # At image posting the 8 m footprint is resolved, so terrain can qualify.
+            self.assertTrue(report['footprint_resolved'])
+            saved=json.loads((out/'run.json').read_text())
+            self.assertEqual(saved['relief']['solver'],r['solver'])
+            for name in ('relief_surface','relief_fine','relief_lower_bound','relief_footprint_lower_bound',
+                         'relief_visible_min','relief_sfs_slope_deg','surface_8.0m_slope_deg','fusion_status'):
+                self.assertTrue((out/(name+'.tif')).exists(),name)
+            with rasterio.open(out/'terrain_qualified.tif') as src:
+                self.assertGreater(float(np.nanmean(src.read(1))),0.)
+            self.assertTrue((out/'relief_corrected_stack.npz').exists())
+
+    def test_nonlinear_solver_reports_the_pixels_it_corrected(self):
+        from src.hati_core.relief_terrain import solve_relief
+        sweep,_,_=self.relief_inputs()
+        stack=sweep['stack']
+        solved,lit=solve_relief(stack,np.isfinite(stack),self.AZ,self.EL,.9,'nonlinear',dict(iterations=200,gauss_newton=2))
+        self.assertEqual(lit.shape,stack.shape)
+        unchanged=np.asarray(solved['corrected'])[~lit]
+        np.testing.assert_array_equal(unchanged,stack[~lit])
+        with self.assertRaises(ValueError):
+            solve_relief(stack,np.isfinite(stack),self.AZ,self.EL,.9,'none')
+
+
 if __name__=='__main__': unittest.main()

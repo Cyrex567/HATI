@@ -339,10 +339,11 @@ def t13(ex):
 
 # ---------------------------------------------------------------------- T14
 
-def _injection_sites(common, count, spacing, margin, touchdown, seed):
+def _injection_sites(common, count, spacing, margin, touchdown, seed, offset=0):
+    """Sites at least spacing apart on a half-spacing grid; offset shifts the grid for another round."""
     rng = np.random.default_rng(seed)
     H, W = common.shape
-    candidates = [(r, c) for r in range(margin, H-margin, spacing//2) for c in range(margin, W-margin, spacing//2)
+    candidates = [(r, c) for r in range(margin+offset, H-margin, spacing//2) for c in range(margin+offset, W-margin, spacing//2)
                   if common[r-8:r+9, c-8:c+9].all() and np.hypot(r-touchdown[0], c-touchdown[1]) > spacing]
     rng.shuffle(candidates)
     chosen = []
@@ -560,19 +561,35 @@ def t14(ex):
     # Injection: rendered rocks multiplied into the real images, then the same correction and detector.
     ex.live.update(force=True, kind='stage', message='T14: injecting rendered rocks into the real images')
     heights = cfg.get('sfs_injection_heights_m', [.3, .6, 1.2])
-    sites = _injection_sites(solved['common'], cfg.get('sfs_injection_sites', 24), cfg.get('sfs_injection_spacing_px', 40),
-                             max(ex.sc.radius_px+20, 36), touchdown, cfg['seed']+700000)
-    placed = [(r+.3, c+.2, heights[i % len(heights)]) for i, (r, c) in enumerate(sites)]
-    injection = []
-    if placed:
-        ex.live.update(force=True, kind='stage', message=f'T14: rendering {len(placed)} planted rocks into the real images')
+    rounds = cfg.get('sfs_injection_rounds', 1)
+    if type(rounds) is not int or rounds < 1:
+        raise ValueError('sfs_injection_rounds must be a positive integer')
+    requested, spacing = cfg.get('sfs_injection_sites', 24), cfg.get('sfs_injection_spacing_px', 40)
+    injection, round_log = [], []
+    table = cell_table(d['stack'].shape[1:], ex.sc, ex.rc)
+    half = ex.sc.radius_px+12
+    for k in range(rounds):
+        # Each round shifts the site grid by a fraction of its step, so the rounds sample different ground;
+        # the first round is the single-round grid.
+        offset = int(round(k*spacing/(2*rounds)))
+        sites = _injection_sites(solved['common'], requested, spacing, max(ex.sc.radius_px+20, 36), touchdown,
+                                 cfg['seed']+700000+1000*k, offset=offset)
+        placed = [(r+.3, c+.2, heights[i % len(heights)]) for i, (r, c) in enumerate(sites)]
+        round_log.append(dict(round=k, grid_offset_px=offset, requested=requested, placed=len(placed)))
+        if not placed:
+            continue
+        tag = f' (round {k+1} of {rounds})' if rounds > 1 else ''
+        ex.live.update(force=True, kind='stage', message=f'T14: rendering {len(placed)} planted rocks into the real images{tag}')
         factor = rock_factor(d['stack'].shape[1:], placed, d['azimuths'], d['elevations'], ex.sc.pixel_m,
-                             seed=cfg['seed']+710000, supersample=cfg.get('relief_supersample', 4))
+                             seed=cfg['seed']+710000+1000*k, supersample=cfg.get('relief_supersample', 4))
         injected = d['stack']*factor
-        ex.live.update(force=True, kind='stage', message='T14: solving shape from shading with the planted rocks')
+        ex.live.update(force=True, kind='stage', message=f'T14: solving shape from shading with the planted rocks{tag}')
         solved_injected = solver(injected, valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,
-                                 **watch('solving shape from shading with the planted rocks'))
-        half = ex.sc.radius_px+12; last = [0.]
+                                 **watch(f'solving shape from shading with the planted rocks{tag}'))
+        # The rock alone: images with it minus images without it, before and after the correction.
+        # Background removal cancels in both, so their ratio is the rock signal the correction keeps.
+        rock_before, rock_after = injected-d['stack'], solved_injected['corrected']-solved['corrected']
+        last = [0.]; first = len(injection)
         for i, (r, c, height) in enumerate(placed):
             window = np.s_[int(r)-half:int(r)+half+1, int(c)-half:int(c)+half+1]
             root = (r-(int(r)-half), c-(int(c)-half))
@@ -582,32 +599,55 @@ def t14(ex):
                                      slope_row=d['slope_row'][window], slope_col=d['slope_col'][window])
                 return _root_score(fit, root)
             scores = dict(original=score(d['stack']), injected=score(injected),
-                          corrected=score(solved['corrected']), corrected_injected=score(solved_injected['corrected']))
+                          corrected=score(solved['corrected']), corrected_injected=score(solved_injected['corrected']),
+                          rock_only_before=score(rock_before), rock_only_after=score(rock_after))
             def recovered(base, test, factor=1.):
                 # Scores scale exactly as 1/sigma, so another noise level is a rescaling.
                 if base is None or test is None or base*factor >= ex.rc.score_scale:
                     return None                          # background already warning: recovery is undefined
                 return bool(test*factor >= ex.rc.score_scale)
+            def energy(a):
+                a = a[(slice(None), *window)]
+                return float(np.sum(np.where(np.isfinite(a), a, 0.)**2))
+            e_before, e_after = energy(rock_before), energy(rock_after)
             change = np.abs(solved_injected['height_m']-solved['height_m'])[window]
-            injection.append(dict(site=i, row_px=r, col_px=c, height_m=height, **{f'score_{k}': v for k, v in scores.items()},
+            injection.append(dict(round=k, site=len(injection), row_px=r, col_px=c, height_m=height,
+                                  **{f'score_{key}': v for key, v in scores.items()},
+                                  rock_signal_kept=(scores['rock_only_after']/scores['rock_only_before']
+                                                    if scores['rock_only_after'] is not None and scores['rock_only_before'] else None),
+                                  rock_amplitude_kept=float(np.sqrt(e_after/e_before)) if e_before > 0 else None,
                                   recovered_original_assumed=recovered(scores['original'], scores['injected']),
                                   recovered_corrected_assumed=recovered(scores['corrected'], scores['corrected_injected']),
                                   recovered_corrected_measured=recovered(scores['corrected'], scores['corrected_injected'],
                                                                          float(ex.noise)/sigma_after),
                                   surface_change_near_rock_m=float(np.nanmax(change[half-4:half+5, half-4:half+5]))))
-            _progress(ex, 'T14 injected sites', i+1, len(placed), started, last)
+            _progress(ex, f'T14 injected sites{tag}', i+1, len(placed), started, last)
         # The same sizing on rocks of known height, in the relief-corrected injected images.
-        ex.live.update(force=True, kind='stage', message='T14: sizing the injected rocks')
-        table = cell_table(d['stack'].shape[1:], ex.sc, ex.rc)
+        ex.live.update(force=True, kind='stage', message=f'T14: sizing the injected rocks{tag}')
         site_cells = [_cell_containing(table, int(r), int(c)) for r, c, _ in placed]
         by_cell = {(s['row_px'], s['col_px']): s for s in
                    _size_casters(ex, solved_injected['corrected'], [row for row in site_cells if row is not None], sigma_after,
-                                 terrain=solved_injected['height_m'], phase='planted rocks', touchdown=touchdown)}
-        for row, cell in zip(injection, site_cells):
+                                 terrain=solved_injected['height_m'], phase=f'planted rocks{tag}', touchdown=touchdown)}
+        for row, cell in zip(injection[first:], site_cells):
             size = by_cell.get((int(cell[4]), int(cell[5]))) if cell is not None else None
             row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
                        sized_height_lower_bound_m=size and size['height_lower_bound_m'])
     save(ex.out/'injection.json', injection)
+    absorption = {}
+    for height in heights:
+        kept = [r['rock_signal_kept'] for r in injection if r['height_m'] == height and r['rock_signal_kept'] is not None]
+        amplitude = [r['rock_amplitude_kept'] for r in injection if r['height_m'] == height and r['rock_amplitude_kept'] is not None]
+        absorption[f'{height:g} m'] = dict(
+            sites=len(kept), median_signal_kept=float(np.median(kept)) if kept else None,
+            p25_p75_signal_kept=[float(v) for v in np.percentile(kept, [25, 75])] if kept else None,
+            share_under_half=float(np.mean(np.asarray(kept) < .5)) if kept else None,
+            median_amplitude_kept=float(np.median(amplitude)) if amplitude else None)
+    small = [v['median_signal_kept'] for h, v in absorption.items() if float(h[:-2]) <= .6 and v['median_signal_kept'] is not None]
+    absorption_verdict = dict(
+        small_rock_signal_mostly_absorbed=bool(small) and max(small) < .5,
+        rule='If under half of the rock-only score survives for 0.3-0.6 m rocks, stop subtracting relief from the '
+             'data alone; model it as a nuisance both hypotheses see (the RegistrationProjector rule), so the '
+             'sensitivity layers count how much of each rock looks like relief.')
     recovery = {}
     for height in heights:
         for key in RECOVERY:
@@ -687,7 +727,8 @@ def t14(ex):
                      dem_slope_agreement=dem, residual_scale_after=dict(pooled_sigma=after_scale['pooled_sigma'],
                                                                          per_frame_sigma=after_scale['per_frame_sigma'],
                                                                          structure=after_scale['structure'], patches=after_scale['patches']),
-                     exceedance=exceedance, injection_recovery=recovery, injected_sites=len(placed), subpixel_casters=subpixel,
+                     exceedance=exceedance, injection_recovery=recovery, injected_sites=len(injection), injection_rounds=round_log,
+                     relief_absorption=absorption, relief_absorption_verdict=absorption_verdict, subpixel_casters=subpixel,
                      limitations=['First-order shading: slopes above the Sun elevation are underestimated and cast shadows are excluded, not modelled.',
                                   'The surface is relative; its mean and planes shared by every frame are unobserved.',
                                   'Recovery is counted only where the corrected background was quiet at the site.',

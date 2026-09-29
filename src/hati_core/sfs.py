@@ -312,6 +312,7 @@ def solve_sfs_nonlinear(stack, valid, azimuths, elevations, pixel_m, *, grid_px=
                 slope_deg=np.where(common, np.degrees(np.arctan(np.hypot(p, q))), np.nan),
                 predicted_ratio=np.where(common[None], np.exp(shading)-1, np.nan), corrected=corrected,
                 common=common, used=kept, planes=planes, explained_fraction=explained,
+                lit=common[None] & lit,     # the pixels corrected; the rest keep their relief shading
                 ratio_rms_before=float(np.sqrt(np.mean(before[kept]**2))), ratio_rms_after=float(np.sqrt(np.mean(after[kept]**2))),
                 used_fraction_per_frame=[float(u[common].mean()) for u in kept],
                 shadow_excluded_fraction=float(1-shadow_keep[observed].mean()),

@@ -78,6 +78,7 @@
   "sfs_iterations": 3000,
   "sfs_injection_sites": 48,
   "sfs_injection_spacing_px": 56,
+  "sfs_injection_rounds": 3,
   "sfs_injection_heights_m": [0.3, 0.6, 1.2],
   "sfs_sizing_cells": 0,
   "sfs_clearance_m": 0.3

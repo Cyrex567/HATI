@@ -288,7 +288,8 @@ class ReliefCampaignTests(unittest.TestCase):
                        relief_supersample=2, relief_kinds=['mound'], relief_sizes_m=[4.], relief_slopes_deg=[2.], relief_seeds=1,
                        relief_rock_heights_m=[.6], relief_scene_px=32, relief_competition_sizes_m=[4.],
                        relief_competition_slopes_deg=[2.], relief_calibration_seeds=2, relief_athena_cells=4,
-                       relief_touchdown_radius_px=4, sfs_injection_sites=2, sfs_injection_spacing_px=20)
+                       relief_touchdown_radius_px=4, sfs_injection_sites=2, sfs_injection_spacing_px=20,
+                       sfs_injection_rounds=2)
             config = out/'config.json'; config.write_text(json.dumps(cfg))
             def run(stage, fn):
                 args = Namespace(stage=stage, bundle=bundle, config=config, output=out/'stages'/stage,
@@ -320,6 +321,15 @@ class ReliefCampaignTests(unittest.TestCase):
             self.assertEqual(set(casters['injected_rock_sizing']), {'0.3 m', '0.6 m', '1.2 m'})
             injected = json.loads((out/'stages/T14/injection.json').read_text())
             self.assertTrue(all('sized_state' in r for r in injected))
+            # Two rounds on shifted grids; every site scores the rock alone before and after correction.
+            self.assertEqual([r['round'] for r in sfs['injection_rounds']], [0, 1])
+            self.assertEqual(sfs['injected_sites'], sum(r['placed'] for r in sfs['injection_rounds']))
+            self.assertEqual({r['round'] for r in injected}, {0, 1})
+            kept = [r['rock_signal_kept'] for r in injected if r['rock_signal_kept'] is not None]
+            self.assertTrue(kept and all(0 <= v < 2 for v in kept))
+            self.assertTrue(all(r['score_rock_only_before'] is not None for r in injected))
+            self.assertIn('small_rock_signal_mostly_absorbed', sfs['relief_absorption_verdict'])
+            self.assertEqual(set(sfs['relief_absorption']), {'0.3 m', '0.6 m', '1.2 m'})
             nulls = run('T16', t16)
             self.assertIn('relief_corrected_sigma', nulls['render_noise_source'])
             self.assertIn('ripples_2deg', {s['kind'] for s in nulls['summaries']})

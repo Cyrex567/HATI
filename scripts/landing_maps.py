@@ -122,8 +122,82 @@ def make_previews(output,maps,status,pixel,row,col,label):
     fig.tight_layout(); fig.savefig(output/'observability.png',dpi=160); plt.close(fig)
 
 
-def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=False,provenance=None,scene_cfg=None,live=None):
+RELIEF_DEFAULTS=dict(
+    # The campaign preset's T14 settings: a 1 px surface, a second pass without cast shadows.
+    linear=dict(grid_px=1,smoothness=1.,dark_ratio=.5,iterations=3000,passes=2,shadow_sigma=3.),
+    nonlinear=dict(grid_px=1,smoothness=1.,dark_ratio=.5,iterations=800,gauss_newton=6,shadow_sigma=3.))
+
+
+def relief_correction(sweep,context,cfg,shadow_cfg,noise_sigma,nominal,conservative,slope_row,slope_col,relief,live=None):
+    """Shape from shading on the window: corrected images, the noise left after it,
+    terrain shadows on the merged DEM+SfS surface, and the terrain map on that surface."""
+    from affine import Affine
+    from src.hati_core.noise_scale import NoiseScaleConfig,measure_residual_scale
+    from src.hati_core.relief_terrain import (solve_relief,merged_surface,relief_visibility,slope_lower_bound,
+                                              combine_visibility,lower_bound_terrain)
+    stack=np.asarray(sweep['stack'],float); pixel=sweep['pixel_m']; az,el=sweep['azimuths'],sweep['elevations']
+    n,H,W=stack.shape
+    model=relief['model']; options={**RELIEF_DEFAULTS[model],**relief.get('solver',{})}
+    horizon_m=float(relief.get('horizon_m',60.))
+    valid=np.isfinite(stack)&(np.nan_to_num(np.asarray(nominal,float),nan=0.)>=.99)
+    print(f'Relief correction: {model} shape from shading on the {H}x{W} window',flush=True)
+    last=[0.]
+    def progress(info):
+        if time.monotonic()-last[0]>20:
+            print(f'Shape from shading pass {info["pass_index"]}/{info["passes"]}: iteration {info["iteration"]}',flush=True)
+            last[0]=time.monotonic()
+    solved,lit=solve_relief(stack,valid,az,el,pixel,model,options,progress=progress if model=='linear' else None)
+    print(f'Shape from shading explained {solved["explained_fraction"]:.3f} of the frame-to-frame shading',flush=True)
+    # Merged surface on a padded grid: shadows cast from outside the window and the
+    # largest plane baseline both need terrain beyond it.
+    halo=int(np.ceil(max(horizon_m,max(*cfg.baselines_m,cfg.footprint_diameter_m)/2)/pixel))+2
+    padded=(H+2*halo,W+2*halo); inner=np.s_[halo:halo+H,halo:halo+W]
+    broad=on_reference(context['dem'],context,sweep['transform']*Affine.translation(-halo,-halo),sweep['crs'],padded)
+    detail=np.full(padded,np.nan); detail[inner]=solved['height_m']
+    surface,fine=merged_surface(broad,detail,context['pixel_m'],pixel)
+    print(f'Tracing terrain shadows on the merged surface ({horizon_m:g} m horizon)',flush=True)
+    relief_visible=relief_visibility(surface,pixel,az,el,horizon_m,solar_radius_deg=shadow_cfg.solar_radius_deg)[(slice(None),*inner)]
+    visible=combine_visibility(nominal,relief_visible,lit)
+    conservative_visible=combine_visibility(conservative,relief_visible,lit)
+    # The noise left after correction sets the detector scale, so cells where small
+    # rocks cannot be seen fail the sensitivity test and stay unknown.
+    noise_cfg=NoiseScaleConfig(**relief.get('noise_scale',{}))
+    scale=measure_residual_scale(solved['corrected'],visible,slope_row,slope_col,noise_cfg)
+    measured=scale['pooled_sigma'] if scale['patches'] else None
+    sigma=max(noise_sigma,measured) if measured is not None and np.isfinite(measured) else noise_sigma
+    print(f'Noise after correction: {measured if measured is None else round(measured,5)} '
+          f'(assumed {noise_sigma}); detector uses {sigma:.5f}',flush=True)
+    print('Terrain planes on the merged surface at image posting',flush=True)
+    terrain=terrain_assessment(surface,pixel,cfg)
+    lower=slope_lower_bound(surface,pixel,az,el)
+    score,touched=lower_bound_terrain(terrain['score'],lower,pixel,cfg.footprint_diameter_m)
+    if live:
+        live.field('Shape-from-shading slope (degrees)',solved['slope_deg'],explained=round(solved['explained_fraction'],3))
+    shadowed=[float(np.mean(np.nan_to_num(v,nan=0.)<.99)) for v in relief_visible]
+    record=dict(model=model,solver=solved['configuration'],explained_fraction=solved['explained_fraction'],
+        lsqr_iterations=solved.get('lsqr_iterations'),noise_sigma_assumed=noise_sigma,noise_sigma_measured=measured,
+        noise_sigma_used=sigma,noise_patches=scale['patches'],noise_scale_configuration=scale['configuration'],
+        horizon_m=horizon_m,padding_px=halo,surface_split_scale_px=max(context['pixel_m']/pixel,1.),
+        relief_shadowed_fraction_per_frame=shadowed,uncorrected_fraction=float(1-lit.mean()),
+        slope_lower_bound_fraction=float(lower[inner].mean()),footprint_lower_bound_fraction=float(touched[inner].mean()),
+        terrain_surface='DEM below its posting plus SfS detail, at image posting',
+        meaning='Detector on relief-corrected images at the noise measured after correction; visibility includes '
+                'terrain shadows traced on the merged surface; terrain planes on that surface, unknown where a '
+                'footprint touches a slope steeper than the Sun facing away from it.')
+    return dict(stack=solved['corrected'],sigma=sigma,visible=visible,conservative=conservative_visible,
+                terrain=terrain,terrain_score=score[inner],surface=surface[inner],fine=fine[inner],
+                lower_bound=lower[inner],footprint_lower_bound=touched[inner],relief_visible=relief_visible,
+                slope_deg=solved['slope_deg'],record=record,inner=inner)
+
+
+def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=False,provenance=None,scene_cfg=None,live=None,
+        relief=None):
+    """relief: None or dict(model='linear'|'nonlinear', solver={...}, horizon_m, noise_scale={...});
+    None or model 'none' leaves every product bit-identical to the unrelieved maps."""
     started=time.monotonic(); output=Path(output); output.mkdir(parents=True,exist_ok=True)
+    relief=relief if relief and relief.get('model','none')!='none' else None
+    if relief and relief['model'] not in RELIEF_DEFAULTS:
+        raise ValueError('relief model must be none, linear or nonlinear')
     transform,crs=sweep['transform'],sweep['crs']; shape=sweep['stack'].shape[1:]; pixel=sweep['pixel_m']
     def project(a): return on_reference(a,context,transform,crs,shape,nearest=True)
     print('Measuring native-posting DEM planes and relief',flush=True)
@@ -153,29 +227,56 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
             if isinstance(a,np.ndarray):
                 write_tif(output/f'dem_frame_{i:02d}_{key}.tif',project(a),transform,crs,
                           f'{key}; finite {cfg.horizon_distance_m} m horizon; height-envelope scenario, not calibrated confidence')
+    # Unrelieved inputs; the relief option replaces them with corrected ones.
+    detector_stack,detector_sigma=sweep['stack'],noise_sigma
+    detector_visible,detector_conservative=np.asarray(nominal),np.asarray(conservative)
+    terrain_score,terrain_resolved,terrain_used=project(terrain['score']),terrain['footprint_resolved'],terrain
+    corrected=None
+    if relief:
+        corrected=relief_correction(sweep,context,cfg,shadow_cfg,noise_sigma,nominal,conservative,
+                                    project(primary['slope_row']),project(primary['slope_col']),relief,live=live)
+        detector_stack,detector_sigma=corrected['stack'],corrected['sigma']
+        detector_visible,detector_conservative=corrected['visible'],corrected['conservative']
+        terrain_used=corrected['terrain']
+        terrain_score,terrain_resolved=corrected['terrain_score'],terrain_used['footprint_resolved']
+        for diameter,metrics in terrain_used['measurements'].items():
+            for key,a in metrics.items():
+                if isinstance(a,np.ndarray):
+                    write_tif(output/f'surface_{diameter}m_{key}.tif',a[corrected['inner']],transform,crs,
+                              f'Merged DEM+SfS surface at {pixel} m; physical diameter {diameter} m; {key}')
+        for key,meaning in (('surface','Merged surface height (m): DEM below its posting plus SfS detail'),
+                            ('fine','SfS relief finer than the DEM (m)'),
+                            ('lower_bound','1 where a slope facing away from the Sun is steeper than the Sun in some frame'),
+                            ('footprint_lower_bound','1 where the terrain footprint touches such a slope; terrain unknown below the limit')):
+            write_tif(output/f'relief_{key}.tif',corrected[key],transform,crs,meaning)
+        write_tif(output/'relief_visible_min.tif',np.min(corrected['visible'],axis=0),transform,crs,
+                  'Least visible solar fraction over frames after DEM, merged-surface shadows and uncorrected pixels')
+        write_tif(output/'relief_sfs_slope_deg.tif',corrected['slope_deg'],transform,crs,
+                  'SfS slope; a lower bound where slopes exceed the Sun elevation')
+        np.savez_compressed(output/'relief_corrected_stack.npz',stack=np.asarray(detector_stack,'float32'))
     print('Systematic regional search; every interior analysis cell is visited',flush=True)
     last=[0.]
     def progress(info):
         if time.monotonic()-last[0]>20:
             print(f'Cells visited: {info["cells_visited"]}; assessed: {info["cells_assessed"]}',flush=True)
             last[0]=time.monotonic()
-    regional=assess_regions(sweep['stack'],sweep['azimuths'],sweep['elevations'],noise_sigma,
-            shadow_cfg,regional_cfg,visible=np.asarray(nominal),conservative_visible=np.asarray(conservative),
+    regional=assess_regions(detector_stack,sweep['azimuths'],sweep['elevations'],detector_sigma,
+            shadow_cfg,regional_cfg,visible=detector_visible,conservative_visible=detector_conservative,
             slope_row=project(primary['slope_row']),slope_col=project(primary['slope_col']),progress=progress,
             observer=(lambda info: live.regional(info, 'three-map shadow search')) if live else None)
-    terrain_index,terrain_complete=buffer_evidence(project(terrain['score']),pixel,cfg.navigation_margin_m)
+    terrain_index,terrain_complete=buffer_evidence(terrain_score,pixel,cfg.navigation_margin_m)
     shadow_radius=cfg.footprint_diameter_m/2+cfg.navigation_margin_m
     footprint=buffer_roots(regional['root_evidence'],regional['status']==1,pixel,shadow_radius,cfg.shadow_score_scale)
     shadow_index,shadow_complete=footprint['index'],footprint['complete']
     scene_cfg=scene_cfg or SceneConfig()
-    discrepancy=broad_dark_discrepancy(sweep['stack'],np.asarray(nominal),scene_cfg)
+    discrepancy=broad_dark_discrepancy(detector_stack,detector_visible,scene_cfg)
     registration=local_registration(sweep['stack'],sweep['azimuths'],sweep['elevations'],scene_cfg)
     # Broad unexplained darkness blocks a low-evidence interpretation. It does
     # not become a calibrated hazard or erase an existing high warning.
     model_support=discrepancy['assessed'] & ~discrepancy['flag']
     # Separate maps retain measured evidence. Only qualified low evidence can
     # enter fusion. Strong evidence remains an exclusion even with missing data.
-    tq=terrain_complete & terrain['footprint_resolved']
+    tq=terrain_complete & terrain_resolved
     sq=regional['sensitivity_ok']&regional['envelope_ok']&(regional['status']==1)&model_support
     _,sq_buffer=buffer_evidence(np.where(sq,0.,np.nan),pixel,shadow_radius)
     qualified_shadow=np.where(sq_buffer|(shadow_index>=.5),shadow_index,np.nan)
@@ -237,8 +338,8 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
         azimuths_map=sweep['azimuths'],elevations=sweep['elevations'],crs=crs.to_wkt(),transform=list(transform),
         site_lat=sweep.get('site_lat'),site_lon=sweep.get('site_lon'),
         image_posting_m=pixel,dem_posting_m=context['pixel_m'],dem_source=context['source'],
-        dem_halo_m=context['halo_m'],effective_terrain_diameter_m=terrain['effective_diameter_m'],
-        footprint_resolved=terrain['footprint_resolved'],cells_visited=regional['cells_visited'],
+        dem_halo_m=context['halo_m'],effective_terrain_diameter_m=terrain_used['effective_diameter_m'],
+        footprint_resolved=terrain_used['footprint_resolved'],cells_visited=regional['cells_visited'],
         shadow_buffer_method='all_sampled_roots_exact_distance_v1',
         scene_diagnostics=dict(configuration=asdict(scene_cfg),
             assessed_fraction=float(discrepancy['assessed'].mean()),
@@ -266,6 +367,10 @@ def run(sweep,context,output,cfg,shadow_cfg,regional_cfg,noise_sigma,*,is_demo=F
             'Broad-darkness diagnostics can respond to albedo, unresolved terrain modelling or registration; absence is not model validation.',
             'No global multiple-search false-alarm or empirical detection calibration is claimed.',
             'Low module indices are descriptive; fused low indices require the recorded model qualifications.'])
+    if corrected:
+        report['relief']=corrected['record']
+        report['limitations'].append('Relief correction: SfS slopes steeper than the Sun facing away from it are lower '
+                                     'bounds; those terrain footprints stay unqualified unless already at the limit.')
     (output/'run.json').write_text(json.dumps(clean_json(report),indent=2,allow_nan=False),encoding='utf-8')
     (output/'counterfactual.json').write_text(json.dumps(cf,indent=2,allow_nan=False),encoding='utf-8')
     (output/'warning_attribution.json').write_text(json.dumps(clean_json(attribution),indent=2,allow_nan=False),encoding='utf-8')
@@ -302,6 +407,9 @@ def main():
     ap.add_argument('--registration-sigma-px',type=float,required=True)
     ap.add_argument('--noise-sigma',type=float,default=.03)
     ap.add_argument('--demo',action='store_true',help='synthetic offline exercise; no real-site inference')
+    ap.add_argument('--relief',choices=('none','linear','nonlinear'),default='none',
+                    help='shape-from-shading relief correction before the shadow search; none reproduces the unrelieved maps')
+    ap.add_argument('--relief-config',type=Path,help='JSON with solver options, horizon_m and noise_scale for --relief')
     args=ap.parse_args()
     cfg=LandingConfig(**json.loads(args.config.read_text())) if args.config else LandingConfig()
     if args.demo:
@@ -321,13 +429,19 @@ def main():
                   'src/hati_core/landing_terrain.py','src/hati_core/dem_shadow.py',
                   'src/hati_core/regional_shadow.py','src/hati_core/shadow_likelihood.py',
                   'src/hati_core/warning_attribution.py','src/hati_core/root_footprint.py',
-                  'src/hati_core/scene_diagnostics.py']
+                  'src/hati_core/scene_diagnostics.py','src/hati_core/relief_terrain.py','src/hati_core/sfs.py',
+                  'src/hati_core/noise_scale.py']
     provenance=dict(revision=rev.stdout.strip(),arguments=vars(args),
                     source_sha256={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in source_files},
                     python_version=sys.version,packages={p:version(p) for p in ('numpy','scipy','rasterio','pyproj','matplotlib')},
                     manifest_sha256=None if args.demo else hashlib.sha256(args.manifest.read_bytes()).hexdigest())
     scene_cfg=SceneConfig(**json.loads(args.scene_config.read_text())) if args.scene_config else SceneConfig()
-    run(sweep,context,args.output,cfg,sc,rc,args.noise_sigma,is_demo=args.demo,provenance=provenance,scene_cfg=scene_cfg)
+    relief=None
+    if args.relief!='none':
+        relief=dict(model=args.relief,**(json.loads(args.relief_config.read_text()) if args.relief_config else {}))
+        provenance['relief_config_sha256']=hashlib.sha256(args.relief_config.read_bytes()).hexdigest() if args.relief_config else None
+    run(sweep,context,args.output,cfg,sc,rc,args.noise_sigma,is_demo=args.demo,provenance=provenance,scene_cfg=scene_cfg,
+        relief=relief)
 
 
 if __name__=='__main__': main()
