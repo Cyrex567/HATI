@@ -94,19 +94,24 @@ def add_noise(stack, sigma, rng):
     return np.asarray(out)
 
 
+def true_plane(condition, azimuths=AZIMUTHS):
+    """The ground tilt (row, column gradient) the renderer applies and the detector is not told about."""
+    if condition not in ('tilt_away_1deg', 'tilt_toward_1deg'):
+        return (0., 0.)
+    sign = -1. if condition == 'tilt_away_1deg' else 1.
+    return tuple(float(v) for v in sign*np.tan(np.radians(1.))*mean_down_sun(azimuths))
+
+
 def scene(condition, height, seed, size, azimuths=AZIMUTHS, elevations=ELEVATIONS):
     """Noise-free stack for one trial, plus what the detector is told about the ground."""
     centre = ((size-1)/2+.3, (size-1)/2+.2)
     rocks, features = ([] if condition.startswith('no_rock') else [make_rock(seed, centre, height, .6, aspect=1.35)]), []
-    plane = (0., 0.)
+    plane = true_plane(condition, azimuths)
     registration = 0.
     down = mean_down_sun(azimuths)
     if condition in ('ripples_1deg', 'ripples_3deg', 'sfs_corrected_ripples', 'sfs_image_only_ripples',
                      'sfs_surface_only_ripples', 'no_rock_ripples_3deg'):
         features = [relief_feature('ripples', 6., 1. if condition == 'ripples_1deg' else 3., seed=seed)]
-    elif condition in ('tilt_away_1deg', 'tilt_toward_1deg'):
-        sign = -1. if condition == 'tilt_away_1deg' else 1.
-        plane = tuple(float(v) for v in sign*np.tan(np.radians(1.))*down)
     elif condition == 'second_rock_downsun':
         offset = 2.5/PIXEL_M*down
         rocks.append(make_rock(seed+50000, (centre[0]+offset[0], centre[1]+offset[1]), height, .6, aspect=1.35))
@@ -158,12 +163,16 @@ def size_one(job):
     suffix = ('_slope_fitted' if slope_search else '')+('' if geometry == 'athena8' else '_'+geometry)
     record = dict(condition=condition+suffix, true_height_m=height, seed=seed, sigma=sigma, geometry=geometry,
                   state=result['status'], slope_search_deg=list(slope_search),
+                  true_plane_slope_rc=list(true_plane(condition, az)),
                   lower_bound_m=row['height_lower_bound_m'], censored=row.get('censored'),
                   context_height_m=row['height_m'])
     for name, h in (('last', last), ('first', first)):
         if h is None:
-            record.update({f'{name}_{k}': None for k in ('score', 'height_m', 'width_m', 'height_low_m', 'height_high_m', 'scale')})
+            record.update({f'{name}_{k}': None for k in ('score', 'height_m', 'width_m', 'height_low_m', 'height_high_m', 'scale',
+                                                          'receiving_slope_rc')})
             continue
+        # With the slope search on, the fitted plane gradient (None when the plane was fixed at the DEM slope).
+        record[f'{name}_receiving_slope_rc'] = h.get('receiving_slope_rc')
         record.update({f'{name}_score': float(h['best']['score']), f'{name}_height_m': float(h['best']['height_m']),
                        f'{name}_width_m': float(h['best']['width_m']), f'{name}_height_low_m': float(h['height_range_m'][0]),
                        f'{name}_height_high_m': float(h['height_range_m'][1]), f'{name}_scale': int(h['scale'])})
@@ -303,7 +312,12 @@ def merge(paths, output):
         conditions.update(part['conditions'])
     summary = summarise([r for r in records if r['condition'] != 'floor'])
     selection = selection_effect(records)
+    # Parts may come from different sweeps; every record names its own, and the header lists them all.
+    geometries = sorted({r.get('geometry', 'athena8') for r in records})
     payload = dict(parts[0], conditions=conditions, summary=summary, selection_near_floor=selection, records=records,
+                   geometry=geometries[0] if len(geometries) == 1 else geometries,
+                   azimuths=GEOMETRIES[geometries[0]][0] if len(geometries) == 1 else {g: GEOMETRIES[g][0] for g in geometries},
+                   elevations=GEOMETRIES[geometries[0]][1] if len(geometries) == 1 else {g: GEOMETRIES[g][1] for g in geometries},
                    merged_from=[str(p) for p in paths],
                    elapsed_seconds=round(sum(part.get('elapsed_seconds', 0) for part in parts), 1))
     output.mkdir(parents=True, exist_ok=True)
@@ -365,7 +379,8 @@ def main(argv=None):
                 print(f'{len(records)}/{total} trials, {time.monotonic()-started:.0f} s', flush=True)
     summary = summarise([r for r in records if r['condition'] != 'floor'])
     selection = selection_effect(records)
-    payload = dict(conditions={c: CONDITIONS[c] for c in conditions}, azimuths=AZIMUTHS, elevations=ELEVATIONS,
+    az, el = GEOMETRIES[args.geometry]
+    payload = dict(conditions={c: CONDITIONS[c] for c in conditions}, geometry=args.geometry, azimuths=az, elevations=el,
                    pixel_m=PIXEL_M, sigma=SIGMA, detector=dict(psf_sigma_px=.6, registration_sigma_px=.5, spatial_degree=2),
                    summary=summary, selection_near_floor=selection, records=records,
                    elapsed_seconds=round(time.monotonic()-started, 1),
