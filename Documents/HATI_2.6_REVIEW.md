@@ -10,7 +10,7 @@ The detection floor on real data is not set by noise. On the Athena stack 89.1% 
 
 The sizes come out too large for reasons I could reproduce one at a time, and the height model itself is not one of them: on clean flat ground it runs 0 to 14% low. The T14 path, which sizes casters on the shape-from-shading corrected images and casts their shadows onto the shape-from-shading surface, returned heights 13 to 61% too high, and its "lower bound" sat above the true height in 4 of 6 trials for both 0.3 m and 0.6 m rocks. That is the same 4 of 6 the commit history reports for injected 0.6 m rocks. Ground that falls away from the Sun by 1 degree more than the DEM says adds 15 to 22%. Width is the weakest dimension: blur, misregistration or a neighbouring rock that the model does not know about roughly triples it. And cells with no rock in them get sized anyway.
 
-A physics-based classifier for boulders, hummocks, craters and other features can be built from the sweep, within limits set by resolution and Sun geometry. A first version is on this branch (`src/hati_core/sweep_classifier.py`, campaign stage T18). <<CLASSIFIER_SUMMARY>> These are synthetic error rates. A classifier that deserves the word clinical needs independently labelled lunar terrain, and HATI does not have that yet.
+A physics-based classifier for boulders, hummocks, craters and other features can be built from the sweep, within limits set by resolution and Sun geometry. A first version is on this branch (`src/hati_core/sweep_classifier.py`, campaign stage T18). On held-out synthetic scenes drawn with new seeds, 90 to 100% of its calls were right for each class (13 of 13 boulder calls, 23 of 24 hummock, 18 of 20 crater, 11 of 11 extended relief), and it never called a blank scene or a non-solar change a feature. It gets there by abstaining. Every rock 0.6 m tall or more was called a boulder, although all of them were 0.6 m across, less than a pixel; rocks 0.15 and 0.3 m tall, and craters 3 m across, almost all came back ambiguous (1 of 21 classified). So today it classifies the taller casters the detector finds, not the smallest ones. These are synthetic error rates. A classifier that deserves the word clinical needs independently labelled lunar terrain, and HATI does not have that yet.
 
 No remote-sensing detector can give absolute evidence. What HATI can give is an evidence chain for every call, with error rates fixed before the data are looked at. Section 6 describes that chain and which parts of it exist.
 
@@ -211,13 +211,68 @@ Setup: the eight Athena Sun geometries, noise sigma 0.03, the classifier's defau
 
 First test, original rule, 165 new scenes at the same noise. When the classifier made a call it was right almost every time: boulder 12 of 12 calls, hummock 24 of 25, crater 18 of 19, extended 13 of 13, and all 30 blanks and all 30 stripes scenes were labelled correctly. It made far fewer calls than it should have, though. Only 12 of 24 rocks, 18 of 27 bowls and 13 of 27 ripple scenes got their own class, and most of the misses came back as `non_solar_change`: 7 rocks, 3 mounds and 9 bowls. At twice the noise that became 23 of 24 rocks. That was a flaw in my rule, not in the physics. A weak change that cannot pass the Sun check was being reported as a change that ignores the Sun. I changed the rule so that `non_solar_change` needs the reassigned geometry to explain nearly as much as the measured geometry (a Sun margin below a calibrated share, 0.126, of the gain), and anything weaker is `ambiguous`. Because I made that change after looking at those test scenes, they no longer count as held out for the new rule, so the table below uses new seeds that nobody had looked at.
 
-<<FRESH_TABLES>>
+Held-out seeds, same noise as calibration:
 
-What it can and cannot separate at this noise and geometry, from the per-scene rows:
+| Truth | Scenes | Correct class | 95% interval | Abstained (ambiguous) | Wrong call | 95% interval |
+|---|---:|---:|---|---:|---:|---|
+| boulder (3D rock) | 24 | 13 (54%) | 33 to 74% | 11 | 0 (0%) | 0 to 14% |
+| hummock (Gaussian mound) | 27 | 23 (85%) | 66 to 96% | 4 | 0 (0%) | 0 to 13% |
+| crater (rimmed Gaussian bowl) | 27 | 18 (67%) | 46 to 83% | 9 | 0 (0%) | 0 to 13% |
+| extended (elephant-hide ripples) | 27 | 11 (41%) | 22 to 61% | 11 | 5 (19%) | 6 to 38% |
+| no signal (blank ground, albedo texture) | 30 | 30 (100%) | 88 to 100% | 0 | 0 (0%) | 0 to 12% |
+| non-solar change (stripes) | 30 | 26 (87%) | 69 to 96% | 4 | 0 (0%) | 0 to 12% |
 
-<<FRESH_SCENES>>
+| Call | Calls made | Share correct | 95% interval |
+|---|---:|---:|---|
+| boulder | 13 | 100% | 75 to 100% |
+| hummock | 24 | 96% | 79 to 100% |
+| crater | 20 | 90% | 68 to 99% |
+| extended | 11 | 100% | 72 to 100% |
 
-My reading: as calibrated here the classifier is conservative. Its calls are trustworthy on synthetic scenes, and it says ambiguous instead of guessing, which is the behaviour you want in front of a hazard map. But it does not yet classify the features the detector is best at finding, sub-pixel rocks of 0.15 to 0.3 m: their withheld-frame gains are too small to clear the Sun check with eight frames and three reassignments. Four things should move that floor: more frames (the 24-frame post-landing set), a proper permutation Sun test with many reassignments rather than three cyclic shifts, a fitting window matched to small features, and a noise model that is not white. The Sun threshold is also set by the stripes scenes, whose amplitude (0.12 in normalized radiance) I did not tune; stronger non-solar change in the calibration set would raise it. Those are the next experiments, not settled facts.
+All five wrong calls were ripple scenes: one called a hummock, two a crater and two no signal.
+
+Held-out seeds at twice the noise, margins not recalibrated:
+
+| Truth | Scenes | Correct class | 95% interval | Abstained (ambiguous) | Wrong call | 95% interval |
+|---|---:|---:|---|---:|---:|---|
+| boulder (3D rock) | 24 | 2 (8%) | 1 to 27% | 22 | 0 (0%) | 0 to 14% |
+| hummock (Gaussian mound) | 27 | 19 (70%) | 50 to 86% | 8 | 0 (0%) | 0 to 13% |
+| crater (rimmed Gaussian bowl) | 27 | 15 (56%) | 35 to 75% | 11 | 1 (4%) | 0 to 19% |
+| extended (elephant-hide ripples) | 27 | 6 (22%) | 9 to 42% | 16 | 5 (19%) | 6 to 38% |
+| no signal (blank ground, albedo texture) | 30 | 29 (97%) | 83 to 100% | 1 | 0 (0%) | 0 to 12% |
+| non-solar change (stripes) | 30 | 23 (77%) | 58 to 90% | 7 | 0 (0%) | 0 to 12% |
+
+| Call | Calls made | Share correct | 95% interval |
+|---|---:|---:|---|
+| boulder | 2 | 100% | 16 to 100% |
+| hummock | 20 | 95% | 75 to 100% |
+| crater | 15 | 100% | 78 to 100% |
+| extended | 6 | 100% | 54 to 100% |
+
+Wrong calls at twice the noise: one crater called no signal, one ripple scene called a hummock and four called no signal.
+
+What it can and cannot separate at this noise and geometry, by scene type:
+
+| Held-out scenes, same noise | Own class | Other labels |
+|---|---:|---|
+| Rocks 0.15 m, flat and rippled ground | 0/6 | 6 ambiguous |
+| Rocks 0.3 m | 1/6 | 5 ambiguous |
+| Rocks 0.6 m | 6/6 | none |
+| Rocks 1.2 m | 6/6 | none |
+| Craters 3 m across (2, 5 and 10 degree walls) | 0/9 | 9 ambiguous |
+| Craters 6 and 12 m across | 18/18 | none |
+| Hummocks 3 m across, 2 degree flanks | 0/3 | 3 ambiguous |
+| Hummocks 3 m across, 5 and 10 degree flanks | 5/6 | 1 ambiguous |
+| Hummocks 6 and 12 m across | 18/18 | none |
+| Ripples with 5 degree slopes (3, 6 and 12 m wavelength) | 9/9 | none |
+| Ripples with 1 and 2 degree slopes, 3 and 6 m wavelength | 0/12 | 10 ambiguous, 2 no signal |
+| Ripples with 1 and 2 degree slopes, 12 m wavelength | 2/6 | 2 crater, 1 ambiguous, 1 hummock |
+| Blank ground with albedo texture | 30/30 | none |
+| Stripes (non-solar change) | 26/30 | 4 ambiguous |
+
+The rule that stops the small rocks is the Sun check. The 0.3 m rocks on flat ground led the hummock hypothesis by 0.20 to 0.30, well past the boulder margin of 0.085, but their Sun margins were 0.28 to 0.45 against the calibrated 0.51. At twice the noise the revised rule sent 22 of 24 rocks to ambiguous and none to non-solar change, where the original rule had sent 23 of 24 to non-solar change. The wrong calls left are all ripples: long, gentle ripples (12 m wavelength, 1 and 2 degrees) look like a single bowl or mound inside the 30 m window, and 1 degree ripples at 3 m wavelength can be too faint to register. Neither error clears ground, since T18 never clears a cell, and 1 degree ripples are far below the 8 degree slope limit of the illustrative landing configuration. `Documents/assets/v26_classifier_confusion.png` shows both confusion tables and every scene type, and `Documents/v26_results/` keeps the result files of both classifier runs.
+
+My reading: as calibrated here the classifier is conservative. Its calls held up on synthetic scenes, and it says ambiguous instead of guessing, which is the behaviour you want in front of a hazard map. But it does not yet classify the smallest casters the detector finds, rocks 0.15 to 0.3 m tall: their withheld-frame gains are too small to clear the Sun check with eight frames and three reassignments. Four things should move that floor: more frames (the 24-frame post-landing set), a proper permutation Sun test with many reassignments rather than three cyclic shifts, a fitting window matched to small features, and a noise model that is not white. The Sun threshold is also set by the stripes scenes, whose amplitude (0.12 in normalized radiance) I did not tune; stronger non-solar change in the calibration set would raise it. Those are the next experiments, not settled facts.
 
 ### 5.4 What "clinical" would take
 
@@ -261,7 +316,7 @@ All in this container: Python 3.11, numpy 2.4, scipy 1.17, four cores, no ISIS, 
 | Sizing ablation: 12 conditions, 3 heights, 6 seeds, plus 200 near-floor fits | section 4 | 25 min |
 | Shape-from-shading split: 3 conditions, 2 heights, 6 seeds | section 4 | 9 min |
 | Slope search against a fixed plane, paired: Athena sweep (3 conditions, 2 heights, 3 seeds) and the 24-frame post-landing sweep (3 conditions, 0.3 m, 3 seeds), scales 1 and 2 | section 4.4 | <<SLOPE_TIME>> |
-| Classifier calibration and held-out test: <<CLASSIFIER_SCENES>> generated scenes | section 5.3 | <<CLASSIFIER_TIME>> |
+| Classifier calibration and held-out test: 825 generated scenes | section 5.3 | 30 min for calibration and the first test (495 scenes), 19 min for the fresh-seed test (330 scenes) |
 
 Every experiment above is a script on this branch with a `--quick` or `--conditions` option, so it can be rerun and extended.
 

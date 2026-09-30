@@ -140,12 +140,16 @@ def plot(result, path):
     ax = axes[2]
     rows = [r for r in result['per_variant'] if r['split'] == 'test']
     labels = [r['name'] for r in rows]
-    ax.barh(range(len(rows)), [r['correct'] / r['scenes'] for r in rows], color='#1f3a5f', label='correct')
-    ax.barh(range(len(rows)), [r['abstained'] / r['scenes'] for r in rows],
-            left=[r['correct'] / r['scenes'] for r in rows], color='#e2a441', label='ambiguous')
+    correct = np.array([r['correct'] / max(r['scenes'], 1) for r in rows])
+    abstained = np.array([r['abstained'] / max(r['scenes'], 1) for r in rows])
+    other = np.clip(1 - correct - abstained, 0, 1)     # a wrong class, no signal or non-solar change
+    ax.barh(range(len(rows)), correct, color='#1f3a5f', label='correct')
+    ax.barh(range(len(rows)), abstained, left=correct, color='#e2a441', label='ambiguous')
+    ax.barh(range(len(rows)), other, left=correct+abstained, color='#b8433a', label='another label')
     ax.set_yticks(range(len(rows)), labels, fontsize=7)
     ax.invert_yaxis(); ax.set_xlim(0, 1); ax.set_xlabel('share of held-out scenes')
-    ax.set_title('Per scene type (held-out seeds)'); ax.legend(frameon=False, loc='lower right')
+    ax.set_title('Per scene type (held-out seeds)')
+    ax.legend(frameon=False, loc='upper center', bbox_to_anchor=(.5, -.08), ncol=3)
     fig.savefig(path, dpi=130)
 
 

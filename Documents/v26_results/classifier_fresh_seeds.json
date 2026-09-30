@@ -1,0 +1,1949 @@
+{
+  "margins": {
+    "none": 0.008313954660321032,
+    "sun": 0.5101902090562085,
+    "sun_ratio": 0.12566484914215542,
+    "compactness": 0.3671910695002095,
+    "pair": {
+      "boulder": 0.0854327483274262,
+      "hummock": 0.0,
+      "crater": 0.0,
+      "extended": 5.569680798414176
+    },
+    "calibration_counts": {
+      "rock": 24,
+      "mound": 27,
+      "bowl": 27,
+      "ripples": 27,
+      "none": 30,
+      "stripes": 30
+    },
+    "targets": {
+      "none": 0.05,
+      "sun": 0.05,
+      "compactness": 0.1,
+      "pair": {
+        "boulder": 0.05,
+        "hummock": 0.1,
+        "crater": 0.05,
+        "extended": 0.1
+      }
+    },
+    "method": "split-conformal quantiles, rank ceil((n+1)(1-target))"
+  },
+  "targets": {
+    "none": 0.05,
+    "sun": 0.05,
+    "compactness": 0.1,
+    "pair": {
+      "boulder": 0.05,
+      "hummock": 0.1,
+      "crater": 0.05,
+      "extended": 0.1
+    }
+  },
+  "sigma": 0.03,
+  "azimuths": [
+    43.13,
+    43.54,
+    68.97,
+    73.66,
+    326.66,
+    354.63,
+    5.97,
+    24.94
+  ],
+  "elevations": [
+    4.35,
+    3.59,
+    3.47,
+    3.38,
+    3.58,
+    3.63,
+    3.28,
+    3.69
+  ],
+  "pixel_m": 0.9,
+  "classifier": {
+    "radius_px": 16,
+    "support_px": 12.0,
+    "rock_heights_m": [
+      0.1,
+      0.2,
+      0.3,
+      0.6,
+      1.2,
+      2.4
+    ],
+    "rock_widths_m": [
+      0.3,
+      0.6,
+      1.2
+    ],
+    "rock_offsets_px": [
+      -1.5,
+      -0.5,
+      0.5,
+      1.5
+    ],
+    "relief_offsets_px": [
+      -1.0,
+      1.0
+    ],
+    "crater_diameters_m": [
+      1.8,
+      2.7,
+      3.6,
+      5.4,
+      7.2,
+      10.8
+    ],
+    "crater_depth_ratios": [
+      0.005,
+      0.01,
+      0.02,
+      0.05,
+      0.1,
+      0.2
+    ],
+    "hummock_diameters_m": [
+      1.8,
+      2.7,
+      3.6,
+      5.4,
+      7.2,
+      10.8
+    ],
+    "hummock_height_ratios": [
+      0.005,
+      0.01,
+      0.02,
+      0.05,
+      0.1,
+      0.2
+    ],
+    "lit_face": true,
+    "max_shadow_contrast": 1.0,
+    "max_shading_gain": 4.0,
+    "min_frame_fraction": 0.85,
+    "min_common_fraction": 0.8,
+    "supersample": 4
+  },
+  "calibration_in_sample": {
+    "table": {
+      "rock": {
+        "boulder": 12,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 12,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "mound": {
+        "boulder": 0,
+        "hummock": 23,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 4,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "bowl": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 19,
+        "extended": 0,
+        "ambiguous": 8,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "ripples": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 2,
+        "extended": 14,
+        "ambiguous": 8,
+        "no_signal": 3,
+        "non_solar_change": 0
+      },
+      "none": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 0,
+        "no_signal": 30,
+        "non_solar_change": 0
+      },
+      "stripes": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 0,
+        "no_signal": 0,
+        "non_solar_change": 30
+      }
+    },
+    "per_truth": {
+      "rock": {
+        "scenes": 24,
+        "correct": 12,
+        "abstained": 12,
+        "wrong_call": 0,
+        "correct_rate": 0.5,
+        "correct_rate_95": [
+          0.291241779836212,
+          0.708758220163788
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.14247359772252563
+        ]
+      },
+      "mound": {
+        "scenes": 27,
+        "correct": 23,
+        "abstained": 4,
+        "wrong_call": 0,
+        "correct_rate": 0.8518518518518519,
+        "correct_rate_95": [
+          0.6626891359757556,
+          0.9581126035262327
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.12770286761543234
+        ]
+      },
+      "bowl": {
+        "scenes": 27,
+        "correct": 19,
+        "abstained": 8,
+        "wrong_call": 0,
+        "correct_rate": 0.7037037037037037,
+        "correct_rate_95": [
+          0.49818633362999865,
+          0.8624734460594208
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.12770286761543234
+        ]
+      },
+      "ripples": {
+        "scenes": 27,
+        "correct": 14,
+        "abstained": 8,
+        "wrong_call": 5,
+        "correct_rate": 0.5185185185185185,
+        "correct_rate_95": [
+          0.3194965461333836,
+          0.7133274518680603
+        ],
+        "wrong_call_rate": 0.18518518518518517,
+        "wrong_call_rate_95": [
+          0.06300000653767682,
+          0.38082987909399446
+        ]
+      },
+      "none": {
+        "scenes": 30,
+        "correct": 30,
+        "abstained": 0,
+        "wrong_call": 0,
+        "correct_rate": 1.0,
+        "correct_rate_95": [
+          0.8842966917779722,
+          1.0
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.11570330822202778
+        ]
+      },
+      "stripes": {
+        "scenes": 30,
+        "correct": 30,
+        "abstained": 0,
+        "wrong_call": 0,
+        "correct_rate": 1.0,
+        "correct_rate_95": [
+          0.8842966917779722,
+          1.0
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.11570330822202778
+        ]
+      }
+    },
+    "per_call": {
+      "boulder": {
+        "calls": 12,
+        "precision": 1.0,
+        "precision_95": [
+          0.7353515306029488,
+          1.0
+        ]
+      },
+      "hummock": {
+        "calls": 23,
+        "precision": 1.0,
+        "precision_95": [
+          0.8518148710847756,
+          1.0
+        ]
+      },
+      "crater": {
+        "calls": 21,
+        "precision": 0.9047619047619048,
+        "precision_95": [
+          0.6962255930860758,
+          0.9882506821155542
+        ]
+      },
+      "extended": {
+        "calls": 14,
+        "precision": 1.0,
+        "precision_95": [
+          0.7683642383498835,
+          1.0
+        ]
+      }
+    }
+  },
+  "test": {
+    "table": {
+      "rock": {
+        "boulder": 13,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 11,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "mound": {
+        "boulder": 0,
+        "hummock": 23,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 4,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "bowl": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 18,
+        "extended": 0,
+        "ambiguous": 9,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "ripples": {
+        "boulder": 0,
+        "hummock": 1,
+        "crater": 2,
+        "extended": 11,
+        "ambiguous": 11,
+        "no_signal": 2,
+        "non_solar_change": 0
+      },
+      "none": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 0,
+        "no_signal": 30,
+        "non_solar_change": 0
+      },
+      "stripes": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 4,
+        "no_signal": 0,
+        "non_solar_change": 26
+      }
+    },
+    "per_truth": {
+      "rock": {
+        "scenes": 24,
+        "correct": 13,
+        "abstained": 11,
+        "wrong_call": 0,
+        "correct_rate": 0.5416666666666666,
+        "correct_rate_95": [
+          0.328208075695178,
+          0.7444697980052537
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.14247359772252563
+        ]
+      },
+      "mound": {
+        "scenes": 27,
+        "correct": 23,
+        "abstained": 4,
+        "wrong_call": 0,
+        "correct_rate": 0.8518518518518519,
+        "correct_rate_95": [
+          0.6626891359757556,
+          0.9581126035262327
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.12770286761543234
+        ]
+      },
+      "bowl": {
+        "scenes": 27,
+        "correct": 18,
+        "abstained": 9,
+        "wrong_call": 0,
+        "correct_rate": 0.6666666666666666,
+        "correct_rate_95": [
+          0.4603927139077429,
+          0.8348118203126843
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.12770286761543234
+        ]
+      },
+      "ripples": {
+        "scenes": 27,
+        "correct": 11,
+        "abstained": 11,
+        "wrong_call": 5,
+        "correct_rate": 0.4074074074074074,
+        "correct_rate_95": [
+          0.22389729135058145,
+          0.6120160697403181
+        ],
+        "wrong_call_rate": 0.18518518518518517,
+        "wrong_call_rate_95": [
+          0.06300000653767682,
+          0.38082987909399446
+        ]
+      },
+      "none": {
+        "scenes": 30,
+        "correct": 30,
+        "abstained": 0,
+        "wrong_call": 0,
+        "correct_rate": 1.0,
+        "correct_rate_95": [
+          0.8842966917779722,
+          1.0
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.11570330822202778
+        ]
+      },
+      "stripes": {
+        "scenes": 30,
+        "correct": 26,
+        "abstained": 4,
+        "wrong_call": 0,
+        "correct_rate": 0.8666666666666667,
+        "correct_rate_95": [
+          0.6927816497238732,
+          0.9624465036616366
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.11570330822202778
+        ]
+      }
+    },
+    "per_call": {
+      "boulder": {
+        "calls": 13,
+        "precision": 1.0,
+        "precision_95": [
+          0.752947361999529,
+          1.0
+        ]
+      },
+      "hummock": {
+        "calls": 24,
+        "precision": 0.9583333333333334,
+        "precision_95": [
+          0.7887983165430269,
+          0.9989456475545303
+        ]
+      },
+      "crater": {
+        "calls": 20,
+        "precision": 0.9,
+        "precision_95": [
+          0.6830172859809176,
+          0.9876514728297052
+        ]
+      },
+      "extended": {
+        "calls": 11,
+        "precision": 1.0,
+        "precision_95": [
+          0.7150858470818456,
+          1.0
+        ]
+      }
+    }
+  },
+  "test_double_noise": {
+    "table": {
+      "rock": {
+        "boulder": 2,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 22,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "mound": {
+        "boulder": 0,
+        "hummock": 19,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 8,
+        "no_signal": 0,
+        "non_solar_change": 0
+      },
+      "bowl": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 15,
+        "extended": 0,
+        "ambiguous": 11,
+        "no_signal": 1,
+        "non_solar_change": 0
+      },
+      "ripples": {
+        "boulder": 0,
+        "hummock": 1,
+        "crater": 0,
+        "extended": 6,
+        "ambiguous": 16,
+        "no_signal": 4,
+        "non_solar_change": 0
+      },
+      "none": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 1,
+        "no_signal": 29,
+        "non_solar_change": 0
+      },
+      "stripes": {
+        "boulder": 0,
+        "hummock": 0,
+        "crater": 0,
+        "extended": 0,
+        "ambiguous": 7,
+        "no_signal": 0,
+        "non_solar_change": 23
+      }
+    },
+    "per_truth": {
+      "rock": {
+        "scenes": 24,
+        "correct": 2,
+        "abstained": 22,
+        "wrong_call": 0,
+        "correct_rate": 0.08333333333333333,
+        "correct_rate_95": [
+          0.010256341281250152,
+          0.26997280155760356
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.14247359772252563
+        ]
+      },
+      "mound": {
+        "scenes": 27,
+        "correct": 19,
+        "abstained": 8,
+        "wrong_call": 0,
+        "correct_rate": 0.7037037037037037,
+        "correct_rate_95": [
+          0.49818633362999865,
+          0.8624734460594208
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.12770286761543234
+        ]
+      },
+      "bowl": {
+        "scenes": 27,
+        "correct": 15,
+        "abstained": 11,
+        "wrong_call": 1,
+        "correct_rate": 0.5555555555555556,
+        "correct_rate_95": [
+          0.35326423032200543,
+          0.7452011933682622
+        ],
+        "wrong_call_rate": 0.037037037037037035,
+        "wrong_call_rate_95": [
+          0.0009372570919447077,
+          0.1897056174130446
+        ]
+      },
+      "ripples": {
+        "scenes": 27,
+        "correct": 6,
+        "abstained": 16,
+        "wrong_call": 5,
+        "correct_rate": 0.2222222222222222,
+        "correct_rate_95": [
+          0.08621693994756673,
+          0.42258306004437896
+        ],
+        "wrong_call_rate": 0.18518518518518517,
+        "wrong_call_rate_95": [
+          0.06300000653767682,
+          0.38082987909399446
+        ]
+      },
+      "none": {
+        "scenes": 30,
+        "correct": 29,
+        "abstained": 1,
+        "wrong_call": 0,
+        "correct_rate": 0.9666666666666667,
+        "correct_rate_95": [
+          0.8278305443665873,
+          0.9991564290733695
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.11570330822202778
+        ]
+      },
+      "stripes": {
+        "scenes": 30,
+        "correct": 23,
+        "abstained": 7,
+        "wrong_call": 0,
+        "correct_rate": 0.7666666666666667,
+        "correct_rate_95": [
+          0.5771634770217805,
+          0.9006621350419802
+        ],
+        "wrong_call_rate": 0.0,
+        "wrong_call_rate_95": [
+          0.0,
+          0.11570330822202778
+        ]
+      }
+    },
+    "per_call": {
+      "boulder": {
+        "calls": 2,
+        "precision": 1.0,
+        "precision_95": [
+          0.15811388300841903,
+          1.0
+        ]
+      },
+      "hummock": {
+        "calls": 20,
+        "precision": 0.95,
+        "precision_95": [
+          0.7512672372279723,
+          0.9987349105020502
+        ]
+      },
+      "crater": {
+        "calls": 15,
+        "precision": 1.0,
+        "precision_95": [
+          0.781980639089466,
+          1.0
+        ]
+      },
+      "extended": {
+        "calls": 6,
+        "precision": 1.0,
+        "precision_95": [
+          0.5407418735600996,
+          1.0
+        ]
+      }
+    }
+  },
+  "per_variant": [
+    {
+      "split": "calibration",
+      "name": "bowl size_m=12.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=12.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=12.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=3.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 1,
+      "abstained": 2,
+      "labels": {
+        "ambiguous": 2,
+        "crater": 1
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=3.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=3.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=6.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=6.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "bowl size_m=6.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=12.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=12.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=12.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=3.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=3.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=3.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 2,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "hummock": 2
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=6.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=6.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "mound size_m=6.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "none ",
+      "truth": "none",
+      "scenes": 30,
+      "correct": 30,
+      "abstained": 0,
+      "labels": {
+        "no_signal": 30
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=12.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "crater": 2
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=12.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 2,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "extended": 2
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=12.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=3.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 0,
+      "labels": {
+        "no_signal": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=3.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=3.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=6.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=6.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "ripples size_m=6.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=0.15 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=0.15 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=0.3 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=0.3 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=0.6 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=0.6 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=1.2 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "rock height_m=1.2 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "calibration",
+      "name": "stripes ",
+      "truth": "stripes",
+      "scenes": 30,
+      "correct": 30,
+      "abstained": 0,
+      "labels": {
+        "non_solar_change": 30
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=12.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=12.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=12.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=3.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=3.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=3.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=6.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=6.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "bowl size_m=6.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=12.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=12.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=12.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=3.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 2,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "hummock": 2
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=3.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=3.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=6.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=6.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "mound size_m=6.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "none ",
+      "truth": "none",
+      "scenes": 30,
+      "correct": 30,
+      "abstained": 0,
+      "labels": {
+        "no_signal": 30
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=12.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "hummock": 1,
+        "crater": 1
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=12.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 2,
+      "abstained": 0,
+      "labels": {
+        "extended": 2,
+        "crater": 1
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=12.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=3.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "no_signal": 2
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=3.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=3.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=6.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=6.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "ripples size_m=6.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=0.15 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=0.15 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=0.3 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=0.3 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 1,
+      "abstained": 2,
+      "labels": {
+        "boulder": 1,
+        "ambiguous": 2
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=0.6 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=0.6 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=1.2 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "rock height_m=1.2 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "boulder": 3
+      }
+    },
+    {
+      "split": "test",
+      "name": "stripes ",
+      "truth": "stripes",
+      "scenes": 30,
+      "correct": 26,
+      "abstained": 4,
+      "labels": {
+        "non_solar_change": 26,
+        "ambiguous": 4
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=12.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=12.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=12.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=3.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=3.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 2,
+      "labels": {
+        "ambiguous": 2,
+        "no_signal": 1
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=3.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=6.0 max_slope_deg=10.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=6.0 max_slope_deg=2.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "bowl size_m=6.0 max_slope_deg=5.0",
+      "truth": "bowl",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "crater": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=12.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=12.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=12.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=3.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 2,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "hummock": 2
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=3.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=3.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=6.0 max_slope_deg=10.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=6.0 max_slope_deg=2.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 2,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "hummock": 2
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "mound size_m=6.0 max_slope_deg=5.0",
+      "truth": "mound",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "hummock": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "none ",
+      "truth": "none",
+      "scenes": 30,
+      "correct": 29,
+      "abstained": 1,
+      "labels": {
+        "ambiguous": 1,
+        "no_signal": 29
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=12.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 2,
+      "labels": {
+        "ambiguous": 2,
+        "hummock": 1
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=12.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=12.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=3.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 0,
+      "labels": {
+        "no_signal": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=3.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 2,
+      "labels": {
+        "ambiguous": 2,
+        "no_signal": 1
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=3.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=6.0 max_slope_deg=1.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=6.0 max_slope_deg=2.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "ripples size_m=6.0 max_slope_deg=5.0",
+      "truth": "ripples",
+      "scenes": 3,
+      "correct": 3,
+      "abstained": 0,
+      "labels": {
+        "extended": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=0.15 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=0.15 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=0.3 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=0.3 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=0.6 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=0.6 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 0,
+      "abstained": 3,
+      "labels": {
+        "ambiguous": 3
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=1.2 background=flat",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 1,
+      "abstained": 2,
+      "labels": {
+        "boulder": 1,
+        "ambiguous": 2
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "rock height_m=1.2 background=ripples",
+      "truth": "rock",
+      "scenes": 3,
+      "correct": 1,
+      "abstained": 2,
+      "labels": {
+        "boulder": 1,
+        "ambiguous": 2
+      }
+    },
+    {
+      "split": "test_double_noise",
+      "name": "stripes ",
+      "truth": "stripes",
+      "scenes": 30,
+      "correct": 23,
+      "abstained": 7,
+      "labels": {
+        "non_solar_change": 23,
+        "ambiguous": 7
+      }
+    }
+  ],
+  "elapsed_seconds": 1159.4,
+  "calibration_reused_from": "/tmp/claude-0/-home-user-HATI/7568156a-bb23-5cbd-b9a2-7b58bf18522a/scratchpad/classifier_full/classifier_rows.json",
+  "test_seed_offset": 200000,
+  "interpretation": "Synthetic scenes from the independent relief generator under the Athena sweep. The test split uses new seeds with frozen margins; the double-noise split is deliberately unlike the calibration scenes. Not a lunar error rate."
+}
