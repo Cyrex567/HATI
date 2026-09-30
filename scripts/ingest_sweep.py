@@ -32,11 +32,13 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
-from sweep_contract import DEFAULT_BEFORE, PROCESSING_VERSION, predates, utc_time
+from sweep_contract import (DEFAULT_BEFORE, PROCESSING_VERSION, post_landing_window, predates,
+                            utc_time, within)
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output" / "athena"
-SWEEP_DIR = ROOT / "data" / "sweep"
+COUNTERFACTUAL_SWEEP_DIR = ROOT / "data" / "sweep"
+SWEEP_DIR = COUNTERFACTUAL_SWEEP_DIR  # --sweep-dir replaces it for a run
 ISIS_BIN = ["lronac2isis", "spiceinit", "campt", "getkey", "catlab",
             "lronaccal", "lronacecho", "cam2map"]
 ALL_BY_PID: dict[str, dict] = {}      # every frame in the sweep CSV, filtered or not
@@ -105,8 +107,12 @@ def stage(name: str, state: str, detail: str = "") -> None:
 
 
 def load_csv(min_margin_m: float = 600.0, before: str = DEFAULT_BEFORE,
-             catalog: Path | None = None) -> list[dict]:
+             catalog: Path | None = None, after: str | None = None) -> list[dict]:
     """Read the sweep CSV, keeping only frames that really image the touchdown.
+
+    Without after, only frames acquired before the counterfactual cutoff are read.
+    With after, only the held-out window after <= acquisition < before is read, for
+    post-landing validation; the two never mix, not even in the sibling lookup.
 
     ODE's spatial query filters on the footprint BOUNDING BOX, which for a long
     diagonal polar strip is far larger than the strip. The first real ingest
@@ -124,6 +130,8 @@ def load_csv(min_margin_m: float = 600.0, before: str = DEFAULT_BEFORE,
     """
     import csv as _csv
     utc_time(before)
+    if after is not None:
+        post_landing_window(after, before)
     csvs = [catalog] if catalog else sorted(OUT.glob("solar_sweep_*.csv"))
     if not csvs:
         sys.exit("no solar_sweep CSV in output/athena -- run solar_sweep_query.py first")
@@ -133,7 +141,8 @@ def load_csv(min_margin_m: float = 600.0, before: str = DEFAULT_BEFORE,
     ALL_BY_PID.clear()
     with open(csvs[-1], encoding="utf-8", errors="replace") as fh:
         for d in _csv.DictReader(fh):
-            if not predates(d.get("utc", ""), before):
+            utc = d.get("utc", "")
+            if not (within(utc, after, before) if after is not None else predates(utc, before)):
                 continue  # also exclude from sibling lookup and forced selections
             # Keep an unfiltered index too. A frame rejected on its own footprint
             # can still be the sibling channel that rescues its partner, and the
@@ -1101,9 +1110,16 @@ def coregister(frames: list[dict], half: int = 1200,
 
 
 def main() -> None:
+    global SWEEP_DIR
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=10, help="azimuth bins / frames to ingest")
     ap.add_argument("--before", default=DEFAULT_BEFORE, help="exclusive UTC acquisition cutoff")
+    ap.add_argument("--after", default=None,
+                    help="inclusive UTC start of a held-out post-landing window, e.g. "
+                         "2025-03-07T00:00:00Z. Needs its own --sweep-dir; for validation only, "
+                         "never for the counterfactual")
+    ap.add_argument("--sweep-dir", type=Path, default=COUNTERFACTUAL_SWEEP_DIR,
+                    help="where products, reports and the manifest go (default data/sweep)")
     ap.add_argument("--catalog", type=Path, help="explicit solar_sweep CSV")
     ap.add_argument("--rebuild", action="store_true", help="reprocess cached EDRs through ISIS")
     ap.add_argument("--min-elev", type=float, default=1.5)
@@ -1149,9 +1165,19 @@ def main() -> None:
                     help="actually download + run ISIS (default: dry-run plan only)")
     args = ap.parse_args()
 
+    if args.after is not None:
+        try:
+            post_landing_window(args.after, args.before)
+        except ValueError as e:
+            sys.exit(str(e))
+        if args.sweep_dir.resolve() == COUNTERFACTUAL_SWEEP_DIR.resolve():
+            sys.exit("post-landing frames need their own --sweep-dir; "
+                     "data/sweep holds the counterfactual products")
+    SWEEP_DIR = args.sweep_dir.resolve()
     SWEEP_DIR.mkdir(parents=True, exist_ok=True)
     forced = [s for s in args.frames.split(",") if s.strip()]
-    frames = select_frames(load_csv(args.min_margin_m, args.before, args.catalog), args.n, args.min_elev,
+    frames = select_frames(load_csv(args.min_margin_m, args.before, args.catalog, args.after),
+                           args.n, args.min_elev,
                            args.max_elev, args.target_elev, force=forced,
                            alternates=args.alternates, max_emission=args.max_emission)
 
@@ -1247,8 +1273,11 @@ def main() -> None:
             "lev2": str(f["lev2"]), "shift_px": f.get("shift"),
             "residual_px": f.get("residual_px"), "closure_px": f.get("closure_px"),
             "gate_pass": bool(USED.get("gate", 0)) and not args.no_campt} for f in kept]
+    if args.after is not None:
+        for entry in man:
+            entry["after"] = args.after      # the reader refuses these outside validation
     (SWEEP_DIR / "manifest.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
-    stage("MANIFEST", "ok", f"{len(kept)}/{len(frames)} frames -> data/sweep/manifest.json"
+    stage("MANIFEST", "ok", f"{len(kept)}/{len(frames)} frames -> {SWEEP_DIR / 'manifest.json'}"
           + (f" ({len(done) - len(kept)} dropped for not closing)" if len(kept) < len(done) else ""))
     if not kept or not all(e["gate_pass"] for e in man):
         sys.exit("ingest gate failed; manifest saved for diagnosis only")

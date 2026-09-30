@@ -401,6 +401,9 @@ def main():
     ap.add_argument('--manifest',type=Path,default=ROOT/'data/sweep/manifest.json')
     ap.add_argument('--output',type=Path,default=ROOT/'output/athena/landing_maps_v255')
     ap.add_argument('--before',default=DEFAULT_BEFORE)
+    ap.add_argument('--after',default=None,
+                    help='held-out post-landing validation window start; the manifest must come from '
+                         'ingest_sweep.py --after with the same value')
     ap.add_argument('--half',type=int,default=256,help='half-width within already ingested window; systematic within this region')
     ap.add_argument('--config',type=Path,help='JSON object of LandingConfig fields')
     ap.add_argument('--scene-config',type=Path,help='JSON SceneConfig research settings; saved in run provenance')
@@ -418,7 +421,7 @@ def main():
                               navigation_margin_m=1.,label='synthetic_illustrative_limits')
         sweep,context=demo_inputs()
     else:
-        sweep=load_sweep(args.manifest,args.half,args.before)
+        sweep=load_sweep(args.manifest,args.half,args.before,args.after)
         halo=cfg.horizon_distance_m+max(*cfg.baselines_m,cfg.footprint_diameter_m)/2+10
         context=load_dem_context(sweep['dem_path'],sweep['transform'],sweep['crs'],sweep['stack'].shape[1:],halo)
     sc=ShadowConfig(pixel_m=sweep['pixel_m'],registration_sigma_px=args.registration_sigma_px)
@@ -435,6 +438,8 @@ def main():
                     source_sha256={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in source_files},
                     python_version=sys.version,packages={p:version(p) for p in ('numpy','scipy','rasterio','pyproj','matplotlib')},
                     manifest_sha256=None if args.demo else hashlib.sha256(args.manifest.read_bytes()).hexdigest())
+    if args.after is not None:
+        provenance['purpose']='post_landing_validation: frames show the landed spacecraft; not a counterfactual'
     scene_cfg=SceneConfig(**json.loads(args.scene_config.read_text())) if args.scene_config else SceneConfig()
     relief=None
     if args.relief!='none':

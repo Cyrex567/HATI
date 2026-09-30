@@ -77,8 +77,9 @@ def main():
     expected=run['provenance']['manifest_sha256']
     if hashlib.sha256(args.manifest.read_bytes()).hexdigest()!=expected:
         raise ValueError('manifest differs from the analysed run; use its saved manifest')
-    half=int(run['provenance']['arguments']['half'])
-    sweep=load_sweep(args.manifest,half,run['provenance']['arguments']['before'])
+    arguments=run['provenance']['arguments']
+    half=int(arguments['half'])
+    sweep=load_sweep(args.manifest,half,arguments['before'],arguments.get('after'))
     same_crs=CRS.from_user_input(sweep['crs']).equals(CRS.from_user_input(grid[2]),ignore_axis_order=True)
     if sweep['stack'].shape[1:]!=grid[0] or not same_crs or not np.allclose(tuple(sweep['transform']),tuple(grid[1]),rtol=0,atol=1e-8):
         raise ValueError('cached sweep does not match output grid')

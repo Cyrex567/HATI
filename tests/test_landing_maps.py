@@ -201,6 +201,40 @@ class LandingTests(unittest.TestCase):
             with patch.object(ac,'ORTHO_IMG',path),patch.object(kin,'geometry_for',side_effect=AssertionError('ISIS path')):
                 with self.assertRaises(FileNotFoundError): sweep_products.load_sweep(manifest,20)
 
+    def test_post_landing_frames_are_read_only_inside_their_declared_window(self):
+        import rasterio
+        from rasterio.transform import from_origin
+        import athena_counterfactual as ac
+        import shadow_kinematics_real as kin
+        from sweep_products import load_sweep
+        from sweep_contract import PROCESSING_VERSION
+        start,end='2025-03-07T00:00:00Z','2025-03-22T00:00:00Z'
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp); x,y=ac.touchdown_xy()
+            transform=from_origin(x-32*.9,y+32*.9,.9,.9)
+            crs='+proj=stere +lat_0=-90 +lon_0=0 +R=1737400 +units=m'
+            entries=[]
+            for i in range(3):
+                pid=f'MPOST{i}LE'; path=folder/(pid+'.tif')
+                with rasterio.open(path,'w',driver='GTiff',height=64,width=64,count=1,dtype='float32',
+                                   transform=transform,crs=crs) as dst:
+                    dst.write(np.ones((64,64),dtype='float32'),1)
+                (folder/(pid+'.geom.json')).write_text(json.dumps(dict(
+                    site_lat=ac.TD_LAT,site_lon=ac.TD_LON,az=i*40,elev=4)))
+                entries.append(dict(pid=pid,lev2=str(path),shift_px=[0,0],half_px=32,gate_pass=True,
+                    utc='2025-03-09T00:00:00Z',after=start,processing_version=PROCESSING_VERSION))
+            manifest=folder/'manifest.json'
+            def write(rows): manifest.write_text(json.dumps(rows))
+            with patch.object(ac,'ORTHO_IMG',folder/'MPOST0LE.tif'), \
+                 patch.object(kin,'geometry_for',side_effect=AssertionError('ISIS called')):
+                write(entries)
+                self.assertEqual(len(load_sweep(manifest,20,end,start)['frames']),3)
+                for window in ((),(end,'2025-03-08T00:00:00Z'),(end,'2025-03-01T00:00:00Z')):
+                    with self.assertRaises(ValueError): load_sweep(manifest,20,*window)
+                write([dict(e,utc='2024-01-01T00:00:00Z') for e in entries])     # pre-landing time, post manifest
+                for window in ((),(end,start)):
+                    with self.assertRaises(ValueError): load_sweep(manifest,20,*window)
+
     def test_real_product_adapter_exports_all_maps_and_retains_native_dem_samples(self):
         import rasterio
         from rasterio.transform import from_origin

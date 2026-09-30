@@ -91,6 +91,32 @@ class AuditRegressions(unittest.TestCase):
             self.assertEqual([r["pid"] for r in rows], ["nac.pre"])
             self.assertNotIn("POST", ingest.ALL_BY_PID)
 
+    def test_post_landing_window_is_explicit_and_kept_apart(self):
+        from sweep_contract import post_landing_window, within
+        start, end = "2025-03-07T00:00:00Z", "2025-03-22T00:00:00Z"
+        self.assertTrue(within(start, start, end))
+        for value in ("2025-03-06T23:59:59Z", end, "", None, "2025-03-09T02:15:41"):
+            self.assertFalse(within(value, start, end))
+        for window in (("2025-03-05T00:00:00Z", end), (start, "2025-03-06T00:00:00Z")):
+            with self.assertRaises(ValueError):
+                post_landing_window(*window)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "catalog.csv"
+            path.write_text("product,utc,sun_elev_deg,sun_az_deg,download_url,emission_deg,margin_m\n"
+                            "nac.pre,2024-01-01T00:00:00Z,4,20,pre.img,3,1000\n"
+                            "nac.day,2025-03-06T19:44:32Z,4,20,day.img,3,1000\n"
+                            "nac.post,2025-03-09T00:00:00Z,4,20,post.img,3,1000\n")
+            rows = ingest.load_csv(catalog=path, after=start, before=end)
+            self.assertEqual([r["pid"] for r in rows], ["nac.post"])
+            self.assertEqual(set(ingest.ALL_BY_PID), {"POST"})
+            # The landing day and the counterfactual products stay out of reach.
+            for argv, reason in (([], "sweep-dir"), (["--sweep-dir", tmp, "--after", "2025-03-01T00:00:00Z"],
+                                                    "must start")):
+                full = ["ingest_sweep.py", "--after", start, "--before", end, "--catalog", str(path), *argv]
+                with patch.object(sys, "argv", full), self.assertRaises(SystemExit) as stop:
+                    ingest.main()
+                self.assertIn(reason, str(stop.exception.code))
+
     def test_empty_selection_fails_with_a_message(self):
         with self.assertRaises(SystemExit):
             ingest.select_frames([], 24, 1, 9, 4)

@@ -3,19 +3,27 @@ from pathlib import Path
 import json
 import numpy as np
 import rasterio
-from sweep_contract import PROCESSING_VERSION,predates,DEFAULT_BEFORE
+from sweep_contract import PROCESSING_VERSION,predates,DEFAULT_BEFORE,post_landing_window,within
 
 
-def load_sweep(manifest,half,before=DEFAULT_BEFORE):
+def load_sweep(manifest,half,before=DEFAULT_BEFORE,after=None):
+    """after=None reads the counterfactual: every frame before the cutoff, none from a
+    post-landing manifest. after reads held-out validation frames, all inside
+    after <= acquisition < before and ingested for that same window."""
     import athena_counterfactual as ac
     from shadow_kinematics_real import frame_window
     from src.hati_core.shadow_likelihood import map_sun_azimuth
     manifest=Path(manifest)
     entries=json.loads(manifest.read_text())
+    if after is None:
+        in_window=lambda e:'after' not in e and predates(e.get('utc',''),before)
+    else:
+        post_landing_window(after,before)
+        in_window=lambda e:e.get('after')==after and within(e.get('utc',''),after,before)
     if not isinstance(entries,list) or len(entries)<3 or any(
             e.get('processing_version')!=PROCESSING_VERSION or not e.get('gate_pass')
-            or not predates(e.get('utc',''),before) for e in entries):
-        raise ValueError('need >=3 audited, pre-cutoff, gate-passing manifest frames')
+            or not in_window(e) for e in entries):
+        raise ValueError('need >=3 audited, gate-passing manifest frames inside the requested acquisition window')
     if half<16 or any(half>int(e.get('half_px',0)) for e in entries):
         raise ValueError('science window must fit inside every ingested registration window')
     with rasterio.open(ac.ORTHO_IMG) as src:
