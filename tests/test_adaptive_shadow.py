@@ -132,5 +132,39 @@ class AdaptiveTests(unittest.TestCase):
                 AdaptiveConfig(**kw)
 
 
+class SlopeSearchTests(unittest.TestCase):
+    # Athena-like sweep: every shadow points roughly the same way, so a tilt the DEM missed biases height.
+    AZ = np.array([43.1, 43.5, 69., 73.7, 326.7, 354.6, 6., 24.9])
+    EL = np.array([4.35, 3.59, 3.47, 3.38, 3.58, 3.63, 3.28, 3.69])
+    SC = ShadowConfig(radius_px=12, root_support_px=9, supersample=2, solar_radius_deg=0.)
+    AC = AdaptiveConfig(heights_m=(.1, .3, .5), widths_m=(.3, .6, .9), fine_step_m=.1)
+
+    def test_the_fitted_plane_recovers_a_tilt_the_dem_missed(self):
+        # Matched renderer: algebra and selection only. The ground falls 2 degrees along +rows; the DEM says flat.
+        tilt = (-np.tan(np.radians(2.)), 0.)
+        truth = shadow_template((25, 25), (12., 12.), self.AZ, self.EL, .3, .6, self.SC, tilt)[0]
+        patch = 1-.7*truth+np.random.default_rng(5).normal(0, .005, truth.shape)
+        visible = np.ones_like(patch)
+        fixed = fit_patch(patch, visible, self.AZ, self.EL, .005, self.SC, RC, self.AC)
+        fitted = fit_patch(patch, visible, self.AZ, self.EL, .005, self.SC, RC, replace(self.AC, slope_search_deg=(-2., 0., 2.)))
+        self.assertEqual(fixed['receiving_surface'], 'plane')
+        self.assertEqual(fitted['receiving_surface'], 'fitted_plane')
+        np.testing.assert_allclose(fitted['receiving_slope_rc'], tilt, atol=1e-12)
+        self.assertAlmostEqual(fitted['best']['height_m'], .3, places=9)
+        self.assertGreater(fixed['best']['height_m'], .3)                 # downhill shadows read as a taller rock
+        self.assertGreater(fitted['best']['improvement'], fixed['best']['improvement'])
+
+    def test_configurations_without_a_search_keep_their_hash(self):
+        import hashlib
+        import json
+        from dataclasses import asdict
+        cfg = AdaptiveConfig()
+        payload = {k: v for k, v in asdict(cfg).items() if k != 'slope_search_deg'}
+        self.assertEqual(cfg.hash(), hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16])
+        self.assertNotEqual(cfg.hash(), replace(cfg, slope_search_deg=(-1., 0., 1.)).hash())
+        with self.assertRaises(ValueError):
+            AdaptiveConfig(slope_search_deg=(-1., 1.))        # the DEM slope itself must stay a candidate
+
+
 if __name__ == '__main__':
     unittest.main()

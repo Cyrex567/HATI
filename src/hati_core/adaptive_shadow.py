@@ -32,6 +32,9 @@ class AdaptiveConfig:
     spatial_degree: int = 2
     max_cells: int = 0  # zero means the entire queue; any cap is reported
     workers: int = 1
+    # Receiving-slope offsets (degrees, added to the DEM slope along rows and columns)
+    # profiled jointly with height and width. Empty keeps the DEM plane fixed, as before.
+    slope_search_deg: tuple = ()
 
     def __post_init__(self):
         if not self.scale_factors or self.scale_factors[0] != 1 or any(
@@ -52,9 +55,15 @@ class AdaptiveConfig:
             raise ValueError('max_cells must be a nonnegative integer')
         if type(self.workers) is not int or not 1 <= self.workers <= 16:
             raise ValueError('workers must be an integer between one and sixteen')
+        if self.slope_search_deg and (0. not in [float(v) for v in self.slope_search_deg] or any(
+                not np.isfinite(v) or abs(v) >= 45 for v in self.slope_search_deg)):
+            raise ValueError('slope search offsets must be finite, below 45 degrees and include zero')
 
     def hash(self):
-        return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()[:16]
+        payload = asdict(self)
+        if not payload['slope_search_deg']:
+            payload.pop('slope_search_deg')          # unchanged hashes for configurations without the search
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def cell_table(shape, shadow_cfg, regional_cfg):
@@ -164,36 +173,50 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
     if terrain is not None and np.shape(terrain) != (shape[0]+2*pad, shape[1]+2*pad):
         raise ValueError('terrain must cover the patch widened by the cell size on every side')
     inner = None if terrain is None else np.asarray(terrain, float)[pad:-pad, pad:-pad]
+    # With a slope search, the receiving plane is a nuisance profiled with height and width: shadows
+    # cast in several directions constrain its tilt (PLAN_BREAKTHROUGH U3). A terrain surface replaces it.
+    search = bool(cfg.slope_search_deg) and terrain is None
+    extras = [(np.tan(np.radians(a)), np.tan(np.radians(b))) for a in cfg.slope_search_deg
+              for b in cfg.slope_search_deg] if search else [(0., 0.)]
     evaluated = {}
     def evaluate(heights, widths):
         for ht in heights:
             for width in widths:
                 if (ht, width) in evaluated:
                     continue
-                try:
-                    canvas = shadow_template((shape[0]+2*pad, shape[1]+2*pad),
-                        (radius+pad+base,)*2, azimuths[selected], elevations[selected], ht, width, sc, slopes,
-                        terrain=terrain)[0]
-                except ValueError:
+                best = None; rendered = False
+                for extra in extras:
+                    receiving = (slopes[0]+extra[0], slopes[1]+extra[1])
+                    try:
+                        canvas = shadow_template((shape[0]+2*pad, shape[1]+2*pad),
+                            (radius+pad+base,)*2, azimuths[selected], elevations[selected], ht, width, sc, receiving,
+                            terrain=terrain)[0]
+                    except ValueError:
+                        if not search:
+                            return False
+                        continue                 # this tilt puts some frame's ground behind the Sun
+                    rendered = True
+                    for dy in offsets:
+                        for dx in offsets:
+                            r0, c0 = int(pad+base-dy), int(pad+base-dx)
+                            t = canvas[:, r0:r0+shape[0], c0:c0+shape[1]]
+                            rt = p.apply(t); energy = float(np.sum(rt*rt))
+                            raw = float(np.sum((t[:, common]/sigma)**2))
+                            ident = energy/max(raw, 1e-30)
+                            if energy <= 1e-12 or ident < sc.min_identifiability:
+                                continue
+                            inner = float(np.sum(rt*residual))
+                            amplitude = float(np.clip(-inner/energy, 0, sc.max_contrast))
+                            improvement = max(0., -2*amplitude*inner-amplitude**2*energy)
+                            fit = dict(height_m=float(ht), width_m=float(width), root_offset=[float(dy), float(dx)],
+                                       improvement=improvement, score=float(np.sqrt(improvement)),
+                                       contrast=amplitude, identifiability=ident)
+                            if search:
+                                fit['receiving_slope'] = [float(receiving[0]), float(receiving[1])]
+                            if best is None or improvement > best['improvement']:
+                                best = fit
+                if not rendered:
                     return False
-                best = None
-                for dy in offsets:
-                    for dx in offsets:
-                        r0, c0 = int(pad+base-dy), int(pad+base-dx)
-                        t = canvas[:, r0:r0+shape[0], c0:c0+shape[1]]
-                        rt = p.apply(t); energy = float(np.sum(rt*rt))
-                        raw = float(np.sum((t[:, common]/sigma)**2))
-                        ident = energy/max(raw, 1e-30)
-                        if energy <= 1e-12 or ident < sc.min_identifiability:
-                            continue
-                        inner = float(np.sum(rt*residual))
-                        amplitude = float(np.clip(-inner/energy, 0, sc.max_contrast))
-                        improvement = max(0., -2*amplitude*inner-amplitude**2*energy)
-                        fit = dict(height_m=float(ht), width_m=float(width), root_offset=[float(dy), float(dx)],
-                                   improvement=improvement, score=float(np.sqrt(improvement)),
-                                   contrast=amplitude, identifiability=ident)
-                        if best is None or improvement > best['improvement']:
-                            best = fit
                 evaluated[ht, width] = best
         return True
     if not evaluate(cfg.heights_m, cfg.widths_m):
@@ -214,35 +237,50 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
     boundary = any(np.isclose(v['height_m'], (cfg.heights_m[0], cfg.heights_m[-1])).any() or
                    np.isclose(v['width_m'], (cfg.widths_m[0], cfg.widths_m[-1])).any() for v in compatible)
     endpoints = endpoint_support(shape, np.array([radius, radius])+best['root_offset'],
-        azimuths[selected], elevations[selected], best['height_m'], sc, slopes, valid=valid[selected], common=common,
-        terrain=inner)
+        azimuths[selected], elevations[selected], best['height_m'], sc, best.get('receiving_slope', slopes),
+        valid=valid[selected], common=common, terrain=inner)
     compatible_context = True
     for candidate in compatible:
         checks = endpoint_support(shape, np.array([radius, radius])+candidate['root_offset'],
-            azimuths[selected], elevations[selected], candidate['height_m'], sc, slopes, valid=valid[selected], common=common,
-            terrain=inner)
+            azimuths[selected], elevations[selected], candidate['height_m'], sc, candidate.get('receiving_slope', slopes),
+            valid=valid[selected], common=common, terrain=inner)
         compatible_context &= all(v['endpoint_supported'] and v['background_supported'] for v in checks)
+    # Whether even the shortest compatible explanation runs past the window: only then do the
+    # data, rather than the best template alone, say that the shadow is longer than the window.
+    lowest = min(compatible, key=lambda v: (v['height_m'], -v['improvement']))
+    lowest_checks = endpoint_support(shape, np.array([radius, radius])+lowest['root_offset'],
+        azimuths[selected], elevations[selected], lowest['height_m'], sc, lowest.get('receiving_slope', slopes),
+        valid=valid[selected], common=common, terrain=inner)
     for item, frame in zip(endpoints, selected):
         item['frame'] = int(frame)
     template = shadow_template(shape, np.array([radius, radius])+best['root_offset'], azimuths[selected],
-                               elevations[selected], best['height_m'], best['width_m'], sc, slopes, terrain=inner)[0]
+                               elevations[selected], best['height_m'], best['width_m'], sc, best.get('receiving_slope', slopes),
+                               terrain=inner)[0]
     rt = p.apply(template); after = residual+best['contrast']*rt
     best['frame_delta_chi2'] = np.sum(residual**2-after**2, axis=1).tolist()
     result = dict(status='assessed', best=best, frames=selected.tolist(), common_fraction=fraction,
                   common_pixels=int(common.sum()), endpoints=endpoints,
                   endpoint_censored=any(v['censored'] for v in endpoints),
+                  lowest_compatible=dict(height_m=lowest['height_m'], width_m=lowest['width_m'],
+                                         root_offset=lowest['root_offset']),
+                  lowest_compatible_censored=any(v['censored'] for v in lowest_checks),
                   endpoint_context_supported=all(v['endpoint_supported'] and v['background_supported'] for v in endpoints),
                   compatible_context_supported=bool(compatible_context),
                   height_range_m=hr, width_range_m=wr, dimension_at_boundary=bool(boundary),
                   surface=[[v['height_m'], v['width_m'], v['score']] for v in fitted],
                   compatible_pairs=[[v['height_m'], v['width_m']] for v in compatible],
-                  hypotheses_evaluated=len(evaluated)*rc.cell_px**2, spatial_degree=cfg.spatial_degree,
-                  receiving_surface='terrain' if terrain is not None else 'plane',
+                  hypotheses_evaluated=len(evaluated)*rc.cell_px**2*len(extras), spatial_degree=cfg.spatial_degree,
+                  receiving_surface='terrain' if terrain is not None else ('fitted_plane' if search else 'plane'),
                   null_energy=float(np.sum(residual**2)), fitted_energy=float(np.sum(after**2)),
                   uncertainty='Descriptive grid compatibility, no calibrated confidence level; height/width are equivalent rectangular-shadow parameters.')
+    if search:
+        tilts = np.array([v['receiving_slope'] for v in compatible])
+        result['receiving_slope_rc'] = best['receiving_slope']
+        result['receiving_slope_range_rc'] = [[float(tilts[:, 0].min()), float(tilts[:, 0].max())],
+                                              [float(tilts[:, 1].min()), float(tilts[:, 1].max())]]
     if display:
         result['_display'] = dict(patch=data, template=template, common=common, residual_null=residual,
-                                  projected_template=rt, frames=selected, slope_rc=slopes)
+                                  projected_template=rt, frames=selected, slope_rc=best.get('receiving_slope', slopes))
     return result
 
 
@@ -465,6 +503,7 @@ def held_out_prediction(patch, visibility, azimuths, elevations, sigma, sc, rc, 
         return v-((v@projector.modes)*projector.attenuation)@projector.modes.T
     az = np.asarray(azimuths, float); el = np.asarray(elevations, float)
     root = centre+best['root_offset']
+    slopes = best.get('receiving_slope', slopes)
     try:
         t = shadow_template(shape, root, az, el, best['height_m'], best['width_m'], sc, slopes)[0]
     except ValueError:

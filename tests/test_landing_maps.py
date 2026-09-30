@@ -7,6 +7,12 @@ import unittest
 from unittest.mock import patch
 import numpy as np
 from scipy import ndimage as ndi
+# matplotlib builds its font cache on first import by calling fc-list through subprocess.
+# Build it here, before the tests below forbid external executables, so a fresh machine
+# (no ~/.cache/matplotlib yet) behaves like one that has run matplotlib before.
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.font_manager  # noqa: E402,F401
 ROOT=Path(__file__).resolve().parent.parent
 sys.path[:0]=[str(ROOT),str(ROOT/'scripts')]
 from src.hati_core.landing_terrain import plane_metrics,LandingConfig,terrain_assessment,buffer_evidence,fuse_landing

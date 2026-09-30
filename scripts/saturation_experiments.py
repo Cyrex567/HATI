@@ -26,6 +26,7 @@ from src.hati_core.scene_diagnostics import SceneConfig, local_registration
 from src.hati_core.campaign_controls import render_control
 from adaptive_experiments import t9, t10, t11, t16
 from relief_experiments import t13, t14
+from classifier_stage import t18
 
 
 def save_json(path, value):
@@ -142,6 +143,20 @@ def validate_config(cfg):
     for scene in cfg.get('null_relief_scenes', []):
         if len(scene) != 3 or scene[0] not in RELIEF_KINDS or not scene[1] > 0 or not 0 < scene[2] < 45:
             raise ValueError('null_relief_scenes entries are [kind, size_m, max_slope_deg]')
+    # T18 sweep classifier keys, all optional.
+    from src.hati_core.sweep_classifier import SweepClassifierConfig
+    SweepClassifierConfig(**cfg.get('classifier', {}))
+    for key, low in (('classifier_seeds', 1), ('classifier_blanks', 4), ('classifier_workers', 1),
+                     ('classifier_planted_sites', 0), ('classifier_athena_cells', 0)):
+        if key in cfg and (type(cfg[key]) is not int or cfg[key] < low):
+            raise ValueError(f'{key} must be an integer of at least {low}')
+    if 'classifier_slope_bin' in cfg and not cfg['classifier_slope_bin'] > 0:
+        raise ValueError('classifier_slope_bin must be positive')
+    targets = cfg.get('classifier_targets')
+    if targets is not None:
+        values = [targets.get(k) for k in ('none', 'sun', 'compactness')]+list((targets.get('pair') or {}).values())
+        if any(v is None or not 0 < v < 1 for v in values) or set(targets.get('pair') or {}) - {'boulder', 'hummock', 'crater', 'extended'}:
+            raise ValueError('classifier_targets need none, sun, compactness and pair fractions in (0, 1)')
 
 
 class Experiment:
@@ -915,7 +930,7 @@ def _plot_t12(ex, linear, rows, passes, assumed, consistency):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T16'], required=True)
+    ap.add_argument('--stage', choices=['maps', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T16', 'T18'], required=True)
     ap.add_argument('--bundle', type=Path, required=True)
     ap.add_argument('--config', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)

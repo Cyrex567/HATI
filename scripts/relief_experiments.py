@@ -370,10 +370,12 @@ def _size_casters(ex, stack, cells, sigma, terrain=None, phase=None, relief=None
     terrain, the shape-from-shading surface, replaces the planar receiving surface
     so larger windows need not be refused for relief. Returns one record per
     cell. A shadow that runs past the fitting window only
-    bounds the height from below. Where the widest warning fit is censored, the
-    bound is geometric: the height whose shadow at the lowest Sun elevation just
-    reaches the window edge. Otherwise it is the lower end of the compatible
-    height range, which injected rocks show can overshoot. A height estimate is
+    bounds the height from below. Where even the shortest compatible fit of the
+    widest warning pass is censored, the bound is geometric: the height whose
+    shadow at the lowest Sun elevation just reaches the window edge. Otherwise it
+    is the lower end of the compatible height range, which injected rocks show can
+    overshoot. Deciding censoring from the best fit alone let a template that was
+    too long turn the window size into a lower bound the data never established. A height estimate is
     reported only when the context expansion reached stable, endpoint-supported
     dimensions. With a phase name, every pass and finished cell also goes to HATI
     Watch; relief maps cell centres to T13 labels for that display.
@@ -415,8 +417,10 @@ def _caster_row(ex, cfg, record, clearance):
                scales_warning=[h['scale'] for h in warned], height_lower_bound_m=None, height_m=None)
     if warned:
         last = warned[-1]
-        censored = bool(last['endpoint_censored'])
-        reach_m = (last['support_px']-float(np.hypot(*last['best']['root_offset'])))*ex.sc.pixel_m
+        lowest = last.get('lowest_compatible')
+        censored = bool(last['lowest_compatible_censored'] if 'lowest_compatible_censored' in last else last['endpoint_censored'])
+        offset = (lowest or last['best'])['root_offset']
+        reach_m = (last['support_px']-float(np.hypot(*offset)))*ex.sc.pixel_m
         geometric = reach_m*float(np.tan(np.radians(np.min(np.asarray(ex.data['elevations'])[last['frames']]))))
         bound = geometric if censored else float(last['height_range_m'][0])
         row.update(score=float(last['best']['score']), width_m=float(last['best']['width_m']), censored=censored,

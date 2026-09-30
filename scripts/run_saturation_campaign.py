@@ -34,7 +34,8 @@ STAGES = [('maps', 'Replay terrain, shadow and fused maps'),
           ('T12', 'Residual noise scale and controls at the measured level'),
           ('T13', 'Compact, extended and depression models compete'),
           ('T14', 'Shape from shading as a structural null'),
-          ('T16', 'No-caster scenes through the full adaptive procedure')]
+          ('T16', 'No-caster scenes through the full adaptive procedure'),
+          ('T18', 'Sweep morphology classifier: boulder, hummock, crater or other')]
 
 
 def select_stages(text):
@@ -288,6 +289,19 @@ def evidence_summary(output, records):
             findings.append(f'Injected {height} rocks recovered on quiet sites: {m["recovered"]}/{m["quiet_sites"]} after the relief correction '
                             f'at the residual scale measured after it, {a["recovered"]}/{a["quiet_sites"]} at the assumed sigma, '
                             f'{u["recovered"]}/{u["quiet_sites"]} without the correction.')
+    classifier = read('T18')
+    if classifier.get('margins'):
+        for truth, row in (classifier.get('generated_test') or {}).get('per_truth', {}).items():
+            low, high = row['correct_rate_95']
+            findings.append(f'T18 held-out generated {truth} scenes: {row["correct"]}/{row["scenes"]} given their own class '
+                            f'(95% interval {low:.0%}-{high:.0%}), {row["abstained"]} ambiguous, {row["wrong_call"]} wrong.')
+        for kind, row in (classifier.get('planted_recovery') or {}).items():
+            findings.append(f'T18 {kind} planted into the real images: {row["own_class"]}/{row["quiet_sites"]} quiet sites given their own class '
+                            f'({row["sites"]} sites in all).')
+        counts = classifier.get('athena_counts') or {}
+        if classifier.get('athena_cells'):
+            findings.append(f'T18 declared Athena cells ({classifier["athena_cells"]}): ' + ', '.join(
+                f'{v} {k.replace("_", " ")}' for k, v in counts.items() if v) + '. Research labels, not hazard decisions.')
     for row in read('T16').get('summaries', []):
         label = row['kind'] if row['height_m'] is None else f'{row["kind"]} {row["height_m"]} m'
         gate = '' if row['height_m'] is not None else (' (within the declared gate)' if row['within_declared_gate'] else ' (above the declared gate)')
