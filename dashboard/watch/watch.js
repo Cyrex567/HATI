@@ -214,6 +214,25 @@ function renderSizing(){
   for(const r of near){const tr=document.createElement('tr');for(const v of [fmt(r[col.distance_to_touchdown_m],1)+' m',Number.isFinite(r[col.height_lower_bound_m])?fmt(r[col.height_lower_bound_m],2)+' m':'--',Number.isFinite(r[col.height_m])?fmt(r[col.height_m],2)+' m':'--',human(r[col.state]),human(r[col.relief_check])]){const td=document.createElement('td');td.textContent=v;tr.append(td);}body.append(tr);}
   if(!near.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent=s.phase==='relief check'?'Measurements start after the relief check.':'No measured cells yet.';tr.append(td);body.append(tr);}
 }
+// Stage report: the selected stage's saved result, fetched once per version, or its live snapshot.
+let report={stage:null,version:null,data:null,pending:null},reportKey='';
+const reportEls={eyebrow:$('report-eyebrow'),title:$('report-title'),status:$('report-status'),question:$('report-question'),kpis:$('report-kpis'),charts:$('report-charts'),note:$('report-note')};
+async function loadReport(stage,version){
+  report.pending=`${stage}:${version}`;
+  try{const res=await fetch('/api/result?stage='+encodeURIComponent(stage),{cache:'no-store'});if(!res.ok)throw new Error('No saved result');const data=await res.json();report={stage,version:data.version,data,pending:null};}
+  catch(error){report={stage,version,data:null,pending:null};}
+  renderReport();
+}
+function renderReport(){
+  if(!state)return;
+  const stage=state.selected_stage,row=state.stages.find(r=>r.id===stage),version=state.results?.[stage];
+  if(stage&&version&&(report.stage!==stage||report.version!==version)&&report.pending!==`${stage}:${version}`)loadReport(stage,version);
+  const saved=report.stage===stage&&report.version===version?report.data:null,live=row?.status==='RUNNING';
+  // Redraw only when something changed, so hover and open tables survive the two-second poll.
+  const key=live?`live:${stage}:${state.snapshot?.updated}`:`${stage}:${row?.status}:${saved?version:'none'}`;
+  if(key===reportKey)return;reportKey=key;
+  HatiStages.render(reportEls,{stageId:stage,row,snapshot:state.snapshot,report:saved});
+}
 function renderProducts(){
   const select=$('products'), previous=select.value, items=state.artifacts||[];
   const ids=JSON.stringify(items.map(a=>a.path));
@@ -233,7 +252,7 @@ function render(){
     state.health==='stale'?(inferred?'No stage has written a snapshot or log line for 15 minutes. The displayed results are saved snapshots; the process may have stopped.':'The runner has stopped sending heartbeats. The displayed results are saved snapshots; its process may have stopped or lost access to the output folder.'):
     state.health==='no_heartbeat'?'This run has no live heartbeat. Saved images and logs are available; live calculation snapshots require the updated runner.':state.input_error?`Input preview unavailable: ${state.input_error}`:'';
   $('notice').hidden=!notice;text('notice',notice);
-  renderStages();renderFrames();renderTerrain();renderCalculation();renderSizing();renderMaps();renderProducts();
+  renderStages();renderReport();renderFrames();renderTerrain();renderCalculation();renderSizing();renderMaps();renderProducts();
   const log=$('log'), atBottom=log.scrollHeight-log.scrollTop-log.clientHeight<40;log.textContent=state.log||'Waiting for output…';if(atBottom)log.scrollTop=log.scrollHeight;
 }
 let fetching=false;
@@ -243,6 +262,7 @@ $('play').onclick=()=>{playing=!playing;$('play').setAttribute('aria-pressed',St
 $('follow').onclick=()=>{selectedStage=null;updateFollow();poll();};
 $('products').onchange=renderProducts;
 $('sizing-map').onmousemove=sizingTip;$('sizing-map').onmouseleave=()=>{$('sizing-tip').hidden=true;};
+HatiStages.bindTips($('report-panel'),$('report-tip'));
 setInterval(()=>{if(playing&&state?.inputs?.frames.length){selectedFrame=(selectedFrame+1)%state.inputs.frames.length;renderFrames();renderCalculation();}},1000);
 setInterval(poll,2000);poll();
 // Browsers throttle timers in background tabs; catch up as soon as the tab is shown.
