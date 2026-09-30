@@ -1,6 +1,6 @@
 # HATI v2.6 lunar polar hazard sensing
 
-HATI 2.6 adds a sweep morphology classifier (boulder, hummock, crater, extended relief or no call, campaign stage T18), an optional joint receiving-slope fit for caster sizing (off by default; the Athena sweep's narrow range of Sun elevations cannot separate slope from height), a corrected censoring rule for T14 height bounds, and controlled experiments on why sizes come out too large. Start with the [HATI 2.6 review](Documents/HATI_2.6_REVIEW.md), which also audits the repository and lists the tests to run. The classifier's error rates so far are synthetic.
+HATI 2.6 adds a sweep morphology classifier (boulder, hummock, crater, extended relief or no call, campaign stage T18), an optional joint receiving-slope fit for caster sizing (off by default: in synthetic tests it did not improve heights under either the Athena or the post-landing sweep), a corrected censoring rule for T14 height bounds, and controlled experiments on why sizes come out too large. Start with the [HATI 2.6 review](Documents/HATI_2.6_REVIEW.md), which also audits the repository and lists the tests to run. The classifier's error rates so far are synthetic.
 
 ## HATI v2.5 core
 
