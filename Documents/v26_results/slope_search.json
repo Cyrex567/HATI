@@ -1,0 +1,414 @@
+{
+ "description": "Receiving-slope search (AdaptiveConfig.slope_search_deg=(-1, 0, 1), a 3 by 3 grid of plane tilts) against the plane fixed at the DEM slope, same rocks, noise and seeds; scales 1 and 2. Ratios are fitted over true height from the final adaptive pass. Tilts are row and column slopes in degrees (rows increase down); fitted tilts come from reruns of the same trials. Synthetic.",
+ "geometries": {
+  "athena8": {
+   "elapsed_seconds": {
+    "fixed": 123.8,
+    "fitted": 646.0
+   },
+   "rows": {
+    "clean 0.3 m": {
+     "condition": "clean",
+     "true_height_m": 0.3,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "fitted_ratio": [
+      1.0,
+      0.667,
+      1.0
+     ],
+     "fixed_lower_bound_m": [
+      0.3,
+      0.3,
+      0.3
+     ],
+     "fitted_lower_bound_m": [
+      0.3,
+      0.2,
+      0.3
+     ],
+     "fitted_slope_deg": [
+      null,
+      null,
+      null
+     ],
+     "true_tilt_deg_rc": null,
+     "fixed_ratio_mean": 1.0,
+     "fitted_ratio_mean": 0.889
+    },
+    "clean 0.6 m": {
+     "condition": "clean",
+     "true_height_m": 0.6,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      1.0,
+      1.0,
+      0.833
+     ],
+     "fitted_ratio": [
+      1.167,
+      0.667,
+      1.0
+     ],
+     "fixed_lower_bound_m": [
+      0.5824702228977696,
+      0.5824702228977696,
+      0.5
+     ],
+     "fitted_lower_bound_m": [
+      0.5824702228977696,
+      0.5824702228977696,
+      0.5
+     ],
+     "fitted_slope_deg": [
+      null,
+      null,
+      null
+     ],
+     "true_tilt_deg_rc": null,
+     "fixed_ratio_mean": 0.944,
+     "fitted_ratio_mean": 0.945
+    },
+    "tilt_away_1deg 0.3 m": {
+     "condition": "tilt_away_1deg",
+     "true_height_m": 0.3,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      1.333,
+      1.333,
+      1.0
+     ],
+     "fitted_ratio": [
+      1.333,
+      1.333,
+      1.333
+     ],
+     "fixed_lower_bound_m": [
+      0.4,
+      0.4,
+      0.3
+     ],
+     "fitted_lower_bound_m": [
+      0.4,
+      0.4,
+      0.4
+     ],
+     "fitted_slope_deg": [
+      [
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ],
+      [
+       1.0,
+       0.0
+      ]
+     ],
+     "true_tilt_deg_rc": [
+      -0.88,
+      0.48
+     ],
+     "fixed_ratio_mean": 1.222,
+     "fitted_ratio_mean": 1.333
+    },
+    "tilt_away_1deg 0.6 m": {
+     "condition": "tilt_away_1deg",
+     "true_height_m": 0.6,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      1.167,
+      1.167,
+      1.167
+     ],
+     "fitted_ratio": [
+      1.333,
+      0.833,
+      1.333
+     ],
+     "fixed_lower_bound_m": [
+      0.5824702228977696,
+      0.5824702228977696,
+      0.5824702228977696
+     ],
+     "fitted_lower_bound_m": [
+      0.5824702228977696,
+      0.5824702228977696,
+      0.5824702228977696
+     ],
+     "fitted_slope_deg": [
+      null,
+      null,
+      null
+     ],
+     "true_tilt_deg_rc": null,
+     "fixed_ratio_mean": 1.167,
+     "fitted_ratio_mean": 1.166
+    },
+    "tilt_toward_1deg 0.3 m": {
+     "condition": "tilt_toward_1deg",
+     "true_height_m": 0.3,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      1.0,
+      0.667,
+      0.667
+     ],
+     "fitted_ratio": [
+      0.667,
+      0.667,
+      0.667
+     ],
+     "fixed_lower_bound_m": [
+      0.3,
+      0.2,
+      0.2
+     ],
+     "fitted_lower_bound_m": [
+      0.2,
+      0.2,
+      0.2
+     ],
+     "fitted_slope_deg": [
+      [
+       -1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ]
+     ],
+     "true_tilt_deg_rc": [
+      0.88,
+      -0.48
+     ],
+     "fixed_ratio_mean": 0.778,
+     "fitted_ratio_mean": 0.667
+    },
+    "tilt_toward_1deg 0.6 m": {
+     "condition": "tilt_toward_1deg",
+     "true_height_m": 0.6,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      0.833,
+      0.833,
+      0.667
+     ],
+     "fitted_ratio": [
+      0.833,
+      0.5,
+      0.833
+     ],
+     "fixed_lower_bound_m": [
+      0.5,
+      0.5,
+      0.4
+     ],
+     "fitted_lower_bound_m": [
+      0.5,
+      0.3,
+      0.5
+     ],
+     "fitted_slope_deg": [
+      null,
+      null,
+      null
+     ],
+     "true_tilt_deg_rc": null,
+     "fixed_ratio_mean": 0.778,
+     "fitted_ratio_mean": 0.722
+    }
+   }
+  },
+  "post_landing24": {
+   "elapsed_seconds": {
+    "fixed": 93.5,
+    "fitted": 672.7
+   },
+   "rows": {
+    "clean 0.3 m": {
+     "condition": "clean",
+     "true_height_m": 0.3,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "fitted_ratio": [
+      0.667,
+      0.667,
+      0.667
+     ],
+     "fixed_lower_bound_m": [
+      0.27679422971601136,
+      0.27679422971601136,
+      0.27679422971601136
+     ],
+     "fitted_lower_bound_m": [
+      0.2,
+      0.2,
+      0.2
+     ],
+     "fitted_slope_deg": [
+      [
+       -1.0,
+       1.0
+      ],
+      [
+       -1.0,
+       1.0
+      ],
+      [
+       -1.0,
+       1.0
+      ]
+     ],
+     "true_tilt_deg_rc": [
+      0.0,
+      0.0
+     ],
+     "fixed_ratio_mean": 1.0,
+     "fitted_ratio_mean": 0.667
+    },
+    "tilt_away_1deg 0.3 m": {
+     "condition": "tilt_away_1deg",
+     "true_height_m": 0.3,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      1.0,
+      1.333,
+      1.0
+     ],
+     "fitted_ratio": [
+      1.333,
+      1.333,
+      1.0
+     ],
+     "fixed_lower_bound_m": [
+      0.27679422971601136,
+      0.27679422971601136,
+      0.27679422971601136
+     ],
+     "fitted_lower_bound_m": [
+      0.27679422971601136,
+      0.27679422971601136,
+      0.27679422971601136
+     ],
+     "fitted_slope_deg": [
+      [
+       1.0,
+       0.0
+      ],
+      [
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ]
+     ],
+     "true_tilt_deg_rc": [
+      -0.88,
+      0.47
+     ],
+     "fixed_ratio_mean": 1.111,
+     "fitted_ratio_mean": 1.222
+    },
+    "tilt_toward_1deg 0.3 m": {
+     "condition": "tilt_toward_1deg",
+     "true_height_m": 0.3,
+     "seeds": [
+      1000,
+      1001,
+      1002
+     ],
+     "fixed_ratio": [
+      0.667,
+      0.667,
+      0.667
+     ],
+     "fitted_ratio": [
+      1.0,
+      1.0,
+      0.667
+     ],
+     "fixed_lower_bound_m": [
+      0.2,
+      0.2,
+      0.2
+     ],
+     "fitted_lower_bound_m": [
+      0.3,
+      0.3,
+      0.2
+     ],
+     "fitted_slope_deg": [
+      [
+       1.0,
+       0.0
+      ],
+      [
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ]
+     ],
+     "true_tilt_deg_rc": [
+      0.88,
+      -0.47
+     ],
+     "fixed_ratio_mean": 0.667,
+     "fitted_ratio_mean": 0.889
+    }
+   }
+  }
+ }
+}
