@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "declared": "2026-09-30, before any post-landing frame was ingested or analysed",
+  "purpose": "Held-out validation on every usable frame that shows the landed IM-2 Athena: the nine frames of configs/post_landing_check.json plus fifteen more. Same expectations and thresholds as that plan, compared with the same pre-landing campaign, and afterwards with the nine-frame run to see what the extra frames add. These frames never enter the counterfactual.",
+  "window": {"after": "2025-03-07T00:00:00Z", "before": "2026-03-01T00:00:00Z"},
+  "frames": {
+    "audited_gates": ["M1496097780LE", "M1496125807LE", "M1496153858LE", "M1496181900LE", "M1496237988LE",
+                      "M1496378219LE", "M1496434319LE", "M1496462370LE", "M1496630688LE"],
+    "edge_margin_only": ["M1496350167LE", "M1526725737RE"],
+    "emission_41_to_50_deg": ["M1496069741LE", "M1496686792LE", "M1496714841LE", "M1496041687LE", "M1496770943LE",
+                              "M1496013656LE"],
+    "emission_50_to_60_deg": ["M1495985617LE", "M1496798990LE", "M1496827034LE", "M1495957572LE", "M1496855079LE",
+                              "M1496883126LE", "M1496911170LE"]
+  },
+  "ingest": {
+    "catalog": "configs/post_landing_all_frames.csv",
+    "catalog_source": "ODE EDRNAC4 query of 2026-09-30 (solar_sweep_query.py --lat -84.7906 --lon 29.1957 --halfwidth-km 3 --before 2026-10-01T00:00:00Z --all-frames); every frame after the landing day with the site inside the strip and the Sun at least 1.5 degrees up",
+    "max_emission_deg": 62.0,
+    "min_margin_m": 300.0
+  },
+  "excluded": {
+    "landing_day": ["M1495922531LE", "M1495929539LE"],
+    "sun_below_1.5_deg": ["M1496967244LE", "M1496995271LE", "M1497051346LE", "M1497079375LE", "M1497163465LE"]
+  },
+  "known_risks": [
+    "cam2map projects each frame without removing all relief, so relief shifts a frame by its height times tan(emission). The audited gate stopped at 40 degrees for that reason; frames at 41 to 60 degrees may fail co-registration closure and be dropped by the ingest, which reports it.",
+    "Oblique frames resolve less along the look direction, so their shadows are blurrier than the detector's point-spread assumption.",
+    "The two edge-margin frames put the site 427 m and 309 m inside the strip, below the 600 m registration window the ingest was built around; campt decides whether they are usable.",
+    "M1526725737RE is a right-camera frame from February 2026, eleven months after the others."
+  ],
+  "known_object": {
+    "name": "IM-2 Athena lander",
+    "lat": -84.7906,
+    "lon": 29.1957,
+    "state": "on its side within a 20 m crater whose floor was shadowed in LROC's post-landing images",
+    "source": "https://lroc.im-ldi.com/images/1408"
+  },
+  "radii_m": {"lander": 10.0, "neighbourhood": 22.0, "disturbed": 100.0},
+  "match_radius_m": 5.1,
+  "clearance_m": 0.3,
+  "detail_sigma_px": 4.444,
+  "chance": {"trials": 200, "shift_min_m": 30.0, "shift_max_m": 120.0, "seed": 20260930},
+  "thresholds": {
+    "repeat_z_min": 3.0,
+    "height_agreement_median_m": 0.2,
+    "sfs_detail_correlation_min": 0.3
+  },
+  "expectations": [
+    "E1. Rocks do not move. Casters measured in the pre-landing stack reappear in the post-landing stack, and the reverse, more often than shifted copies of the same sets: z of at least 3 both ways, outside the disturbed disc.",
+    "E2. Where a caster is found in both stacks, its height lower bounds agree: median absolute difference at most 0.2 m.",
+    "E3. The relief model recovers real topography: the metre-scale shape-from-shading detail of the two stacks correlates at 0.3 or more, and at least 3 standard deviations above shifted copies.",
+    "E4. Warnings after the relief correction, at the measured noise, repeat beyond chance: z of at least 3.",
+    "E5. At the lander the method either warns or says unknown; it never reports a quiet reading inside the shadowed crater. Everything within 100 m of the lander is described separately and excluded from E1 to E4, because the landing changed the surface there."
+  ]
+}
