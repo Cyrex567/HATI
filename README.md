@@ -1,4 +1,8 @@
-# HATI v2.5 lunar polar hazard sensing
+# HATI v2.6 lunar polar hazard sensing
+
+HATI 2.6 adds a sweep morphology classifier (boulder, hummock, crater, extended relief or no call, campaign stage T18), an optional joint receiving-slope fit for caster sizing (off by default; the Athena sweep's narrow range of Sun elevations cannot separate slope from height), a corrected censoring rule for T14 height bounds, and controlled experiments on why sizes come out too large. Start with the [HATI 2.6 review](Documents/HATI_2.6_REVIEW.md), which also audits the repository and lists the tests to run. The classifier's error rates so far are synthetic.
+
+## HATI v2.5 core
 
 The current scientific path (core 2.5.5) produces separate terrain and multi-illumination shadow heatmaps, a conservative fused map, and observability layers. Shadow footprints use every sampled root at its actual distance. Broad image/DEM discrepancies and local apparent-registration checks accompany the maps. Native DEM plane/relief measurements and downstream DEM shadow prediction complement an uncapped regional shadow search. It uses no trained model weights. The target is subpixel relief sensing poleward of 70 degrees; lunar detection performance and landing clearance remain unvalidated.
 

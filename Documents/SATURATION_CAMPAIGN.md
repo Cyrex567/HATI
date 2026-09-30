@@ -50,6 +50,14 @@ These workers use one numerical thread and run sequentially for reproducibility.
 
 In a second WSL terminal, run `python dashboard/hati_watch.py --run-dir output/athena/saturation_campaign/athena-watch-01`, using the exact campaign output directory. Open `http://localhost:8765` in the stationary machine's browser. [HATI Watch instructions](HATI_WATCH.md) describe the images, intermediate calculations, maps and saved-stage inspection. Watching is optional and cannot control the computation.
 
+### Sweep classifier (T18, HATI 2.6)
+
+```bash
+CONFIG=configs/saturation_campaign_classifier_workstation.json STAGES=T1,T12,T13,T18 bash scripts/run_noise_campaign_wsl.sh
+```
+
+T18 reads T12's relief-corrected residual scale when the campaign measured it and falls back to the assumed sigma otherwise; it classifies Athena cells only when T1 is present. The preset uses four worker processes (`classifier_workers`), 3 seeds per generated scene type and split, 30 blank and 30 stripes scenes, 12 planted sites per feature kind and 400 declared Athena cells. The same stage runs on the post-landing stacks with `STAGES=T1,T12,T13,T14,T18 CONFIG=configs/saturation_campaign_classifier_workstation.json bash scripts/run_post_landing_queue_wsl.sh`. Background and results: [HATI 2.6 review](HATI_2.6_REVIEW.md).
+
 ### Relief and noise campaign (T12, T13, T14, T16)
 
 ```bash
@@ -104,6 +112,7 @@ The archive contains:
 | T13 | Mounds, bowls and elephant-hide ripples at declared sizes and slopes through the unchanged regional detector; then per cell a withheld-frame comparison of the null, the detector's rock bank (compact), and a linearised relief model (a Gaussian bump and its shifts at three scales) constrained to rise (extended) or to sink (depression), with margins calibrated on generated scenes to declared error targets and scored on held-out seeds; the calibrated rule applied to a declared sample of Athena cells | Classes are rock-like, relief-like, ambiguous or none; relief-like cells also carry protrusion, depression or undetermined. A relief label needs the measured Sun geometry to predict better than the same model with Sun directions reassigned among frames, which keeps Sun-independent change out. Relief-like is handed to the terrain module as a slope hazard, never cleared. Relief slopes from linear shading are lower bounds above the Sun elevation |
 | T14 | Linearised multi-image shape from shading on ratio images (coarse 2 px height grid, second-difference smoothness, deep shadows left out), the unchanged detector on the relief-corrected stack, and rendered rocks multiplied into the real images to measure what the correction removes | The surface is relative and first order; it is a structural null, not a validated DEM. Recovery counts only sites whose corrected background was quiet |
 | T16 | Static, drifting-background, Sun-consistent relief and small-caster scenes from the relief generator through the full adaptive request, expansion and stopping procedure, 12 seeds per scene, rendered at the assumed and the relief-corrected T12 scale with identical seeds | Counts trials with a context-supported cell against the declared gate. A synthetic 3×3-cell ROI rate, not a calibrated full-image false-alarm rate |
+| T18 | Sweep morphology classifier (`src/hati_core/sweep_classifier.py`): boulder, hummock, crater and extended-relief hypotheses compete by withheld-frame prediction through the detector's null; split-conformal margins calibrated on generated scenes under the stack's geometry at T12's relief-corrected scale, frozen and tested on new seeds with exact 95% intervals; rocks, bowls and mounds planted into the real images at declared sites; a declared sample of Athena cells | Labels are boulder, hummock, crater, extended, ambiguous, no signal or non-solar change. Error rates hold for scenes like the calibration scenes, not for lunar terrain in general. Planted recovery counts only sites whose own background was called no signal. Calls carry physical quantities (height, diameter and depth, flank slope) but never clear ground |
 
 All science settings are declared in `configs/saturation_campaign.json` and saved before experiments run. Frame groups refer to the documented Athena stack. An absent declared frame makes that group unavailable rather than silently substituting another frame. New sites need a new declared configuration.
 
