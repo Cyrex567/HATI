@@ -607,7 +607,8 @@ const HatiStages = (() => {
     const found = total(Object.fromEntries(heights.map(h => [h, rec[h].corrected_measured])), 'recovered', 'quiet_sites');
     const bounded = total(sizing, 'lower_bound_holds', 'with_warning_evidence');
     const nearest = real?.nearest_at_or_above_clearance;
-    const m = r.measurable, cal = r.bound_calibration;
+    const m = r.measurable, cal = r.bound_calibration, ecal = r.estimate_calibration;
+    const span = v => Array.isArray(v) ? `${fmt(v[0], 2)} to ${fmt(v[1], 2)} m` : '--';
     const kpis = [
       ...(m ? [{label: 'Measurable from', value: ok(m.measurable_from_m) ? `${fmt(m.measurable_from_m, 2)} m` : 'not yet established',
                 sub: `${pct(m.detection_target, 0)} of planted rocks found and ${pct(m.coverage_target, 0)} of their height bounds holding, at ${pct(m.confidence, 0)} confidence`,
@@ -621,6 +622,9 @@ const HatiStages = (() => {
       ...(cal && cal.kind !== 'none' ? [{label: 'Height bound margin', value: ok(cal.margin) ? (cal.kind === 'ratio' ? `÷ ${fmt(cal.margin, 2)}` : `${fmt(cal.margin, 2)} m`) : 'too few planted rocks',
                    sub: `split conformal from ${int(cal.planted_bounds)} planted bounds, so ${pct(cal.coverage, 0)} of rocks like them hold`,
                    state: ok(cal.margin) ? 'good' : 'warn', stateText: ok(cal.margin) ? 'calibrated' : 'not calibrated'}] : []),
+      ...(ecal && ecal.kind !== 'none' ? [{label: 'Height estimate interval', value: Array.isArray(ecal.factors) ? `×${fmt(ecal.factors[0], 2)} to ×${fmt(ecal.factors[1], 2)}` : 'too few planted estimates',
+                   sub: `split conformal from ${int(ecal.planted_estimates)} planted estimates, so ${pct(ecal.coverage, 0)} of rocks like them fall inside`,
+                   state: Array.isArray(ecal.factors) ? 'good' : 'warn', stateText: Array.isArray(ecal.factors) ? 'calibrated' : 'not calibrated'}] : []),
       {label: 'Planted calibration rocks', value: int(pop.planted ?? r.injected_sites),
        sub: population ? `${Object.entries(pop.shapes || {}).map(([k, n]) => `${int(n)} ${body(k)}`).join(' · ')} · height/diameter median ${fmt(pop.height_over_diameter_median, 2)}`
                        : (pop.body || 'fixed heights')},
@@ -673,19 +677,19 @@ const HatiStages = (() => {
     if (sized.length) {
       const jitter = population ? (p => p.height_m) : (p, k) => p.height_m+((p.site*37+k*13)%9-4)*.012;
       const points = sized.flatMap(p => [
-        ok(p.sized_height_lower_bound_m) && {x: jitter(p, 0), y: p.sized_height_lower_bound_m, key: 'bound', tip: `Planted ${p.height_m} m rock, site ${p.site}\nLower bound ${fmt(p.sized_height_lower_bound_m, 2)} m${p.sized_height_lower_bound_m > p.height_m+.05 ? ' (overshoots)' : ' (holds)'}\nState: ${human(p.sized_state)}`},
-        ok(p.sized_height_m) && {x: jitter(p, 1), y: p.sized_height_m, key: 'estimate', tip: `Planted ${p.height_m} m rock, site ${p.site}\nHeight estimate ${fmt(p.sized_height_m, 2)} m`}].filter(Boolean));
+        ok(p.sized_height_lower_bound_m) && {x: jitter(p, 0), y: p.sized_height_lower_bound_m, key: 'bound', tip: `Planted ${fmt(p.height_m, 2)} m rock, site ${p.site}\nLower bound ${fmt(p.sized_height_lower_bound_m, 2)} m${p.sized_height_lower_bound_m > p.height_m+.05 ? ' (overshoots)' : ' (holds)'}\nState: ${human(p.sized_state)}`},
+        ok(p.sized_height_m) && {x: jitter(p, 1), y: p.sized_height_m, key: 'estimate', tip: `Planted ${fmt(p.height_m, 2)} m rock, site ${p.site}\nHeight estimate ${fmt(p.sized_height_m, 2)} m${Array.isArray(p.sized_height_interval_m) ? `\nCalibrated interval ${span(p.sized_height_interval_m)} (${p.sized_height_interval_m[0] <= p.height_m && p.height_m <= p.sized_height_interval_m[1] ? 'holds the truth' : 'misses the truth'})` : ''}`}].filter(Boolean));
       charts.push({type: 'scatter', title: 'Planted rocks: measured height against true height', subtitle: 'A lower bound above the line overshoots the truth',
         points, keys: [{key: 'bound', name: 'Lower bound', color: C.s1}, {key: 'estimate', name: 'Estimate', color: C.s2, shape: 'triangle'}],
         legend: [{name: 'Lower bound', color: C.s1, shape: 'circle'}, {name: 'Estimate', color: C.s2, shape: 'triangle'}],
         xLabel: 'true height (m)', yLabel: 'measured (m)', hi: Math.max(1.6, ...points.map(p => p.y)),
-        table: {head: ['Site', 'True', 'Lower bound', 'Estimate', 'State'], rows: sized.map(p => [p.site, `${fmt(p.height_m, 2)} m`, ok(p.sized_height_lower_bound_m) ? `${fmt(p.sized_height_lower_bound_m, 2)} m` : '--', ok(p.sized_height_m) ? `${fmt(p.sized_height_m, 2)} m` : '--', human(p.sized_state)])}});
+        table: {head: ['Site', 'True', 'Lower bound', 'Estimate', 'Calibrated interval', 'State'], rows: sized.map(p => [p.site, `${fmt(p.height_m, 2)} m`, ok(p.sized_height_lower_bound_m) ? `${fmt(p.sized_height_lower_bound_m, 2)} m` : '--', ok(p.sized_height_m) ? `${fmt(p.sized_height_m, 2)} m` : '--', span(p.sized_height_interval_m), human(p.sized_state)])}});
     }
     const rocks = Array.isArray(extras?.real_rocks) ? extras.real_rocks : [];
     if (real && rocks.length) {
       const px = real.pixel_m || 1, td = real.touchdown_px, size = real.image_shape;
       const height = o => o.height_m ?? o.height_lower_bound_m;
-      const describe = o => ok(o.height_m) ? `${fmt(o.height_m, 2)} m (context-supported)`
+      const describe = o => ok(o.height_m) ? `${fmt(o.height_m, 2)} m (context-supported${Array.isArray(o.height_interval_m) ? `; ${pct(ecal?.coverage, 0)} interval ${span(o.height_interval_m)}` : ''})`
         : ok(o.height_lower_bound_calibrated_m) ? `at least ${fmt(o.height_lower_bound_calibrated_m, 2)} m (calibrated; fitted ${fmt(o.height_lower_bound_m, 2)} m)`
         : ok(o.height_lower_bound_m) ? `at least ${fmt(o.height_lower_bound_m, 2)} m` : 'not sized';
       const calib = o => o.calibration ? `${of(o.calibration.found, o.calibration.of)} of planted ${o.calibration.group} rocks found` : 'below the planted range';
@@ -738,9 +742,10 @@ const HatiStages = (() => {
       charts.unshift({type: 'ranges', wide: true, title: 'What this run can vouch for',
         subtitle: `Share of planted rocks found and share of height bounds that hold (${m.bounds_judged || 'as fitted'}), with ${pct(m.confidence, 0)} intervals. A height is established when both intervals clear the dashed target.`,
         rows, refs: targets.map(t => ({value: t, label: `target ${pct(t, 0)}`})), labelW: 220, width: 1000, note: m.note,
-        table: {head: ['Height', 'Found', `${pct(m.confidence, 0)} interval`, 'Bounds hold', `${pct(m.confidence, 0)} interval`, 'Estimates', 'Median error', 'Established'],
+        table: {head: ['Height', 'Found', `${pct(m.confidence, 0)} interval`, 'Bounds hold', `${pct(m.confidence, 0)} interval`, 'Estimates', 'Median error', 'Estimate intervals hold', 'Established'],
                 rows: Object.entries(m.groups || {}).map(([g, v]) => [g, of(v.found, v.quiet_sites), interval(v.found_interval), of(v.bound_holds, v.bounded),
-                  interval(v.holds_interval), int(v.estimates), ok(v.median_error_m) ? `${fmt(v.median_error_m, 2)} m` : '--', v.established ? 'yes' : 'no'])}});
+                  interval(v.holds_interval), int(v.estimates), ok(v.median_error_m) ? `${fmt(v.median_error_m, 2)} m` : '--',
+                  v.estimate_intervals ? of(v.estimate_interval_holds, v.estimate_intervals) : '--', v.established ? 'yes' : 'no'])}});
     }
     return {kpis, charts};
   }

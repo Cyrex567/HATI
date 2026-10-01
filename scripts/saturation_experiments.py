@@ -164,9 +164,14 @@ def validate_config(cfg):
     window = cfg.get('sfs_injection_window', 'auto')
     if window != 'auto' and (type(window) is not int or window < 16):
         raise ValueError('sfs_injection_window must be auto or an integer of at least 16')
+    if cfg.get('sfs_sizing_images', 'corrected') not in ('corrected', 'original'):
+        raise ValueError('sfs_sizing_images must be corrected or original')
     if cfg.get('bound_calibration', 'offset') not in ('offset', 'ratio', 'none'):
         raise ValueError('bound_calibration must be offset, ratio or none')
-    for key in ('measurable_detection_target', 'measurable_coverage_target'):
+    if cfg.get('estimate_calibration', 'conformal') not in ('conformal', 'none'):
+        raise ValueError('estimate_calibration must be conformal or none')
+    for key in ('measurable_detection_target', 'measurable_coverage_target', 'bound_calibration_coverage',
+                'estimate_calibration_coverage'):
         if not 0 < cfg.get(key, .9) < 1:
             raise ValueError(f'{key} must lie between 0 and 1')
     # T14's sizing may override the shared adaptive settings (a guard, larger windows); both must make a valid config.

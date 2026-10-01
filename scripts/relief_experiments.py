@@ -516,6 +516,30 @@ def _corrected_bound(bound, margin, kind='offset'):
     return max(0., bound-margin) if kind == 'offset' else bound/margin
 
 
+def _estimate_factors(estimates, truths, coverage=.9):
+    """Split-conformal interval for height estimates, as factors on the estimate.
+
+    The score is true height over estimate. Each tail is calibrated at half the miss rate:
+    the floor((n+1) * (1-coverage)/2)-th smallest ratio and the ceil((n+1) * (1+coverage)/2)-th
+    smallest, so for a new rock exchangeable with the planted ones [estimate * low, estimate * high]
+    holds its true height with probability at least coverage. The interval follows any bias of
+    the estimates instead of centring on them. None when n is too small for that coverage.
+    """
+    ratio = np.sort(np.asarray(truths, float)/np.asarray(estimates, float))
+    n = len(ratio); miss = 1-coverage
+    # The tolerance keeps exact ranks exact: 20 * 0.05 is 1, not 0.9999999999999998.
+    low, high = int(np.floor((n+1)*miss/2+1e-9)), int(np.ceil((n+1)*(1-miss/2)-1e-9))
+    if not n or low < 1 or high > n:
+        return None
+    return [float(ratio[low-1]), float(ratio[high-1])]
+
+
+def _estimate_interval(estimate, factors):
+    if estimate is None or factors is None:
+        return None
+    return [estimate*factors[0], estimate*factors[1]]
+
+
 def _exact_interval(k, n, confidence=.95):
     """Clopper-Pearson interval for k successes in n trials; None for no trials."""
     from scipy.stats import beta
@@ -534,7 +558,7 @@ def _measurable(groups, injection, detection_target=.9, coverage_target=.9, conf
     lower end of both intervals reaches its target. measurable_from_m is the lower edge of the
     lowest group from which every taller group is established; None when even the tallest is not.
     Where T14 calibrated the bounds, the calibrated (cross-fitted) ones are judged; the fitted
-    ones are counted alongside.
+    ones are counted alongside, as are the calibrated estimate intervals that hold the true height.
     """
     calibrated = any(r.get('sized_height_lower_bound_calibrated_m') is not None for r in injection)
     key = 'sized_height_lower_bound_calibrated_m' if calibrated else 'sized_height_lower_bound_m'
@@ -547,6 +571,8 @@ def _measurable(groups, injection, detection_target=.9, coverage_target=.9, conf
         fitted = [r for r in rows if r.get('sized_height_lower_bound_m') is not None]
         fitted_holds = sum(r['sized_height_lower_bound_m'] <= r['height_m']+.05 for r in fitted)
         errors = [r['sized_height_m']-r['height_m'] for r in rows if r.get('sized_height_m') is not None]
+        intervals = [r for r in rows if r.get('sized_height_interval_m') is not None]
+        inside = sum(r['sized_height_interval_m'][0] <= r['height_m'] <= r['sized_height_interval_m'][1] for r in intervals)
         found_interval, holds_interval = _exact_interval(sum(found), len(found), confidence), _exact_interval(holds, len(bounded), confidence)
         established = bool(found_interval and holds_interval and found_interval[0] >= detection_target
                            and holds_interval[0] >= coverage_target)
@@ -554,7 +580,8 @@ def _measurable(groups, injection, detection_target=.9, coverage_target=.9, conf
                           found_interval=found_interval, bounded=len(bounded), bound_holds=int(holds), holds_interval=holds_interval,
                           fitted_bounded=len(fitted), fitted_bound_holds=int(fitted_holds),
                           estimates=len(errors), median_error_m=float(np.median(errors)) if errors else None,
-                          max_abs_error_m=float(np.max(np.abs(errors))) if errors else None, established=established)
+                          max_abs_error_m=float(np.max(np.abs(errors))) if errors else None,
+                          estimate_intervals=len(intervals), estimate_interval_holds=int(inside), established=established)
         ordered.append((lo, established))
     measurable_from = None
     for lo, established in sorted(ordered, reverse=True):
@@ -603,8 +630,10 @@ def _group_detections(casters, cell_px, groups, recovery):
         peak = max(cells, key=lambda c: c.get('score') or 0.)
         bound, estimate = (max(bounds) if bounds else None), (max(estimates) if estimates else None)
         corrected = [c['height_lower_bound_calibrated_m'] for c in cells if c.get('height_lower_bound_calibrated_m') is not None]
+        tallest = max((c for c in cells if c.get('height_m') is not None), key=lambda c: c['height_m'], default=None)
         objects.append(dict(
             height_lower_bound_calibrated_m=max(corrected) if corrected else None,
+            height_interval_m=tallest.get('height_interval_m') if tallest else None,
             exceeds_clearance_calibrated=any(bool(c.get('exceeds_clearance_calibrated')) for c in cells),
             cells=len(cells), row_px=float(np.mean([c['row_px'] for c in cells])), col_px=float(np.mean([c['col_px'] for c in cells])),
             peak_row_px=int(peak['row_px']), peak_col_px=int(peak['col_px']), peak_score=peak.get('score'),
@@ -721,6 +750,11 @@ def t14(ex):
     noise_cfg = NoiseScaleConfig(**cfg.get('noise_scale', {}))
     after_scale = measure_residual_scale(solved['corrected'], d['visibility'], d['slope_row'], d['slope_col'], noise_cfg)
     sigma_after = after_scale['pooled_sigma'] or float(ex.noise)
+    # Sizing may run on the original images instead of the corrected ones (the 2.6 review found the correction
+    # itself lengthens planted shadows); the surface from shading stays the receiving ground either way.
+    sizing_images = cfg.get('sfs_sizing_images', 'corrected')
+    sigma_sizing = sigma_after if sizing_images == 'corrected' else \
+        (measure_residual_scale(d['stack'], d['visibility'], d['slope_row'], d['slope_col'], noise_cfg)['pooled_sigma'] or float(ex.noise))
     ex.live.update(force=True, kind='stage', message='T14: detector on the relief-corrected stack')
     corrected = ex.regional('relief_corrected', data=dict(d, stack=solved['corrected']),
                             input_proof=dict(source=ex.proof, relief_correction=dict(stage='T14', **solved['configuration'])))
@@ -844,20 +878,22 @@ def t14(ex):
         ex.live.update(force=True, kind='stage', message=f'T14: sizing the injected rocks{tag}')
         site_cells = [_cell_containing(table, int(r), int(c)) for r, c, _ in placed]
         by_cell = {(s['row_px'], s['col_px']): s for s in
-                   _size_casters(ex, solved_injected['corrected'], [row for row in site_cells if row is not None], sigma_after,
+                   _size_casters(ex, solved_injected['corrected'] if sizing_images == 'corrected' else injected,
+                                 [row for row in site_cells if row is not None], sigma_sizing,
                                  terrain=solved_injected['height_m'], phase=f'planted rocks{tag}', touchdown=touchdown)}
         for row, cell in zip(injection[first:], site_cells):
             size = by_cell.get((int(cell[4]), int(cell[5]))) if cell is not None else None
             row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
                        sized_height_lower_bound_m=size and size['height_lower_bound_m'])
     # Calibrated lower bounds (split conformal): the planted rocks' excess of bound over true height sets a margin
-    # that makes bounds hold for at least the target share of rocks like them. Planted rocks are cross-fitted, each
-    # half corrected with the other half's margin, so their coverage is measured out of sample; real casters get the
-    # margin of all planted rocks.
-    kind, coverage_target = cfg.get('bound_calibration', 'offset'), cfg.get('measurable_coverage_target', .9)
+    # that makes bounds hold for at least the calibration share of rocks like them. Planted rocks are cross-fitted,
+    # each half corrected with the other half's margin, so their coverage is measured out of sample; real casters get
+    # the margin of all planted rocks. The share sits above the measurable target on purpose: certifying 90% at 95%
+    # confidence takes about 97% holding with 90 rocks to a height bin, and every one with 45.
+    kind, bound_coverage = cfg.get('bound_calibration', 'offset'), cfg.get('bound_calibration_coverage', .97)
     bounded_planted = [r for r in injection if r.get('sized_height_lower_bound_m') is not None]
     def margin_of(rows):
-        return _conformal_margin([r['sized_height_lower_bound_m'] for r in rows], [r['height_m'] for r in rows], coverage_target, kind)
+        return _conformal_margin([r['sized_height_lower_bound_m'] for r in rows], [r['height_m'] for r in rows], bound_coverage, kind)
     bound_margin, cross = None, []
     if kind != 'none':
         halves = (bounded_planted[0::2], bounded_planted[1::2])
@@ -866,11 +902,30 @@ def t14(ex):
             for r in mine:
                 r['sized_height_lower_bound_calibrated_m'] = _corrected_bound(r['sized_height_lower_bound_m'], m, kind)
         bound_margin = margin_of(bounded_planted)
-    calibration = dict(kind=kind, coverage=coverage_target, planted_bounds=len(bounded_planted), margin=bound_margin,
+    calibration = dict(kind=kind, coverage=bound_coverage, planted_bounds=len(bounded_planted), margin=bound_margin,
                        cross_fitted_margins=cross,
                        unit='m subtracted from a bound' if kind == 'offset' else 'factor dividing a bound' if kind == 'ratio' else None,
                        note='Split conformal: for a rock exchangeable with the planted ones on this stack, a corrected bound holds '
                             'with at least the stated probability. Real rocks differ from planted ones in ways this cannot check.')
+    # Calibrated height estimates, the same way: the planted rocks' true height over their estimate sets factors
+    # that bracket a new rock's height, cross-fitted for the planted rocks themselves.
+    estimate_kind, estimate_coverage = cfg.get('estimate_calibration', 'conformal'), cfg.get('estimate_calibration_coverage', .9)
+    estimated_planted = [r for r in injection if r.get('sized_height_m') is not None]
+    def factors_of(rows):
+        return _estimate_factors([r['sized_height_m'] for r in rows], [r['height_m'] for r in rows], estimate_coverage)
+    estimate_factors, estimate_cross = None, []
+    if estimate_kind != 'none':
+        halves = (estimated_planted[0::2], estimated_planted[1::2])
+        for mine, other in ((halves[0], halves[1]), (halves[1], halves[0])):
+            f = factors_of(other); estimate_cross.append(f)
+            for r in mine:
+                r['sized_height_interval_m'] = _estimate_interval(r['sized_height_m'], f)
+        estimate_factors = factors_of(estimated_planted)
+    estimate_calibration = dict(kind=estimate_kind, coverage=estimate_coverage, planted_estimates=len(estimated_planted),
+                                factors=estimate_factors, cross_fitted_factors=estimate_cross,
+                                note='Split conformal on true height over estimate, each tail at half the miss rate: for a rock '
+                                     'exchangeable with the planted ones on this stack, the estimate times the two factors holds '
+                                     'its height with at least the stated probability.')
     save(ex.out/'injection.json', injection)
     # Summaries per height group: the planted heights themselves ('fixed') or height bins ('population').
     members = {label: [r for r in injection if _group_of(r['height_m'], groups) == label] for label, _, _ in groups}
@@ -929,14 +984,16 @@ def t14(ex):
             _progress(ex, 'T14 relief check on caster candidates', i+1, len(examined), started, last)
     # Relief-like cells go to the terrain module; 'none' means no model predicts the withheld frames.
     keep = [row for row in examined if not rule or labels.get((int(row[4]), int(row[5]))) in ('rock_like', 'ambiguous')]
-    casters = _size_casters(ex, solved['corrected'], keep, sigma_after, terrain=solved['height_m'], phase='detections',
+    casters = _size_casters(ex, solved['corrected'] if sizing_images == 'corrected' else d['stack'], keep, sigma_sizing,
+                            terrain=solved['height_m'], phase='detections',
                             relief=labels, touchdown=touchdown) if keep else []
     for row in casters:
         row['relief_check'] = labels.get((row['row_px'], row['col_px']))
         row['distance_to_touchdown_m'] = float(np.hypot(row['row_px']-touchdown[0], row['col_px']-touchdown[1])*ex.sc.pixel_m)
         calibrated = _corrected_bound(row['height_lower_bound_m'], bound_margin, kind)
         row.update(height_lower_bound_calibrated_m=calibrated,
-                   exceeds_clearance_calibrated=bool(calibrated is not None and calibrated >= cfg.get('sfs_clearance_m', .3)))
+                   exceeds_clearance_calibrated=bool(calibrated is not None and calibrated >= cfg.get('sfs_clearance_m', .3)),
+                   height_interval_m=_estimate_interval(row['height_m'], estimate_factors))
     save(ex.out/'subpixel_casters.json', casters)
     clearance = cfg.get('sfs_clearance_m', .3)
     area_ha = float((corrected['status'] == 1).sum())*ex.sc.pixel_m**2/1e4
@@ -1000,6 +1057,7 @@ def t14(ex):
                      exceedance=exceedance, injection_recovery=recovery, injected_sites=len(injection), injection_rounds=round_log,
                      relief_absorption=absorption, relief_absorption_verdict=absorption_verdict, subpixel_casters=subpixel,
                      planted_population=population, real_rocks=real, measurable=measurable, bound_calibration=calibration,
+                     estimate_calibration=estimate_calibration,
                      limitations=['First-order shading: slopes above the Sun elevation are underestimated and cast shadows are excluded, not modelled.',
                                   'The surface is relative; its mean and planes shared by every frame are unobserved.',
                                   'Recovery is counted only where the corrected background was quiet at the site.',

@@ -18,17 +18,25 @@ T14 runs the detector on the relief-corrected stack, checks every warning cell a
 
 ## Calibrated height bounds
 
-A fitted lower bound can sit above the truth. The template is a rectangle, the height grid moves in 0.1 m steps, and the relief correction disturbs the ground around a rock, so the compatible range is narrower than the real uncertainty. With `bound_calibration: offset` (the default), T14 uses the planted rocks to correct this by split conformal calibration. It takes each planted rock's excess of fitted bound over true height, and the ceil((n+1) x 0.9)-th smallest of the n excesses is the margin subtracted from every bound. For a rock exchangeable with the planted ones on this stack, a corrected bound then holds with probability at least 0.9, whatever the error distribution. `ratio` divides by a factor instead; `none` keeps the fitted bounds.
+A fitted lower bound can sit above the truth. The template is an idealised caster, the height grid moves in 0.1 m steps, and the relief correction disturbs the ground around a rock, so the compatible range is narrower than the real uncertainty. With `bound_calibration: offset` (the default), T14 uses the planted rocks to correct this by split conformal calibration. It takes each planted rock's excess of fitted bound over true height, and the ceil((n+1) x c)-th smallest of the n excesses is the margin subtracted from every bound, where c is `bound_calibration_coverage`. For a rock exchangeable with the planted ones on this stack, a corrected bound then holds with probability at least c, whatever the error distribution. `ratio` divides by a factor instead; `none` keeps the fitted bounds.
 
-The planted rocks are cross-fitted: each half is corrected with the margin from the other half, so their coverage is measured on rocks the margin never saw. Real candidates get the margin of all planted rocks (`height_lower_bound_calibrated_m`, `exceeds_clearance_calibrated`); `result.json` records it under `bound_calibration`. With fewer than nine bounded planted rocks there is no margin at 90%, and no calibrated bound.
+c defaults to 0.97, above the 90% that "What a run can vouch for" asks for, because that check is made at 95% confidence on a finite number of rocks. Certifying 90% takes every bound holding with 45 rocks in a height bin, all but three with 90, and all but five with 120. Bounds calibrated at 90% hold for about 90% of rocks and can never pass it.
+
+The planted rocks are cross-fitted: each half is corrected with the margin from the other half, so their coverage is measured on rocks the margin never saw. Real candidates get the margin of all planted rocks (`height_lower_bound_calibrated_m`, `exceeds_clearance_calibrated`); `result.json` records it under `bound_calibration`. At 0.97 a margin needs at least 33 bounded planted rocks, so each cross-fitted half needs 33 as well; with fewer, the run has no calibrated bounds and judges the fitted ones.
 
 Real rocks can differ from the planted ones in ways this cannot see: shapes outside the catalog, clusters, ground the planting never sampled. The guarantee holds for rocks like the planted ones.
+
+## Calibrated height estimates
+
+A context-supported estimate is a single height, and planted rocks show it can sit off the truth for the same reasons. With `estimate_calibration: conformal` (the default), T14 gives every estimate an interval calibrated on the planted rocks. For each planted rock with an estimate it takes the true height over the estimate, and calibrates each tail at half the miss rate: at the default `estimate_calibration_coverage` of 0.9, with n planted estimates, the floor((n+1) x 0.05)-th smallest ratio is the low factor and the ceil((n+1) x 0.95)-th smallest the high one. The estimate times the two factors is the interval. For a rock exchangeable with the planted ones on this stack, it holds the rock's height with probability at least 0.9. Ratios keep the interval proportional to the height, and the two separate tails let it follow a bias: if estimates read 10% short, the interval sits above them.
+
+Planted rocks are cross-fitted as for the bounds (`sized_height_interval_m` in `injection.json`), and `measurable` counts how many of their intervals hold the true height. Real candidates get the factors of all planted rocks (`height_interval_m`); `result.json` records them under `estimate_calibration`. At 90% the interval needs at least 19 planted estimates, so a run with fewer has none.
 
 ## What a run can vouch for
 
 `result.json` holds `measurable`: for each height bin, how many planted rocks were found (relief-corrected stack, measured noise, quiet sites) and how many of their height lower bounds hold (at most the rock's own height plus 5 cm), each with an exact (Clopper-Pearson) interval. A bin is established when the lower end of both intervals reaches its target, by default 90% at 95% confidence. `measurable_from_m` is the lower edge of the lowest bin from which every taller bin is established.
 
-This is the statement a run can actually guarantee, and it takes enough planted rocks: 5 of 5 found puts the lower end at 48%, 29 of 29 at 88%, 45 of 45 at 92%. Planted heights are log-uniform, so ten rounds of about 24 rocks give roughly 50 per bin. The targets are `measurable_detection_target` and `measurable_coverage_target`. The statement covers planted rocks like these on this stack; it is not a check against independent truth.
+This is the statement a run can actually guarantee, and it takes enough planted rocks: 5 of 5 found puts the lower end at 48%, 29 of 29 at 88%, 45 of 45 at 92%. A 512 px Athena crop holds about 25 planted rocks a round, and log-uniform heights put about a quarter of them in each bin, so ten rounds give roughly 65 per bin and twenty about 130 (the 1.2 to 2 m bin, narrower on the log scale, gets three quarters of that). At 65 a bin may lose one rock, missed or overshot, and still be established; at 130, six. The targets are `measurable_detection_target` and `measurable_coverage_target`. The statement covers planted rocks like these on this stack; it is not a check against independent truth.
 
 ## The planted rocks
 
@@ -56,12 +64,17 @@ Every planted rock stands on the DEM plane at its site, and its window holds its
 | `planted_geometry` | `population` | `fixed` restores the 2.5 bodies at `sfs_injection_heights_m` |
 | `planted_rock_prior` | see the table | any of `height_m`, `width_over_length`, `height_over_diameter`, `ratio_limits`, `burial`, `nasa_fraction` |
 | `planted_height_bins_m` | `[0.15, 0.3, 0.6, 1.2, 2.0]` | the bins T14 reports by; they must span the planted height range |
+| `bound_calibration` | `offset` | `ratio` divides bounds by a factor; `none` keeps the fitted bounds |
+| `bound_calibration_coverage` | 0.97 | the share of rocks a calibrated bound is made to hold for |
+| `estimate_calibration` | `conformal` | `none` reports estimates without an interval |
+| `estimate_calibration_coverage` | 0.9 | the share of rocks an estimate interval is made to hold |
+| `measurable_detection_target`, `measurable_coverage_target` | 0.9 | the shares a height bin must reach, at 95% confidence, to be established |
 
 The NASA bodies come from the campaign's rock catalog (`--rock-catalog`, by default `data/rock_shapes/apollo_proxy_v2`), development split only. That catalog holds all 22 Apollo rocks with exterior models in NASA Astromaterials 3D: basalts, breccias, an anorthosite, a troctolite and a norite. The two rocks of `apollo_proxy_v1` keep their splits; the 20 others were split by parent rock with a fixed seed, 15 to development and 7 to evaluation. `scripts/prepare_lunar_rock_catalog.py` builds a catalog on its own; the science runner never downloads anything.
 
 ## In HATI Watch
 
-The T14 report now opens with the real candidates, then shows the planted bodies (height against height over diameter; found, missed or not scored; triangles for NASA bodies), the calibration by height bin, measured against true height for every planted rock, a map of the real candidates sized by height with the touchdown marked, and the real candidates by height bin next to the share of planted rocks found at that height.
+The T14 report now opens with the real candidates, then shows the planted bodies (height against height over diameter; found, missed or not scored; triangles for NASA bodies), the calibration by height bin, measured against true height for every planted rock, a map of the real candidates sized by height with the touchdown marked, and the real candidates by height bin next to the share of planted rocks found at that height. The bound margin and the estimate interval factors have their own figures at the top; every estimate, planted or real, shows its calibrated interval, and the table under "What this run can vouch for" counts the planted intervals that hold.
 
 ## References
 

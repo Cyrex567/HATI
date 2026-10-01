@@ -386,10 +386,13 @@ class PlantedSummaryTests(unittest.TestCase):
         base = json.loads((ROOT/'configs/saturation_campaign.json').read_text())
         validate_config(dict(base))
         validate_config(dict(base, sfs_sizing_adaptive=dict(context_guard=True, scale_factors=[1, 2, 4, 8])))
+        validate_config(dict(base, sfs_sizing_adaptive=dict(caster_profile='dome'), estimate_calibration='none'))
         for bad in (dict(planted_geometry='random'), dict(planted_height_bins_m=[.3, .6, 1.2]),   # bins miss 0.15 to 0.3 m
                     dict(planted_height_bins_m=[.6, .3]), dict(planted_rock_prior=dict(burial=[0, 1.5])),
                     dict(sfs_sizing_adaptive=dict(scale_factors=[1, 3])), dict(sfs_sizing_adaptive=dict(guard=True)),
-                    dict(measurable_detection_target=1.2)):
+                    dict(measurable_detection_target=1.2), dict(sfs_sizing_images='sideways'), dict(bound_calibration='median'),
+                    dict(estimate_calibration='mean'), dict(sfs_sizing_adaptive=dict(caster_profile='cone')),
+                    dict(bound_calibration_coverage=1.), dict(estimate_calibration_coverage=0.)):
             with self.assertRaises((ValueError, TypeError), msg=str(bad)):
                 validate_config(dict(base, **bad))
 
@@ -410,6 +413,22 @@ class PlantedSummaryTests(unittest.TestCase):
         self.assertIsNone(_conformal_margin(bound[:8], truth[:8], .9))       # ceil(9 * 0.9) = 9 > 8
         self.assertIsNotNone(_conformal_margin(bound[:9], truth[:9], .9))
         self.assertIsNone(_corrected_bound(None, m))
+
+    def test_estimate_intervals_hold_and_follow_the_bias(self):
+        from relief_experiments import _estimate_factors, _estimate_interval
+        rng = np.random.default_rng(1)
+        truth = rng.uniform(.3, 2., 2000)
+        estimate = truth*np.exp(rng.normal(-.1, .07, truth.size))           # reads about 10% short
+        cal, test = slice(0, 1000), slice(1000, None)
+        low, high = _estimate_factors(estimate[cal], truth[cal], .9)
+        self.assertGreater(np.sqrt(low*high), 1.08)                          # centred about 10% above a short reading
+        inside = [lo <= t <= hi for (lo, hi), t in zip((_estimate_interval(e, (low, high)) for e in estimate[test]), truth[test])]
+        self.assertTrue(.88 <= np.mean(inside) <= .93)                       # about 90% out of sample
+        # Each tail needs enough rocks: floor(20 * 0.05) = 1 is the smallest usable rank.
+        self.assertIsNone(_estimate_factors(estimate[:18], truth[:18], .9))
+        self.assertIsNotNone(_estimate_factors(estimate[:19], truth[:19], .9))
+        self.assertIsNone(_estimate_interval(None, (low, high)))
+        self.assertIsNone(_estimate_interval(1., None))
 
     def test_exact_intervals(self):
         from relief_experiments import _exact_interval
@@ -442,13 +461,16 @@ class PlantedSummaryTests(unittest.TestCase):
         def cell(r, c, bound, label='rock_like', est=None, score=10.):
             return dict(row_px=r, col_px=c, height_lower_bound_m=bound, height_m=est, relief_check=label, score=score,
                         distance_to_touchdown_m=float(np.hypot(r, c)), exceeds_clearance=bound is not None and bound >= .3)
-        casters = [cell(40, 40, .4, 'ambiguous'), cell(44, 44, .9, score=30.), cell(48, 40, None, 'ambiguous'),
+        casters = [cell(40, 40, .4, 'ambiguous', est=.5), cell(44, 44, .9, score=30., est=1.), cell(48, 40, None, 'ambiguous'),
                    cell(100, 100, .2, 'ambiguous')]
+        casters[0]['height_interval_m'], casters[1]['height_interval_m'] = [.45, .6], [.9, 1.2]
         recovery = {'0.6 to 1.2 m': dict(corrected_measured=dict(recovered=5, quiet_sites=6))}
         objects = _group_detections(casters, 4, _height_groups({}, []), recovery)
         self.assertEqual([o['cells'] for o in objects], [3, 1])
         big = objects[0]
         self.assertEqual((big['height_lower_bound_m'], big['label'], big['peak_row_px']), (.9, 'rock_like', 44))
+        self.assertEqual((big['height_m'], big['height_interval_m']), (1., [.9, 1.2]))     # the interval of the tallest estimate
+        self.assertIsNone(objects[1]['height_interval_m'])
         self.assertEqual(big['calibration'], dict(group='0.6 to 1.2 m', found=5, of=6))
         self.assertTrue(big['exceeds_clearance'])
         self.assertEqual((objects[1]['label'], objects[1]['object']), ('ambiguous', 1))
@@ -528,6 +550,33 @@ class ReliefCampaignTests(unittest.TestCase):
             nulls = run('T16', t16)
             self.assertIn('relief_corrected_sigma', nulls['render_noise_source'])
             self.assertIn('ripples_2deg', {s['kind'] for s in nulls['summaries']})
+
+
+class OriginalImageSizingTests(unittest.TestCase):
+    def test_t14_sizes_on_the_original_images(self):
+        from saturation_experiments import Experiment, t1, t14
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp); bundle = out/'input.zip'; relief_bundle(bundle, size=112)
+            cfg = json.loads((ROOT/'configs/saturation_campaign.json').read_text())
+            cfg.update(adaptive=asdict(AdaptiveConfig(scale_factors=(1, 2), heights_m=(.2, .4, .6), widths_m=(.3, .6, .9),
+                                                      max_cells=2, workers=1)),
+                       noise_scale=dict(patch_px=24, max_slope=.05), relief_supersample=2, sfs_injection_sites=2,
+                       sfs_injection_spacing_px=20, planted_rock_prior=dict(height_m=[.2, 1.2]), planted_height_bins_m=[.2, .6, 1.2],
+                       sfs_sizing_images='original', sfs_sizing_adaptive=dict(context_guard=True, pad_edges=True))
+            config = out/'config.json'; config.write_text(json.dumps(cfg))
+            def run(stage, fn):
+                args = Namespace(stage=stage, bundle=bundle, config=config, output=out/'stages'/stage,
+                                 campaign=out, dem=None, thermal=None, held_out=None, rock_catalog=None)
+                with patch('subprocess.run', side_effect=AssertionError('external ingestion forbidden')):
+                    return fn(Experiment(args))
+            run('T1', t1)
+            sfs = run('T14', t14)
+            self.assertEqual(sfs['status'], 'PARTIAL')
+            self.assertGreater(sfs['injected_sites'], 0)
+            self.assertIn('measurable', sfs)
+            self.assertEqual(sfs['bound_calibration']['kind'], 'offset')
+            self.assertEqual(sfs['estimate_calibration']['kind'], 'conformal')
+            self.assertIn('estimate_interval_holds', next(iter(sfs['measurable']['groups'].values())))
 
 
 if __name__ == '__main__':

@@ -300,6 +300,20 @@ def evidence_summary(output, records):
                             'of their height bounds hold; ' + '; '.join(
                                 f'{g} {v["found"]}/{v["quiet_sites"]} found, {v["bound_holds"]}/{v["bounded"]} bounds hold'
                                 for g, v in measurable['groups'].items()) + '.')
+        bound_cal, estimate_cal = sfs.get('bound_calibration') or {}, sfs.get('estimate_calibration') or {}
+        if bound_cal.get('margin') is not None or estimate_cal.get('factors'):
+            parts = []
+            if bound_cal.get('margin') is not None:
+                change = f'lowered by {bound_cal["margin"]:.2f} m' if bound_cal['kind'] == 'offset' else f'divided by {bound_cal["margin"]:.2f}'
+                parts.append(f'height bounds {change}, set from {bound_cal["planted_bounds"]} planted bounds')
+            if estimate_cal.get('factors'):
+                low, high = estimate_cal['factors']
+                held = sum(v.get('estimate_interval_holds', 0) for v in (measurable.get('groups') or {}).values())
+                tried = sum(v.get('estimate_intervals', 0) for v in (measurable.get('groups') or {}).values())
+                parts.append(f'height estimates given a {estimate_cal["coverage"]:.0%} interval of {low:.2f} to {high:.2f} times the '
+                             f'estimate from {estimate_cal["planted_estimates"]} planted estimates ({held}/{tried} cross-fitted '
+                             'intervals held the planted height)')
+            findings.append('Calibrated sizing (split conformal on the planted rocks): ' + '; '.join(parts) + '.')
         population = sfs.get('planted_population') or {}
         if population.get('geometry') == 'population' and population.get('planted'):
             bodies = ', '.join(f'{n} {k}' for k, n in (population.get('shapes') or {}).items())

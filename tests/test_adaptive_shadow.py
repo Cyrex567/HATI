@@ -160,8 +160,10 @@ class SlopeSearchTests(unittest.TestCase):
         from dataclasses import asdict
         cfg = AdaptiveConfig()
         # The hash of the fields that existed before the opt-in options (slope search, context guard, edge
-        # padding): each is left out when off, so older configurations keep their hashes and cached results.
-        payload = {k: v for k, v in asdict(cfg).items() if k not in ('slope_search_deg', 'context_guard', 'pad_edges')}
+        # padding, caster profile): each is left out when off, so older configurations keep their hashes and
+        # cached results.
+        payload = {k: v for k, v in asdict(cfg).items()
+                   if k not in ('slope_search_deg', 'context_guard', 'pad_edges', 'caster_profile')}
         self.assertEqual(cfg.hash(), 'bbc58da3a19b2025')
         self.assertEqual(cfg.hash(), hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16])
         self.assertNotEqual(cfg.hash(), replace(cfg, slope_search_deg=(-1., 0., 1.)).hash())
@@ -256,6 +258,43 @@ class ContextGuardTests(unittest.TestCase):
     def test_guard_leaves_config_hashes_alone(self):
         self.assertEqual(AC.hash(), replace(AC, context_guard=False).hash())
         self.assertNotEqual(AC.hash(), replace(AC, context_guard=True).hash())
+
+
+class CasterProfileTests(unittest.TestCase):
+    """A dome caster's shadow tapers to the tip a plate caster's reaches; each template reads its own caster."""
+
+    def test_dome_tapers_to_the_same_tip(self):
+        cfg = replace(SC, radius_px=20, root_support_px=18, psf_sigma_px=0., registration_sigma_px=0.)
+        args = ((41, 41), (20., 20.), [0.], [4.], .4, 3.6, cfg)     # Sun from the top: the shadow runs down the rows
+        plate, plate_cut = shadow_template(*args)
+        dome, dome_cut = shadow_template(*args, profile='dome')
+        self.assertEqual(plate_cut, dome_cut)
+        tip = lambda t, col: np.flatnonzero(t[0, :, col] > .5).max()
+        self.assertEqual(tip(plate, 20), tip(dome, 20))              # same tip down the middle
+        self.assertLess(tip(dome, 21), tip(plate, 21))               # shorter towards the sides
+        self.assertAlmostEqual(dome.sum()/plate.sum(), np.pi/4, delta=.03)
+        with self.assertRaises(ValueError):
+            shadow_template(*args, profile='cone')
+
+    def test_each_template_reads_its_own_caster(self):
+        # A rounded rock's tapered shadow read with rectangles comes out a quarter short, its true
+        # height outside the compatible range; read with the dome template it comes out right.
+        sc = replace(SC, radius_px=12, root_support_px=10)
+        def scene(profile):
+            t = shadow_template((25, 25), (12., 12.), AZ, EL, .4, .6, SC, profile=profile)[0]
+            return 1-.7*t+np.random.default_rng(3).normal(0, .005, t.shape)
+        def read(image, profile):
+            fit = fit_patch(image, np.ones_like(image), AZ, EL, .005, sc, RC, replace(AC, caster_profile=profile), (0., 0.))
+            return fit['best']['height_m'], fit['height_range_m']
+        self.assertEqual(read(scene('dome'), 'dome'), (.4, [.4, .4]))
+        self.assertEqual(read(scene('dome'), 'plate'), (.3, [.3, .3]))
+        self.assertEqual(read(scene('plate'), 'plate'), (.4, [.4, .4]))
+
+    def test_plate_keeps_config_hashes(self):
+        self.assertEqual(AC.hash(), replace(AC, caster_profile='plate').hash())
+        self.assertNotEqual(AC.hash(), replace(AC, caster_profile='dome').hash())
+        with self.assertRaises(ValueError):
+            AdaptiveConfig(caster_profile='cone')
 
 
 if __name__ == '__main__':

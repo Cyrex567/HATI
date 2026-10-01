@@ -154,8 +154,8 @@ def _terrain_length(terrain, root, direction, tan_e, height_m, pixel_m):
 
 
 def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
-                    cfg, slope_rc=(0.0, 0.0), terrain=None):
-    """Pixel-integrated rectangular shadow on a local receiving plane.
+                    cfg, slope_rc=(0.0, 0.0), terrain=None, *, profile="plate"):
+    """Pixel-integrated shadow of one caster on a local receiving plane.
 
     Azimuth: clockwise from map up. Image rows increase down. slope_rc is
     dz/distance along increasing row and column, in m/m. Width is independent
@@ -163,6 +163,12 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
     a Gaussian approximates optical blur and supplied registration uncertainty.
     Returns coverage and whether any shadow endpoint falls outside the patch.
     Censored templates support a root ranking, not a measured object height.
+
+    profile 'plate' is a caster of the full height across its whole width, so
+    the shadow is a rectangle. 'dome' is a half ellipsoid whose height falls off
+    across the Sun as sqrt(1 - (2 * across / width)^2), so the shadow tapers to
+    its tip the way a rounded rock's does. The tip, at the full height, is the
+    same for both, and so is the censoring.
 
     terrain, if given, replaces the plane: relative heights in metres on the
     template grid, and the shadow covers ground below the line from the caster
@@ -177,6 +183,8 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
         raise ValueError("Sun must be fully above the local horizontal and below zenith")
     if not np.isfinite(slope_rc).all() or len(slope_rc) != 2:
         raise ValueError("receiving-plane slopes must be finite")
+    if profile not in ("plate", "dome"):
+        raise ValueError("caster profile must be plate or dome")
     ss = cfg.supersample
     sigma = np.hypot(cfg.psf_sigma_px, cfg.registration_sigma_px) * ss
     pad = int(np.ceil(4 * sigma / ss))
@@ -200,6 +208,9 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
         dr, dc = np.cos(a), -np.sin(a)  # down-Sun
         along, across = rows * dr + cols * dc, -rows * dc + cols * dr
         beta = slope_rc[0] * dr + slope_rc[1] * dc
+        # Height of the caster over each line parallel to the Sun.
+        caster = height_m if profile == "plate" else \
+            height_m * np.sqrt(np.clip(1 - (2 * across / width_m) ** 2, 0, None))
         cover = np.zeros((len(rr), len(cc)), float)
         for off, weight in zip(offsets, weights):
             if terrain is None:
@@ -207,11 +218,11 @@ def shadow_template(shape, root, azimuths, elevations, height_m, width_m,
                 if denom <= 0:
                     raise ValueError("receiving plane has no finite shadow intersection")
                 length = height_m / denom
-                shadow = (along >= 0) & (along <= length)
+                shadow = (along >= 0) & (along <= caster / denom)
             else:
                 tan_e = np.tan(np.radians(e + off * cfg.solar_radius_deg))
                 length = _terrain_length(terrain, root, (dr, dc), tan_e, height_m, cfg.pixel_m)
-                shadow = (along >= 0) & (along * tan_e + relief <= height_m)
+                shadow = (along >= 0) & (along * tan_e + relief <= caster)
             er, ec = root[0] + dr * length / cfg.pixel_m, root[1] + dc * length / cfg.pixel_m
             censored |= not (1 <= er < shape[0] - 2 and 1 <= ec < shape[1] - 2)
             censored |= np.hypot(er-(shape[0]-1)/2,ec-(shape[1]-1)/2) > cfg.root_support_px - 0.75

@@ -43,6 +43,9 @@ class AdaptiveConfig:
     # Let a window run past the image edge, the outside counted as missing data like any gap. The fit's own
     # minimum valid support (RegionalConfig) still decides whether enough of the window is inside.
     pad_edges: bool = False
+    # Caster shape behind every template (shadow_template): 'plate' casts a rectangle, 'dome' a shadow
+    # that tapers to its tip like a rounded rock's. The height is the caster's top either way.
+    caster_profile: str = 'plate'
 
     def __post_init__(self):
         if not self.scale_factors or self.scale_factors[0] != 1 or any(
@@ -66,6 +69,8 @@ class AdaptiveConfig:
         if self.slope_search_deg and (0. not in [float(v) for v in self.slope_search_deg] or any(
                 not np.isfinite(v) or abs(v) >= 45 for v in self.slope_search_deg)):
             raise ValueError('slope search offsets must be finite, below 45 degrees and include zero')
+        if self.caster_profile not in ('plate', 'dome'):
+            raise ValueError('caster profile must be plate or dome')
 
     def hash(self):
         payload = asdict(self)
@@ -74,6 +79,8 @@ class AdaptiveConfig:
         for key in ('context_guard', 'pad_edges'):
             if not payload[key]:
                 payload.pop(key)                     # likewise without the guard or edge padding
+        if payload['caster_profile'] == 'plate':
+            payload.pop('caster_profile')            # and with the original rectangular templates
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -201,7 +208,7 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
                     try:
                         canvas = shadow_template((shape[0]+2*pad, shape[1]+2*pad),
                             (radius+pad+base,)*2, azimuths[selected], elevations[selected], ht, width, sc, receiving,
-                            terrain=terrain)[0]
+                            terrain=terrain, profile=cfg.caster_profile)[0]
                     except ValueError:
                         if not search:
                             return False
@@ -266,7 +273,7 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
         item['frame'] = int(frame)
     template = shadow_template(shape, np.array([radius, radius])+best['root_offset'], azimuths[selected],
                                elevations[selected], best['height_m'], best['width_m'], sc, best.get('receiving_slope', slopes),
-                               terrain=inner)[0]
+                               terrain=inner, profile=cfg.caster_profile)[0]
     rt = p.apply(template); after = residual+best['contrast']*rt
     best['frame_delta_chi2'] = np.sum(residual**2-after**2, axis=1).tolist()
     result = dict(status='assessed', best=best, frames=selected.tolist(), common_fraction=fraction,
@@ -549,7 +556,8 @@ def held_out_prediction(patch, visibility, azimuths, elevations, sigma, sc, rc, 
     root = centre+best['root_offset']
     slopes = best.get('receiving_slope', slopes)
     try:
-        t = shadow_template(shape, root, az, el, best['height_m'], best['width_m'], sc, slopes)[0]
+        t = shadow_template(shape, root, az, el, best['height_m'], best['width_m'], sc, slopes,
+                            profile=cfg.caster_profile)[0]
     except ValueError:
         return dict(status='invalid_held_geometry', training=fit, held_frame=int(held_frame))
     observed = spatial(patch); predicted = spatial(t)
@@ -559,7 +567,7 @@ def held_out_prediction(patch, visibility, azimuths, elevations, sigma, sc, rc, 
                   correct=float(np.mean((observed[held_frame]+best['contrast']*predicted[held_frame]-corrected_static)**2)))
     try:
         wrong = shadow_template(shape, root, [az[held_frame]+wrong_azimuth_deg], [el[held_frame]],
-                                best['height_m'], best['width_m'], sc, slopes)[0][0]
+                                best['height_m'], best['width_m'], sc, slopes, profile=cfg.caster_profile)[0][0]
         errors['wrong_direction'] = float(np.mean((observed[held_frame]+best['contrast']*spatial(wrong)-corrected_static)**2))
     except ValueError:
         errors['wrong_direction'] = None
