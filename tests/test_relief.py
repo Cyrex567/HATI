@@ -353,6 +353,52 @@ def relief_bundle(path, *, size=96):
         z.writestr('model_diagnostics.json', json.dumps(dict(provenance=dict(stack_sha256=hashlib.sha256(payload).hexdigest()))))
 
 
+class PlantedSummaryTests(unittest.TestCase):
+    """Height groups, calibration lookup and the merging of real detections into candidate objects."""
+
+    def test_groups_follow_the_planting_mode(self):
+        from relief_experiments import _group_of, _height_groups
+        fixed = _height_groups(dict(planted_geometry='fixed'), [.3, .6, 1.2])
+        self.assertEqual([g[0] for g in fixed], ['0.3 m', '0.6 m', '1.2 m'])
+        self.assertEqual(_group_of(.6, fixed), '0.6 m'); self.assertIsNone(_group_of(.5, fixed))
+        bins = _height_groups(dict(planted_height_bins_m=[.15, .3, .6]), [.3])
+        self.assertEqual([g[0] for g in bins], ['0.15 to 0.3 m', '0.3 to 0.6 m'])
+        self.assertEqual(_group_of(.3, bins), '0.3 to 0.6 m')        # lower edges belong to their bin
+        self.assertEqual(_group_of(.6, bins), '0.3 to 0.6 m')        # the top edge closes the last bin
+        self.assertIsNone(_group_of(.1, bins)); self.assertIsNone(_group_of(.7, bins))
+
+    def test_calibration_uses_the_height_a_candidate_reached(self):
+        from relief_experiments import _calibration_for, _height_groups
+        recovery = {g: dict(corrected_measured=dict(recovered=i, quiet_sites=10)) for i, g in
+                    enumerate(['0.15 to 0.3 m', '0.3 to 0.6 m', '0.3 m', '0.6 m', '1.2 m'])}
+        bins = _height_groups({}, [])
+        self.assertEqual(_calibration_for(.4, bins, recovery), dict(group='0.3 to 0.6 m', found=1, of=10))
+        self.assertIsNone(_calibration_for(.1, bins, recovery))                       # below the planted range
+        self.assertEqual(_calibration_for(3., bins, {'1.2 to 2 m': dict(corrected_measured=dict(recovered=7, quiet_sites=9))})['group'],
+                         '1.2 to 2 m')                                                 # taller: the top bin
+        fixed = _height_groups(dict(planted_geometry='fixed'), [.3, .6, 1.2])
+        self.assertEqual(_calibration_for(.9, fixed, recovery)['group'], '0.6 m')      # the tallest planted not above it
+        self.assertIsNone(_calibration_for(.2, fixed, recovery))
+        self.assertIsNone(_calibration_for(None, bins, recovery))
+
+    def test_touching_cells_merge_into_one_candidate(self):
+        from relief_experiments import _group_detections, _height_groups
+        def cell(r, c, bound, label='rock_like', est=None, score=10.):
+            return dict(row_px=r, col_px=c, height_lower_bound_m=bound, height_m=est, relief_check=label, score=score,
+                        distance_to_touchdown_m=float(np.hypot(r, c)), exceeds_clearance=bound is not None and bound >= .3)
+        casters = [cell(40, 40, .4, 'ambiguous'), cell(44, 44, .9, score=30.), cell(48, 40, None, 'ambiguous'),
+                   cell(100, 100, .2, 'ambiguous')]
+        recovery = {'0.6 to 1.2 m': dict(corrected_measured=dict(recovered=5, quiet_sites=6))}
+        objects = _group_detections(casters, 4, _height_groups({}, []), recovery)
+        self.assertEqual([o['cells'] for o in objects], [3, 1])
+        big = objects[0]
+        self.assertEqual((big['height_lower_bound_m'], big['label'], big['peak_row_px']), (.9, 'rock_like', 44))
+        self.assertEqual(big['calibration'], dict(group='0.6 to 1.2 m', found=5, of=6))
+        self.assertTrue(big['exceeds_clearance'])
+        self.assertEqual((objects[1]['label'], objects[1]['object']), ('ambiguous', 1))
+        self.assertEqual(_group_detections([], 4, [], {}), [])
+
+
 class ReliefCampaignTests(unittest.TestCase):
     def test_t12_to_t16_on_a_relief_bundle_without_external_calls(self):
         from saturation_experiments import Experiment, t1, t12, t13, t14, t16
@@ -370,7 +416,8 @@ class ReliefCampaignTests(unittest.TestCase):
                        relief_rock_heights_m=[.6], relief_scene_px=32, relief_competition_sizes_m=[4.],
                        relief_competition_slopes_deg=[2.], relief_calibration_seeds=2, relief_athena_cells=4,
                        relief_touchdown_radius_px=4, sfs_injection_sites=2, sfs_injection_spacing_px=20,
-                       sfs_injection_rounds=2)
+                       sfs_injection_rounds=2, planted_rock_prior=dict(height_m=[.2, 1.2]),
+                       planted_height_bins_m=[.2, .6, 1.2])
             config = out/'config.json'; config.write_text(json.dumps(cfg))
             def run(stage, fn):
                 args = Namespace(stage=stage, bundle=bundle, config=config, output=out/'stages'/stage,
@@ -399,9 +446,20 @@ class ReliefCampaignTests(unittest.TestCase):
                 self.assertTrue((out/'stages/T14'/name).exists(), name)
             casters = sfs['subpixel_casters']
             self.assertEqual(casters['relief_check'], 'T13 calibrated margins on the relief-corrected stack')
-            self.assertEqual(set(casters['injected_rock_sizing']), {'0.3 m', '0.6 m', '1.2 m'})
+            # Planted rocks are drawn from the lunar shape population and summarised by height bin.
+            self.assertEqual(set(casters['injected_rock_sizing']), {'0.2 to 0.6 m', '0.6 to 1.2 m'})
+            self.assertEqual(sfs['planted_population']['geometry'], 'population')
+            self.assertEqual(len(sfs['planted_population']['sources']), 2)
             injected = json.loads((out/'stages/T14/injection.json').read_text())
             self.assertTrue(all('sized_state' in r for r in injected))
+            self.assertTrue(all(.2 <= r['height_m'] <= 1.2 and r['shape'] == 'procedural' and 0 < r['height_over_diameter'] <= 1
+                                for r in injected))
+            self.assertEqual(len({round(r['height_m'], 6) for r in injected}), len(injected))   # no two alike
+            # The real rocks it found: touching cells merged, each with this run's calibration for its height.
+            real = json.loads((out/'stages/T14/real_rocks.json').read_text())
+            self.assertEqual(sfs['real_rocks']['objects'], len(real))
+            self.assertEqual(sum(o['cells'] for o in real), sfs['real_rocks']['cells'])
+            self.assertIn('pixel_m', sfs['real_rocks'])
             # Two rounds on shifted grids; every site scores the rock alone before and after correction.
             self.assertEqual([r['round'] for r in sfs['injection_rounds']], [0, 1])
             self.assertEqual(sfs['injected_sites'], sum(r['placed'] for r in sfs['injection_rounds']))
@@ -410,7 +468,7 @@ class ReliefCampaignTests(unittest.TestCase):
             self.assertTrue(kept and all(0 <= v < 2 for v in kept))
             self.assertTrue(all(r['score_rock_only_before'] is not None for r in injected))
             self.assertIn('small_rock_signal_mostly_absorbed', sfs['relief_absorption_verdict'])
-            self.assertEqual(set(sfs['relief_absorption']), {'0.3 m', '0.6 m', '1.2 m'})
+            self.assertEqual(set(sfs['relief_absorption']), {'0.2 to 0.6 m', '0.6 to 1.2 m'})
             nulls = run('T16', t16)
             self.assertIn('relief_corrected_sigma', nulls['render_noise_source'])
             self.assertIn('ripples_2deg', {s['kind'] for s in nulls['summaries']})

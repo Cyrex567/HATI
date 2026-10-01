@@ -193,20 +193,32 @@ const HatiStages = (() => {
   }
 
   /* Measured against true, with the identity line. points: {x, y, key, tip}; keys: [{key, name, color, shape}] */
-  function scatter(host, {points, keys, hi, xLabel, yLabel, width = 400, height = 320, refs = []}) {
+  // Tick labels without rounding a 0.25 step to 0.3.
+  const exact = v => String(+v.toFixed(2));
+
+  /* Points on two axes. identity (the default) shares one scale and draws measured = true;
+     otherwise xHi and yHi set each axis. yDown puts zero at the top, as in an image. p.r sizes a point. */
+  function scatter(host, {points, keys, hi, xHi, yHi, xLabel, yLabel, width = 400, height = 320, refs = [],
+                          identity = true, square = identity, yDown = false, xTick = exact, yTick = exact}) {
     const left = 50, right = 14, top = 14, bottom = 42, s = frame(host, width, height);
-    s.classList.add('square');
-    const values = points.flatMap(p => [p.x, p.y]).filter(ok);
-    const t = ticks(0, hi ?? Math.max(1, ...values)), b = t[t.length-1];
-    const X = v => left+(width-left-right)*v/b, Y = v => height-bottom-(height-bottom-top)*v/b;
-    for (const v of t) {
+    if (square) s.classList.add('square');
+    const xs = points.map(p => p.x).filter(ok), ys = points.map(p => p.y).filter(ok);
+    const tx = ticks(0, xHi ?? hi ?? Math.max(1, ...xs, ...(identity ? ys : []))), bx = tx[tx.length-1];
+    const ty = identity ? tx : ticks(0, yHi ?? hi ?? Math.max(1, ...ys)), by = ty[ty.length-1];
+    const X = v => left+(width-left-right)*v/bx;
+    const Y = v => yDown ? top+(height-bottom-top)*v/by : height-bottom-(height-bottom-top)*v/by;
+    for (const v of tx) {
       svg('line', {x1: X(v), x2: X(v), y1: top, y2: height-bottom, class: v ? 'grid' : 'baseline'}, s);
-      svg('line', {x1: left, x2: width-right, y1: Y(v), y2: Y(v), class: v ? 'grid' : 'baseline'}, s);
-      text(s, X(v), height-bottom+15, fmt(v, 1), {class: 'tick', 'text-anchor': 'middle'});
-      text(s, left-6, Y(v)+4, fmt(v, 1), {class: 'tick', 'text-anchor': 'end'});
+      text(s, X(v), height-bottom+15, xTick(v), {class: 'tick', 'text-anchor': 'middle'});
     }
-    svg('line', {x1: X(0), y1: Y(0), x2: X(b), y2: Y(b), class: 'identity'}, s);
-    text(s, X(b)-4, Y(b)+14, 'measured = true', {class: 'ref-label', 'text-anchor': 'end'});
+    for (const v of ty) {
+      svg('line', {x1: left, x2: width-right, y1: Y(v), y2: Y(v), class: v ? 'grid' : 'baseline'}, s);
+      text(s, left-6, Y(v)+4, yTick(v), {class: 'tick', 'text-anchor': 'end'});
+    }
+    if (identity) {
+      svg('line', {x1: X(0), y1: Y(0), x2: X(bx), y2: Y(bx), class: 'identity'}, s);
+      text(s, X(bx)-4, Y(bx)+14, 'measured = true', {class: 'ref-label', 'text-anchor': 'end'});
+    }
     for (const ref of refs) {
       svg('line', {x1: left, x2: width-right, y1: Y(ref.value), y2: Y(ref.value), class: 'ref'}, s);
       text(s, width-right, Y(ref.value)-5, ref.label, {class: 'ref-label', 'text-anchor': 'end'});
@@ -217,9 +229,11 @@ const HatiStages = (() => {
     for (const p of points) {
       if (!ok(p.x) || !ok(p.y)) continue;
       const k = keys.find(q => q.key === p.key) || keys[0], x = X(p.x), y = Y(p.y), mark = svg('g', {class: 'mark'}, s);
-      svg('circle', {cx: x, cy: y, r: 12, class: 'hit'}, mark);
-      if (k.shape === 'triangle') svg('path', {d: `M${x},${y+6}l5.6,-9.6h-11.2z`, fill: k.color, class: 'dot'}, mark);
-      else svg('circle', {cx: x, cy: y, r: 4.5, fill: k.color, class: 'dot'}, mark);
+      const r = p.r ?? 4.5, q = r/4.5;
+      svg('circle', {cx: x, cy: y, r: Math.max(12, r+4), class: 'hit'}, mark);
+      if (k.shape === 'triangle') svg('path', {d: `M${x},${y+6*q}l${5.6*q},${-9.6*q}h${-11.2*q}z`, fill: k.color, class: 'dot'}, mark);
+      else if (k.shape === 'cross') svg('path', {d: `M${x-6*q},${y}h${12*q}M${x},${y-6*q}v${12*q}`, stroke: k.color, 'stroke-width': 2.5, fill: 'none', class: 'cross'}, mark);
+      else svg('circle', {cx: x, cy: y, r, fill: k.color, class: 'dot'}, mark);
       if (p.tip) tip(mark, p.tip);
     }
   }
@@ -370,7 +384,7 @@ const HatiStages = (() => {
     T11: 'Does a fitted object predict a frame it never saw, better than a static scene or a wrong Sun?',
     T12: 'How noisy are the images really, and is the excess noise relief that follows the Sun?',
     T13: 'Is each warning a compact rock or extended relief? Calibrated on simulated scenes, then applied to the real cells.',
-    T14: 'What does the detector see once shape from shading removes the relief, and how well are rocks planted in the real images found and sized?',
+    T14: 'Which real rocks does the detector find once shape from shading removes the relief, and how well does it find and size planted rocks of known shape?',
     T16: 'Do terrain-only scenes get through the adaptive gate? They should not, while real casters should.',
   };
 
@@ -584,17 +598,35 @@ const HatiStages = (() => {
   function viewT14(r, extras) {
     const sfs = r.sfs || {}, sl = r.slope_deg || {}, ex = r.exceedance || {}, rs = r.residual_scale_after || {}, sub = r.subpixel_casters || {};
     const rec = r.injection_recovery || {}, sizing = sub.injected_rock_sizing || {};
+    const pop = r.planted_population || {}, real = r.real_rocks;
+    const population = pop.geometry === 'population';
     const heights = Object.keys(rec);
     const holds = Object.entries(sizing).map(([h, v]) => ({h, ...v}));
+    const body = k => k === 'procedural' ? 'procedural' : `NASA Apollo ${String(k).split('_')[0]}`;
+    const total = (key, a, b) => Object.values(key).reduce((s, v) => [s[0]+(v?.[a] || 0), s[1]+(v?.[b] || 0)], [0, 0]);
+    const found = total(Object.fromEntries(heights.map(h => [h, rec[h].corrected_measured])), 'recovered', 'quiet_sites');
+    const bounded = total(sizing, 'lower_bound_holds', 'with_warning_evidence');
+    const nearest = real?.nearest_at_or_above_clearance;
     const kpis = [
+      ...(real ? [{label: 'Real candidate rocks', value: int(real.objects),
+                   sub: `${int(real.by_label?.rock_like)} rock-like · ${int(real.by_label?.ambiguous)} ambiguous · from ${int(real.cells)} sized cells`},
+                  {label: `Real candidates at least ${fmt(sub.clearance_m, 1)} m`, value: int(real.at_or_above_clearance),
+                   sub: nearest ? `nearest ${fmt(nearest.distance_to_touchdown_m, 0)} m from the touchdown` : 'none sized that tall'}] : []),
+      {label: 'Planted calibration rocks', value: int(pop.planted ?? r.injected_sites),
+       sub: population ? `${Object.entries(pop.shapes || {}).map(([k, n]) => `${int(n)} ${body(k)}`).join(' · ')} · height/diameter median ${fmt(pop.height_over_diameter_median, 2)}`
+                       : (pop.body || 'fixed heights')},
       {label: 'Shading explained', value: pct(sfs.explained_fraction), sub: `frame-to-frame ratio RMS ${fmt(sfs.ratio_rms_before, 3)} → ${fmt(sfs.ratio_rms_after, 3)}`},
       {label: 'Metre-scale slopes', value: `${fmt(sl.median, 1)}° median`, sub: `90th percentile ${fmt(sl.p90, 1)}° · ${pct(sl.fraction_above_limit)} above the ${fmt(sl.limit, 0)}° limit`},
       {label: 'Noise after correction', value: fmt(rs.pooled_sigma, 4), sub: `${int(rs.patches)} patches · lag-1 ${fmt(rs.structure?.lag1_correlation, 2)}`},
       {label: 'Warnings', value: `${pct(ex.before_assumed_sigma, 0)} → ${pct(ex.after_measured_sigma, 0)}`, sub: `before correction → after it, at the measured noise (${pct(ex.after_assumed_sigma, 0)} at the assumed)`},
-      ...heights.map(h => ({label: `Planted ${h} rocks found`, value: of(rec[h].corrected_measured?.recovered, rec[h].corrected_measured?.quiet_sites), sub: 'after correction, at the measured noise, on quiet sites'})),
-      ...holds.filter(x => x.with_warning_evidence).map(x => ({label: `Height bound holds, ${x.h} rocks`, value: of(x.lower_bound_holds, x.with_warning_evidence),
-        sub: `median bound ${fmt(x.lower_bound_median_m, 2)} m${ok(x.estimate_median_m) ? ` · estimate ${fmt(x.estimate_median_m, 2)} m` : ''}`,
-        state: share(x.lower_bound_holds, x.with_warning_evidence) >= .9 ? 'good' : 'bad', stateText: share(x.lower_bound_holds, x.with_warning_evidence) >= .9 ? 'bound holds' : 'bound overshoots'})),
+      ...(population
+        ? [{label: 'Planted rocks found', value: of(found[0], found[1]), sub: 'all heights, after correction, at the measured noise, on quiet sites'},
+           ...(bounded[1] ? [{label: 'Height bound holds', value: of(bounded[0], bounded[1]), sub: 'every planted rock against its own true height',
+                              state: share(...bounded) >= .9 ? 'good' : 'bad', stateText: share(...bounded) >= .9 ? 'bound holds' : 'bound overshoots'}] : [])]
+        : [...heights.map(h => ({label: `Planted ${h} rocks found`, value: of(rec[h].corrected_measured?.recovered, rec[h].corrected_measured?.quiet_sites), sub: 'after correction, at the measured noise, on quiet sites'})),
+           ...holds.filter(x => x.with_warning_evidence).map(x => ({label: `Height bound holds, ${x.h} rocks`, value: of(x.lower_bound_holds, x.with_warning_evidence),
+             sub: `median bound ${fmt(x.lower_bound_median_m, 2)} m${ok(x.estimate_median_m) ? ` · estimate ${fmt(x.estimate_median_m, 2)} m` : ''}`,
+             state: share(x.lower_bound_holds, x.with_warning_evidence) >= .9 ? 'good' : 'bad', stateText: share(x.lower_bound_holds, x.with_warning_evidence) >= .9 ? 'bound holds' : 'bound overshoots'}))]),
     ];
     const conditions = [['original_assumed', 'Original, assumed noise', C.other], ['corrected_assumed', 'Corrected, assumed noise', C.s1], ['corrected_measured', 'Corrected, measured noise', C.s2]];
     const charts = [
@@ -604,7 +636,8 @@ const HatiStages = (() => {
                 {label: 'After', sub: 'measured noise', values: [{value: ex.after_measured_sigma, text: pct(ex.after_measured_sigma, 0), tip: `After correction, at the measured noise ${fmt(rs.pooled_sigma, 4)}: ${pct(ex.after_measured_sigma)} warn`}]}],
        series: [{name: 'Warning share', color: C.s1}], hi: 1, format: v => pct(v, 0),
        table: {head: ['Stage', 'Warning share'], rows: [['Before, assumed noise', pct(ex.before_assumed_sigma)], ['After, assumed noise', pct(ex.after_assumed_sigma)], ['After, measured noise', pct(ex.after_measured_sigma)]]}},
-      {type: 'columns', title: 'Planted rocks found within 2 px', subtitle: 'Only sites whose background was quiet count',
+      {type: 'columns', title: population ? 'Calibration: planted rocks found within 2 px, by height' : 'Planted rocks found within 2 px',
+       subtitle: population ? 'Rocks drawn at random heights, grouped; only sites whose background was quiet count' : 'Only sites whose background was quiet count',
        groups: heights.map(h => ({label: h, values: conditions.map(([k, name]) => {
          const v = rec[h][k] || {};
          return {value: share(v.recovered, v.quiet_sites), text: of(v.recovered, v.quiet_sites), tip: `${h} rocks, ${name.toLowerCase()}: ${of(v.recovered, v.quiet_sites)} found`};
@@ -612,9 +645,24 @@ const HatiStages = (() => {
        table: {head: ['Height', ...conditions.map(c => c[1])], rows: heights.map(h => [h, ...conditions.map(([k]) => of(rec[h][k]?.recovered, rec[h][k]?.quiet_sites))])}},
     ];
     const inj = Array.isArray(extras?.injection) ? extras.injection : [];
+    if (population && inj.length) {
+      const state = p => p.recovered_corrected_measured === true ? 'found' : p.recovered_corrected_measured === false ? 'missed' : 'busy';
+      const nasa = p => p.shape && p.shape !== 'procedural';
+      const said = {found: 'Found after the correction', missed: 'Missed after the correction', busy: 'Background already warning: not scored'};
+      const points = inj.filter(p => ok(p.height_over_diameter)).map(p => ({x: p.height_m, y: p.height_over_diameter, key: state(p)+(nasa(p) ? '_nasa' : ''),
+        tip: `Planted rock, site ${p.site}\n${fmt(p.height_m, 2)} m tall, ${fmt(p.width_m, 2)} × ${fmt(p.length_m, 2)} m across\nHeight / diameter ${fmt(p.height_over_diameter, 2)} · burial ${pct(p.burial, 0)} · yaw ${fmt(p.yaw_deg, 0)}°\nBody: ${body(p.shape)}\n${said[state(p)]}`}));
+      const keys = [['found', 'Found', C.s3], ['missed', 'Missed', C.s2], ['busy', 'Not scored', C.other]]
+        .flatMap(([key, name, color]) => [{key, name, color}, {key: key+'_nasa', name: `${name}, NASA body`, color, shape: 'triangle'}]);
+      charts.push({type: 'scatter', title: 'Planted rocks: the bodies drawn', subtitle: 'Each rock has its own height, proportions, burial and yaw. Triangles are NASA Apollo bodies, circles procedural.',
+        points, keys, identity: false, xHi: Math.max(...points.map(p => p.x)), yHi: 1, xLabel: 'true height (m)', yLabel: 'height / diameter',
+        legend: [{name: 'Found', color: C.s3, shape: 'circle'}, {name: 'Missed', color: C.s2, shape: 'circle'}, {name: 'Not scored', color: C.other, shape: 'circle'}, {name: 'NASA Apollo body', color: C.other, shape: 'triangle'}],
+        note: (pop.sources || []).join(' · '),
+        table: {head: ['Site', 'Height', 'Across', 'Height / diameter', 'Burial', 'Body', 'After correction'],
+                rows: inj.map(p => [p.site, `${fmt(p.height_m, 2)} m`, `${fmt(p.width_m, 2)} × ${fmt(p.length_m, 2)} m`, fmt(p.height_over_diameter, 2), pct(p.burial, 0), body(p.shape), said[state(p)]])}});
+    }
     const sized = inj.filter(p => ok(p.sized_height_lower_bound_m) || ok(p.sized_height_m));
     if (sized.length) {
-      const jitter = (p, k) => p.height_m+((p.site*37+k*13)%9-4)*.012;
+      const jitter = population ? (p => p.height_m) : (p, k) => p.height_m+((p.site*37+k*13)%9-4)*.012;
       const points = sized.flatMap(p => [
         ok(p.sized_height_lower_bound_m) && {x: jitter(p, 0), y: p.sized_height_lower_bound_m, key: 'bound', tip: `Planted ${p.height_m} m rock, site ${p.site}\nLower bound ${fmt(p.sized_height_lower_bound_m, 2)} m${p.sized_height_lower_bound_m > p.height_m+.05 ? ' (overshoots)' : ' (holds)'}\nState: ${human(p.sized_state)}`},
         ok(p.sized_height_m) && {x: jitter(p, 1), y: p.sized_height_m, key: 'estimate', tip: `Planted ${p.height_m} m rock, site ${p.site}\nHeight estimate ${fmt(p.sized_height_m, 2)} m`}].filter(Boolean));
@@ -622,7 +670,38 @@ const HatiStages = (() => {
         points, keys: [{key: 'bound', name: 'Lower bound', color: C.s1}, {key: 'estimate', name: 'Estimate', color: C.s2, shape: 'triangle'}],
         legend: [{name: 'Lower bound', color: C.s1, shape: 'circle'}, {name: 'Estimate', color: C.s2, shape: 'triangle'}],
         xLabel: 'true height (m)', yLabel: 'measured (m)', hi: Math.max(1.6, ...points.map(p => p.y)),
-        table: {head: ['Site', 'True', 'Lower bound', 'Estimate', 'State'], rows: sized.map(p => [p.site, `${p.height_m} m`, ok(p.sized_height_lower_bound_m) ? `${fmt(p.sized_height_lower_bound_m, 2)} m` : '--', ok(p.sized_height_m) ? `${fmt(p.sized_height_m, 2)} m` : '--', human(p.sized_state)])}});
+        table: {head: ['Site', 'True', 'Lower bound', 'Estimate', 'State'], rows: sized.map(p => [p.site, `${fmt(p.height_m, 2)} m`, ok(p.sized_height_lower_bound_m) ? `${fmt(p.sized_height_lower_bound_m, 2)} m` : '--', ok(p.sized_height_m) ? `${fmt(p.sized_height_m, 2)} m` : '--', human(p.sized_state)])}});
+    }
+    const rocks = Array.isArray(extras?.real_rocks) ? extras.real_rocks : [];
+    if (real && rocks.length) {
+      const px = real.pixel_m || 1, td = real.touchdown_px, size = real.image_shape;
+      const height = o => o.height_m ?? o.height_lower_bound_m;
+      const describe = o => ok(o.height_m) ? `${fmt(o.height_m, 2)} m (context-supported)` : ok(o.height_lower_bound_m) ? `at least ${fmt(o.height_lower_bound_m, 2)} m` : 'not sized';
+      const calib = o => o.calibration ? `${of(o.calibration.found, o.calibration.of)} of planted ${o.calibration.group} rocks found` : 'below the planted range';
+      const points = rocks.map(o => ({x: o.col_px*px, y: o.row_px*px, key: o.label, r: 2.2+3.3*Math.min(1, (height(o) || 0)/1.5),
+        tip: `Candidate ${o.object}: ${human(o.label)}, ${int(o.cells)} cell${o.cells === 1 ? '' : 's'}\nHeight ${describe(o)}\n${fmt(o.distance_to_touchdown_m, 0)} m from the touchdown\nCalibration: ${calib(o)}`}));
+      if (td) points.push({x: td[1]*px, y: td[0]*px, key: 'touchdown', r: 6, tip: 'Published touchdown point'});
+      const keys = [{key: 'rock_like', name: 'Rock-like', color: C.s2}, {key: 'ambiguous', name: 'Ambiguous', color: C.s1},
+                    {key: 'unchecked', name: 'Not checked for relief', color: C.other}, {key: 'touchdown', name: 'Touchdown', color: '#ffffff', shape: 'cross'}];
+      const top = [...rocks].filter(o => ok(height(o))).sort((a, b) => height(b)-height(a)).slice(0, 30);
+      charts.push({type: 'scatter', title: 'Real rocks HATI found', wide: true,
+        subtitle: `${int(real.objects)} candidate objects (touching warning cells merged) after the relief correction${real.examined_share < 1 ? `; ${pct(real.examined_share, 0)} of warning cells examined` : ''}. Larger dots are taller.`,
+        points, keys, identity: false, square: true, yDown: true, xHi: size ? size[1]*px : undefined, yHi: size ? size[0]*px : undefined,
+        xLabel: 'image column (m)', yLabel: 'image row (m)', xTick: v => fmt(v, 0), yTick: v => fmt(v, 0),
+        legend: keys.map(k => ({name: k.name, color: k.color, shape: k.shape || 'circle'})),
+        note: real.note,
+        table: {head: ['Candidate', 'Label', 'Height', 'Cells', 'From touchdown', 'Calibration'],
+                rows: top.map(o => [o.object, human(o.label), describe(o), int(o.cells), `${fmt(o.distance_to_touchdown_m, 0)} m`, calib(o)])}});
+      const groupRows = Object.entries(real.by_height_group || {}).map(([g, n]) => {
+        const cal = rec[g]?.corrected_measured;
+        return {label: g, value: n, text: int(n), tip: `${int(n)} real candidates of ${g}\nPlanted rocks of that height found: ${of(cal?.recovered, cal?.quiet_sites)}`};
+      });
+      if (real.below_calibrated_range) groupRows.push({label: 'below the planted range', value: real.below_calibrated_range, text: int(real.below_calibrated_range),
+        tip: `${int(real.below_calibrated_range)} candidates shorter than any planted rock: no calibration`});
+      charts.push({type: 'hbars', title: 'Real candidates by height', subtitle: 'Context-supported estimate where available, otherwise the lower bound',
+        rows: groupRows, format: v => int(v), labelW: 170,
+        table: {head: ['Height', 'Real candidates', 'Planted rocks found at that height'],
+                rows: Object.entries(real.by_height_group || {}).map(([g, n]) => [g, int(n), of(rec[g]?.corrected_measured?.recovered, rec[g]?.corrected_measured?.quiet_sites)])}});
     }
     const pf = rs.per_frame_sigma || [];
     if (pf.length) charts.push({type: 'hbars', title: 'Noise in each frame after the correction', subtitle: 'The dashed line is the pooled value the detector uses',

@@ -342,7 +342,7 @@ def shadow_reach_px(height_m, slope_rc, azimuths, elevations, pixel_m, *, solar_
 
 
 def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersample=4, window_px=32, slopes=None,
-                max_reach_px=256, info=None):
+                max_reach_px=256, info=None, rocks=None, meshes=()):
     """Multiplicative brightness of injected rocks (shadow plus lit faces).
 
     sites: [(row, col, height_m)]. Rendered with the independent relief generator
@@ -359,9 +359,15 @@ def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersampl
     to the image; a fixed window cuts longer shadows at its edge. Reaches beyond
     max_reach_px are capped, and info, if a list, receives each site's reach, window
     and whether the cap cut its shadow.
+    rocks, one rock_population specification per site, gives each rock its own
+    proportions, burial, yaw and body (meshes holds the NASA bodies they index); its
+    height must match the site's. None plants the fixed 0.6 m wide body of 2.5.
     """
     from .relief_scenes import render_relief
+    from .rock_population import build_rock
     from .rock_scenes import make_rock
+    if rocks is not None and (len(rocks) != len(sites) or any(abs(s[2]-spec['height_m']) > 1e-9 for s, spec in zip(sites, rocks))):
+        raise ValueError('one rock specification per site, with the site height')
     factor = np.ones((len(azimuths), *shape))
     for i, (r, c, height) in enumerate(sites):
         plane = (0., 0.) if slopes is None else tuple(float(v) for v in slopes[i])
@@ -376,7 +382,8 @@ def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersampl
         if info is not None:
             info.append(dict(site=i, reach_px=round(float(reach), 1), window_px=int(size),
                              shadow_clipped=bool(reach+6 > size//2)))
-        rock = make_rock(seed+i, (r-r0, c-c0), height, .6, aspect=1.35)
+        rock = make_rock(seed+i, (r-r0, c-c0), height, .6, aspect=1.35) if rocks is None \
+            else build_rock(rocks[i], (r-r0, c-c0), meshes)
         scene = dict(pixel_m=pixel_m, seed=seed+i, noise=0., supersample=supersample, texture=0., stain=0., frame_plane=0.,
                      plane_slope_rc=plane)
         local = render_relief((size, size), azimuths, elevations, rocks=[rock], **scene)['stack']

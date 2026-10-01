@@ -30,7 +30,8 @@ import numpy as np
 from classifier_experiments import banks_for, classify_scene, variants
 from relief_experiments import _injection_sites, _noise_passes, _slope_limit, save
 from src.hati_core.relief_scenes import relief_feature, render_relief
-from src.hati_core.rock_scenes import make_rock
+from src.hati_core.rock_population import at_height, build_rock, prior_from_config, sample_population
+from src.hati_core.rock_scenes import load_catalog, make_rock
 from src.hati_core.sweep_classifier import (CLASSES, LABELS, TRUTH_TO_CLASS, SweepClassifierConfig, calibrate_margins,
                                             confusion_with_intervals, decide, evaluate_cell, usable_frames)
 
@@ -55,12 +56,15 @@ def _map(fn, jobs, workers):
         return list(pool.map(fn, jobs, chunksize=2))
 
 
-def _feature_factor(shape, site, kind, spec, azimuths, elevations, pixel_m, seed, window_px, slopes=None):
+def _feature_factor(shape, site, kind, spec, azimuths, elevations, pixel_m, seed, window_px, slopes=None,
+                    body=None, meshes=()):
     """Multiplicative brightness of one feature; 1 outside its window.
 
     slopes (rise per metre along rows, along columns) puts the feature on the tilted
     plane the classifier assumes at the site, and the factor is the scene with the
     feature over the same plane without it. None renders on level ground, as before.
+    body, a rock_population specification at the spec height, gives a planted rock its
+    own proportions, burial, yaw and shape; None plants the fixed 0.6 m wide body.
     """
     r, c = site
     half = window_px//2
@@ -70,7 +74,7 @@ def _feature_factor(shape, site, kind, spec, azimuths, elevations, pixel_m, seed
     local = (r-r0, c-c0)
     rocks, features = [], []
     if kind == 'rock':
-        rocks = [make_rock(seed, local, spec['height_m'], .6, aspect=1.35)]
+        rocks = [make_rock(seed, local, spec['height_m'], .6, aspect=1.35) if body is None else build_rock(body, local, meshes)]
     else:
         features = [relief_feature(kind, spec['size_m'], spec['max_slope_deg'], centre_px=local, seed=seed)]
     scene = dict(pixel_m=pixel_m, seed=seed, noise=0., supersample=4, texture=0., stain=0., frame_plane=0.,
@@ -215,6 +219,12 @@ def t18(ex):
     sites = _injection_sites(common, per_kind*len(kinds), 2*radius+8, radius+24, touchdown, cfg['seed']+910000)
     planted_jobs, planted_meta = [], []
     window = 2*radius+1
+    # Planted rocks keep their configured heights; under 'population' each gets its own body from the lunar
+    # shape statistics (rock_population), scaled to that height. Mounds and bowls are unchanged.
+    population = cfg.get('planted_geometry', 'population') == 'population'
+    prior = prior_from_config(cfg) if population else None
+    catalog = getattr(ex.args, 'rock_catalog', None)
+    meshes = load_catalog(catalog, split='development') if population and catalog else []
     for i, (r, c) in enumerate(sites):
         truth, spec = kinds[i % len(kinds)]
         if not (np.isfinite(d['slope_row'][r, c]) and np.isfinite(d['slope_col'][r, c])):
@@ -222,11 +232,14 @@ def t18(ex):
         # On the DEM plane the classifier assumes at the site; 'flat' reproduces the level-ground planting.
         tilt = (float(d['slope_row'][r, c]), float(d['slope_col'][r, c])) \
             if cfg.get('classifier_planted_receiving_plane', 'dem') == 'dem' else None
+        body = at_height(sample_population(1, cfg['seed']+930000+i, prior, meshes)[0], spec['height_m']) \
+            if population and truth == 'rock' else None
         factor = _feature_factor(stack.shape[1:], (r+.3, c+.2), truth, spec, d['azimuths'], d['elevations'], ex.sc.pixel_m,
-                                 cfg['seed']+920000+i, window+8, slopes=tilt)
+                                 cfg['seed']+920000+i, window+8, slopes=tilt, body=body, meshes=meshes)
         before, v, slopes = _patch(ex, stack, valid, r, c, radius, bin_)
         after = _patch(ex, stack*factor, valid, r, c, radius, bin_)[0]
-        meta = dict(site=i, row_px=int(r), col_px=int(c), truth=truth, kind=f'{truth} ' + ' '.join(f'{k}={v:g}' for k, v in spec.items()))
+        meta = dict(site=i, row_px=int(r), col_px=int(c), truth=truth, kind=f'{truth} ' + ' '.join(f'{k}={v:g}' for k, v in spec.items()),
+                    body={k: body[k] for k in ('width_m', 'length_m', 'height_over_diameter', 'burial', 'yaw_deg', 'shape')} if body else None)
         planted_jobs += [(before, v, sigma, slopes, geometry, dict(meta, phase='background')),
                          (after, v, sigma, slopes, geometry, dict(meta, phase='planted'))]
     planted_rows = _map(_cell_job, planted_jobs, workers)

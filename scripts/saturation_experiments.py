@@ -164,6 +164,17 @@ def validate_config(cfg):
     window = cfg.get('sfs_injection_window', 'auto')
     if window != 'auto' and (type(window) is not int or window < 16):
         raise ValueError('sfs_injection_window must be auto or an integer of at least 16')
+    # Planted rocks: a population drawn from lunar shape statistics (2.6) or the fixed 2.5 bodies.
+    geometry = cfg.get('planted_geometry', 'population')
+    if geometry not in ('population', 'fixed'):
+        raise ValueError('planted_geometry must be population or fixed')
+    from src.hati_core.rock_population import prior_from_config
+    prior = prior_from_config(cfg)
+    bins = cfg.get('planted_height_bins_m', [.15, .3, .6, 1.2, 2.])
+    if len(bins) < 2 or not all(isinstance(b, (int, float)) and b > 0 for b in bins) or any(b >= c for b, c in zip(bins, bins[1:])):
+        raise ValueError('planted_height_bins_m must be at least two increasing positive heights')
+    if geometry == 'population' and (bins[0] > prior.height_m[0] or bins[-1] < prior.height_m[1]):
+        raise ValueError('planted_height_bins_m must span the planted height range')
 
 
 class Experiment:

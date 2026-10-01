@@ -68,7 +68,7 @@ def natural(stage_id):
 
 
 # Supplementary per-stage files the stage reports draw on, beside result.json.
-EXTRAS = {'T14': {'injection': 'injection.json'}}
+EXTRAS = {'T14': {'injection': 'injection.json', 'real_rocks': 'real_rocks.json'}}
 STAGE_ID = re.compile(r'[A-Za-z0-9_-]{1,40}')
 
 

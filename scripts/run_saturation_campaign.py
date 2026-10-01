@@ -284,6 +284,19 @@ def evidence_summary(output, records):
                 findings.append(f'Injected {height} rocks sized after relief correction: {row["with_warning_evidence"]}/{row["sites"]} keep warning '
                                 f'evidence, lower bound holds for {row["lower_bound_holds"]}, {row["sized"]} reach a stable estimate'
                                 + (f' (median {row["estimate_median_m"]:.2f} m)' if row['estimate_median_m'] is not None else '') + '.')
+        real = sfs.get('real_rocks') or {}
+        if real.get('objects') is not None:
+            labels = real.get('by_label') or {}
+            findings.append(f'Real rocks after the relief correction: {real["objects"]} candidate objects ({labels.get("rock_like", 0)} rock-like, '
+                            f'{labels.get("ambiguous", 0)} ambiguous) merged from {real["cells"]} sized warning cells; '
+                            f'{real["at_or_above_clearance"]} reach the illustrative clearance. Each carries the planted-rock '
+                            'calibration for its height from this run.')
+        population = sfs.get('planted_population') or {}
+        if population.get('geometry') == 'population' and population.get('planted'):
+            bodies = ', '.join(f'{n} {k}' for k, n in (population.get('shapes') or {}).items())
+            findings.append(f'Planted calibration rocks: {population["planted"]} drawn from lunar shape statistics, each with its own '
+                            f'height, proportions, burial and yaw (height over diameter median '
+                            f'{population.get("height_over_diameter_median") or float("nan"):.2f}; bodies: {bodies}).')
         for height, row in sfs.get('injection_recovery', {}).items():
             m, a, u = row['corrected_measured'], row['corrected_assumed'], row['original_assumed']
             findings.append(f'Injected {height} rocks recovered on quiet sites: {m["recovered"]}/{m["quiet_sites"]} after the relief correction '

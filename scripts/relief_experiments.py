@@ -21,7 +21,8 @@ from src.hati_core.regional_shadow import assess_regions
 from src.hati_core.relief_hypothesis import (CLASSES, SIGNS, calibrate_margins, classify, compare_models, confusion,
                                              relief_sign, sign_confusion)
 from src.hati_core.relief_scenes import render_relief, relief_feature
-from src.hati_core.rock_scenes import make_rock
+from src.hati_core.rock_population import describe as describe_population, prior_from_config, sample_population
+from src.hati_core.rock_scenes import load_catalog, make_rock
 
 CLASS_COLOURS = {'rock_like': '#b64262', 'relief_like': '#64b9a5', 'ambiguous': '#e2a441', 'none': '#80909d'}
 
@@ -447,12 +448,99 @@ def _root_score(fit, root, radius=2.):
     return float(near[:, 2].max()) if len(near) else None
 
 
+def _height_groups(cfg, heights):
+    """(label, low, high) for each group the planted rocks are summarised in.
+
+    'fixed' planting groups by its configured heights (low == high); 'population'
+    planting draws continuous heights and groups them by planted_height_bins_m.
+    """
+    if cfg.get('planted_geometry', 'population') == 'fixed':
+        return [(f'{h:g} m', float(h), float(h)) for h in heights]
+    bins = [float(b) for b in cfg.get('planted_height_bins_m', [.15, .3, .6, 1.2, 2.])]
+    return [(f'{lo:g} to {hi:g} m', lo, hi) for lo, hi in zip(bins[:-1], bins[1:])]
+
+
+def _group_of(height, groups):
+    """The group a planted height belongs to; the last bin includes its upper edge."""
+    for j, (label, lo, hi) in enumerate(groups):
+        if (lo == hi and abs(height-lo) < 1e-9) or lo <= height < hi or (j == len(groups)-1 and lo < hi and height == hi):
+            return label
+    return None
+
+
+def _calibration_for(height, groups, recovery):
+    """How often planted rocks of this height were found in this run (corrected stack, measured noise).
+
+    Fixed planting uses the tallest planted height not above it (a smaller rock, so the
+    share is conservative); population planting uses the bin holding it, and the top bin
+    for anything taller. Heights below the planted range have no calibration.
+    """
+    if height is None or not groups:
+        return None
+    if groups[0][1] == groups[0][2]:
+        below = [g for g in groups if g[1] <= height+1e-9]
+        label = below[-1][0] if below else None
+    else:
+        label = _group_of(height, groups) or (groups[-1][0] if height >= groups[-1][2] else None)
+    found = recovery.get(label, {}).get('corrected_measured') if label else None
+    return dict(group=label, found=found['recovered'], of=found['quiet_sites']) if found else None
+
+
+def _group_detections(casters, cell_px, groups, recovery):
+    """Real detections as candidate objects: sized warning cells that touch, merged.
+
+    One rock can set off neighbouring cells, so cells whose centres lie within one cell
+    step of each other (8-connected on the cell grid) form one candidate object, which may
+    still hold several rocks. Its height bound and estimate are the largest of its cells.
+    Its label is rock-like if any cell is, else ambiguous; unchecked where T13 did not run.
+    Each object carries the planted-rock calibration for its height from this run.
+    """
+    if not casters:
+        return []
+    index = {(round(c['row_px']/cell_px), round(c['col_px']/cell_px)): i for i, c in enumerate(casters)}
+    parent = list(range(len(casters)))
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+    for (gr, gc), i in index.items():
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                j = index.get((gr+dr, gc+dc))
+                if j is not None:
+                    parent[find(i)] = find(j)
+    clusters = {}
+    for i, c in enumerate(casters):
+        clusters.setdefault(find(i), []).append(c)
+    objects = []
+    for cells in clusters.values():
+        bounds = [c['height_lower_bound_m'] for c in cells if c.get('height_lower_bound_m') is not None]
+        estimates = [c['height_m'] for c in cells if c.get('height_m') is not None]
+        labels = [c.get('relief_check') for c in cells]
+        peak = max(cells, key=lambda c: c.get('score') or 0.)
+        bound, estimate = (max(bounds) if bounds else None), (max(estimates) if estimates else None)
+        objects.append(dict(
+            cells=len(cells), row_px=float(np.mean([c['row_px'] for c in cells])), col_px=float(np.mean([c['col_px'] for c in cells])),
+            peak_row_px=int(peak['row_px']), peak_col_px=int(peak['col_px']), peak_score=peak.get('score'),
+            height_lower_bound_m=bound, height_m=estimate,
+            label='rock_like' if 'rock_like' in labels else 'ambiguous' if 'ambiguous' in labels else 'unchecked',
+            distance_to_touchdown_m=float(min(c['distance_to_touchdown_m'] for c in cells)),
+            exceeds_clearance=any(bool(c.get('exceeds_clearance')) for c in cells),
+            calibration=_calibration_for(estimate if estimate is not None else bound, groups, recovery)))
+    objects.sort(key=lambda o: (o['height_lower_bound_m'] is None, -(o['height_lower_bound_m'] or 0.), o['distance_to_touchdown_m']))
+    for k, o in enumerate(objects):
+        o['object'] = k
+    return objects
+
+
+PLANTED_GEOMETRY = ('width_m', 'length_m', 'height_over_diameter', 'burial', 'yaw_deg', 'shape')
+
 RECOVERY = {'original_assumed': ('original stack, assumed sigma', '#80909d'),
             'corrected_assumed': ('relief-corrected, assumed sigma', '#5b7fa6'),
             'corrected_measured': ('relief-corrected, sigma measured after correction', '#1f3a5f')}
 
 
-def _plot_t14(ex, solved, before, after, injection, sigma_after, touchdown):
+def _plot_t14(ex, solved, before, after, injection, sigma_after, touchdown, groups=None):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -486,16 +574,17 @@ def _plot_t14(ex, solved, before, after, injection, sigma_after, touchdown):
         ax.set_title(f'{title}\n{100*exceed:.1f}% of assessed pixels at or above {ex.rc.score_scale:g} (+ touchdown)')
         fig.colorbar(im, ax=ax, shrink=.75, label='score')
     ax = axes[1, 2]
-    heights = sorted({r['height_m'] for r in injection})
-    x = np.arange(len(heights)); width = .27
+    groups = groups or [(f'{h:g} m', h, h) for h in sorted({r['height_m'] for r in injection})]
+    x = np.arange(len(groups)); width = .27
     ax.set_axisbelow(True)
     for j, (key, (label, colour)) in enumerate(RECOVERY.items()):
-        clean = [[r['recovered_'+key] for r in injection if r['height_m'] == h and r['recovered_'+key] is not None] for h in heights]
+        clean = [[r['recovered_'+key] for r in injection if _group_of(r['height_m'], groups) == g[0] and r['recovered_'+key] is not None]
+                 for g in groups]
         share = [np.mean(c) if c else 0. for c in clean]
         ax.bar(x+(j-1)*width, share, width=width-.03, color=colour, label=label)
         for xi, c, v in zip(x+(j-1)*width, clean, share):
             ax.text(xi, v+.02, f'{sum(c)}/{len(c)}', ha='center', fontsize=8)
-    ax.set_xticks(x); ax.set_xticklabels([f'{h:g} m rock' for h in heights]); ax.set_ylim(0, 1.45)
+    ax.set_xticks(x); ax.set_xticklabels([f'{g[0]} rock' for g in groups], fontsize=8); ax.set_ylim(0, 1.45)
     ax.set_ylabel('injected rocks recovered within 2 px'); ax.legend(frameon=False, loc='upper left', fontsize=8)
     ax.set_title(f'Rocks injected into the real images\n(quiet sites only; measured sigma {sigma_after:.3f})')
     fig.suptitle(f'HATI T14 | shape from shading as a structural null | residual scale after relief {sigma_after:.4f} | research diagnostic')
@@ -568,12 +657,22 @@ def t14(ex):
     rounds = cfg.get('sfs_injection_rounds', 1)
     if type(rounds) is not int or rounds < 1:
         raise ValueError('sfs_injection_rounds must be a positive integer')
+    # 'population' gives every planted rock its own height, proportions, burial, yaw and body (NASA Apollo
+    # meshes from the catalog's development split, or procedural); 'fixed' plants the 2.5 bodies at fixed heights.
+    if cfg.get('planted_geometry', 'population') == 'population':
+        prior = prior_from_config(cfg)
+        catalog = getattr(ex.args, 'rock_catalog', None)
+        meshes = load_catalog(catalog, split='development') if catalog else []
+        tallest = prior.height_m[1]
+    else:
+        prior, meshes, tallest = None, [], max(heights)
+    groups = _height_groups(cfg, heights)
     requested, spacing = cfg.get('sfs_injection_sites', 24), cfg.get('sfs_injection_spacing_px', 40)
     if cfg.get('sfs_injection_window', 'auto') == 'auto':
         # Drawn in full, the tallest rock's shadow at the lowest Sun must not reach the next site's scoring window.
         # Level ground sets the spacing; sites where the ground falls along the shadow are checked one by one below.
         # Both use the Sun's centre (the umbra): the fainter penumbra beyond it stays inside the 12 px margin.
-        reach_px = shadow_reach_px(max(heights), (0., 0.), d['azimuths'], d['elevations'], ex.sc.pixel_m, solar_radius_deg=0.)
+        reach_px = shadow_reach_px(tallest, (0., 0.), d['azimuths'], d['elevations'], ex.sc.pixel_m, solar_radius_deg=0.)
         spacing = max(spacing, int(np.ceil(reach_px))+ex.sc.radius_px+12)
     injection, round_log = [], []
     table = cell_table(d['stack'].shape[1:], ex.sc, ex.rc)
@@ -584,7 +683,8 @@ def t14(ex):
         offset = int(round(k*spacing/(2*rounds)))
         sites = _injection_sites(solved['common'], requested, spacing, max(ex.sc.radius_px+20, 36), touchdown,
                                  cfg['seed']+700000+1000*k, offset=offset)
-        placed = [(r+.3, c+.2, heights[i % len(heights)]) for i, (r, c) in enumerate(sites)]
+        specs = sample_population(len(sites), cfg['seed']+720000+1000*k, prior, meshes) if prior else None
+        placed = [(r+.3, c+.2, specs[i]['height_m'] if specs else heights[i % len(heights)]) for i, (r, c) in enumerate(sites)]
         round_log.append(dict(round=k, grid_offset_px=offset, spacing_px=spacing, requested=requested, placed=len(placed)))
         if not placed:
             continue
@@ -604,12 +704,13 @@ def t14(ex):
                     if shadow_reach_px(h, slopes[j], d['azimuths'], d['elevations'], ex.sc.pixel_m, solar_radius_deg=0.) <= allowance]
             round_log[-1].update(dropped_long_shadow=len(placed)-len(keep), placed=len(keep))
             placed, slopes = [placed[j] for j in keep], [slopes[j] for j in keep]
+            specs = [specs[j] for j in keep] if specs else None
             if not placed:
                 continue
         windows = []
         factor = rock_factor(d['stack'].shape[1:], placed, d['azimuths'], d['elevations'], ex.sc.pixel_m,
                              seed=cfg['seed']+710000+1000*k, supersample=cfg.get('relief_supersample', 4),
-                             window_px=window_setting, slopes=slopes, info=windows)
+                             window_px=window_setting, slopes=slopes, info=windows, rocks=specs, meshes=meshes)
         round_log[-1].update(max_shadow_reach_px=max(w['reach_px'] for w in windows),
                              shadows_clipped=sum(w['shadow_clipped'] for w in windows))
         injected = d['stack']*factor
@@ -642,6 +743,7 @@ def t14(ex):
             e_before, e_after = energy(rock_before), energy(rock_after)
             change = np.abs(solved_injected['height_m']-solved['height_m'])[window]
             injection.append(dict(round=k, site=len(injection), row_px=r, col_px=c, height_m=height,
+                                  **({key: specs[i][key] for key in PLANTED_GEOMETRY} if specs else {}),
                                   **{f'score_{key}': v for key, v in scores.items()},
                                   rock_signal_kept=(scores['rock_only_after']/scores['rock_only_before']
                                                     if scores['rock_only_after'] is not None and scores['rock_only_before'] else None),
@@ -663,36 +765,36 @@ def t14(ex):
             row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
                        sized_height_lower_bound_m=size and size['height_lower_bound_m'])
     save(ex.out/'injection.json', injection)
-    absorption = {}
-    for height in heights:
-        kept = [r['rock_signal_kept'] for r in injection if r['height_m'] == height and r['rock_signal_kept'] is not None]
-        amplitude = [r['rock_amplitude_kept'] for r in injection if r['height_m'] == height and r['rock_amplitude_kept'] is not None]
-        absorption[f'{height:g} m'] = dict(
-            sites=len(kept), median_signal_kept=float(np.median(kept)) if kept else None,
+    # Summaries per height group: the planted heights themselves ('fixed') or height bins ('population').
+    members = {label: [r for r in injection if _group_of(r['height_m'], groups) == label] for label, _, _ in groups}
+    absorption, recovery, sizing_check = {}, {}, {}
+    for label, lo, hi in groups:
+        rows = members[label]
+        kept = [r['rock_signal_kept'] for r in rows if r['rock_signal_kept'] is not None]
+        amplitude = [r['rock_amplitude_kept'] for r in rows if r['rock_amplitude_kept'] is not None]
+        absorption[label] = dict(
+            height_range_m=[lo, hi], sites=len(kept), median_signal_kept=float(np.median(kept)) if kept else None,
             p25_p75_signal_kept=[float(v) for v in np.percentile(kept, [25, 75])] if kept else None,
             share_under_half=float(np.mean(np.asarray(kept) < .5)) if kept else None,
             median_amplitude_kept=float(np.median(amplitude)) if amplitude else None)
-    small = [v['median_signal_kept'] for h, v in absorption.items() if float(h[:-2]) <= .6 and v['median_signal_kept'] is not None]
+        for key in RECOVERY:
+            clean = [r['recovered_'+key] for r in rows if r['recovered_'+key] is not None]
+            recovery.setdefault(label, {})[key] = dict(recovered=int(sum(clean)), quiet_sites=len(clean))
+        bounded = [r for r in rows if r.get('sized_height_lower_bound_m') is not None]
+        estimated = [r for r in rows if r.get('sized_height_m') is not None]
+        # Each rock is checked against its own true height, so mixed heights in one bin stay exact.
+        sizing_check[label] = dict(
+            height_range_m=[lo, hi], sites=len(rows), with_warning_evidence=len(bounded), sized=len(estimated),
+            lower_bound_holds=sum(r['sized_height_lower_bound_m'] <= r['height_m']+.05 for r in bounded),
+            lower_bound_median_m=float(np.median([r['sized_height_lower_bound_m'] for r in bounded])) if bounded else None,
+            estimate_median_m=float(np.median([r['sized_height_m'] for r in estimated])) if estimated else None,
+            estimate_median_error_m=float(np.median([r['sized_height_m']-r['height_m'] for r in estimated])) if estimated else None)
+    small = [v['median_signal_kept'] for v in absorption.values() if v['height_range_m'][1] <= .6 and v['median_signal_kept'] is not None]
     absorption_verdict = dict(
         small_rock_signal_mostly_absorbed=bool(small) and max(small) < .5,
         rule='If under half of the rock-only score survives for 0.3-0.6 m rocks, stop subtracting relief from the '
              'data alone; model it as a nuisance both hypotheses see (the RegistrationProjector rule), so the '
              'sensitivity layers count how much of each rock looks like relief.')
-    recovery = {}
-    for height in heights:
-        for key in RECOVERY:
-            clean = [r['recovered_'+key] for r in injection if r['height_m'] == height and r['recovered_'+key] is not None]
-            recovery.setdefault(f'{height:g} m', {})[key] = dict(recovered=int(sum(clean)), quiet_sites=len(clean))
-    sizing_check = {}
-    for height in heights:
-        rows = [r for r in injection if r['height_m'] == height]
-        bounds = [r['sized_height_lower_bound_m'] for r in rows if r.get('sized_height_lower_bound_m') is not None]
-        estimates = [r['sized_height_m'] for r in rows if r.get('sized_height_m') is not None]
-        sizing_check[f'{height:g} m'] = dict(
-            sites=len(rows), with_warning_evidence=len(bounds), sized=len(estimates),
-            lower_bound_holds=sum(b <= height+.05 for b in bounds),
-            lower_bound_median_m=float(np.median(bounds)) if bounds else None,
-            estimate_median_m=float(np.median(estimates)) if estimates else None)
     # Sub-pixel casters: warning cells that survive the relief correction at the residual scale
     # measured after it, checked against relief with T13's rule where available, then sized.
     ex.live.update(force=True, kind='stage', message='T14: sizing sub-pixel casters')
@@ -742,7 +844,33 @@ def t14(ex):
                     nearest_exceeding_clearance=nearest and {k: nearest.get(k) for k in ('row_px', 'col_px', 'distance_to_touchdown_m',
                                                                                           'height_lower_bound_m', 'height_m', 'state')},
                     injected_rock_sizing=sizing_check)
-    _plot_t14(ex, solved, before, corrected, injection, sigma_after, touchdown)
+    # The real rocks HATI found: touching sized cells merged into candidate objects, each with the
+    # planted-rock calibration for its height from this run.
+    objects = _group_detections(casters, ex.rc.cell_px, groups, recovery)
+    save(ex.out/'real_rocks.json', objects)
+    def height_of(o):
+        return o['height_m'] if o['height_m'] is not None else o['height_lower_bound_m']
+    real = dict(objects=len(objects), cells=len(casters), examined_share=len(examined)/max(len(candidates), 1),
+                pixel_m=float(ex.sc.pixel_m), touchdown_px=list(touchdown), image_shape=list(d['stack'].shape[1:]),
+                by_label={k: sum(o['label'] == k for o in objects) for k in ('rock_like', 'ambiguous', 'unchecked')},
+                with_height=sum(height_of(o) is not None for o in objects), with_estimate=sum(o['height_m'] is not None for o in objects),
+                at_or_above_clearance=sum(o['exceeds_clearance'] for o in objects),
+                by_height_group={label: sum(_calibration_for(height_of(o), groups, recovery) is not None
+                                            and _calibration_for(height_of(o), groups, recovery)['group'] == label for o in objects)
+                                 for label, _, _ in groups},
+                below_calibrated_range=sum(height_of(o) is not None and _calibration_for(height_of(o), groups, recovery) is None
+                                           for o in objects),
+                nearest_at_or_above_clearance=min((o for o in objects if o['exceeds_clearance']),
+                                                  key=lambda o: o['distance_to_touchdown_m'], default=None),
+                note='Candidate objects are touching sized warning cells, merged; one may hold several rocks. Heights are '
+                     'context-supported estimates where available, otherwise lower bounds. The calibration is the share of '
+                     'planted rocks of that height found in this run, after the relief correction at the measured noise.')
+    population = dict(geometry='population', planted=len(injection), **describe_population(prior, meshes),
+                      shapes={s: sum(r.get('shape') == s for r in injection) for s in sorted({r.get('shape') for r in injection})},
+                      height_over_diameter_median=float(np.median([r['height_over_diameter'] for r in injection])) if injection else None) \
+        if prior else dict(geometry='fixed', heights_m=list(heights), planted=len(injection),
+                           body='0.6 m wide procedural body, aspect 1.35, burial 0.1')
+    _plot_t14(ex, solved, before, corrected, injection, sigma_after, touchdown, groups)
     _plot_subpixel(ex, casters, injection, touchdown, clearance, sigma_after)
     slopes = solved['slope_deg'][np.isfinite(solved['slope_deg'])]
     limit = _slope_limit(ex)
@@ -759,10 +887,15 @@ def t14(ex):
                                                                          structure=after_scale['structure'], patches=after_scale['patches']),
                      exceedance=exceedance, injection_recovery=recovery, injected_sites=len(injection), injection_rounds=round_log,
                      relief_absorption=absorption, relief_absorption_verdict=absorption_verdict, subpixel_casters=subpixel,
+                     planted_population=population, real_rocks=real,
                      limitations=['First-order shading: slopes above the Sun elevation are underestimated and cast shadows are excluded, not modelled.',
                                   'The surface is relative; its mean and planes shared by every frame are unobserved.',
                                   'Recovery is counted only where the corrected background was quiet at the site.',
-                                  'Injected rocks are rendered on flat ground and multiplied into the real images.',
+                                  'Injected rocks are rendered on the DEM plane at their site (or flat, if so configured) and '
+                                  'multiplied into the real images.',
+                                  'Planted shapes are rescaled NASA Apollo samples and procedural bodies with sourced mean '
+                                  'proportions; the spreads and the log-uniform heights are calibration choices, not a measured '
+                                  'polar rock population.',
                                   'Caster heights are equivalent rectangular-shadow heights; a shadow that leaves the fitting window gives '
                                   'only a lower bound. Warning cells are not object counts: one rock can set off neighbouring cells.',
                                   'The clearance value is illustrative, not a verified lander limit.'])
