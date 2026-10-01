@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 from src.hati_core.rock_population import RockPrior, build_rock, prior_from_config, sample_population
 from src.hati_core.rock_scenes import load_catalog
 
-CATALOG = ROOT/'data/rock_shapes/apollo_proxy_v1/catalog.json'
+CATALOG = ROOT/'data/rock_shapes/apollo_proxy_v2/catalog.json'
 
 
 class PopulationTests(unittest.TestCase):
@@ -52,13 +52,17 @@ class PopulationTests(unittest.TestCase):
 
     def test_nasa_meshes_come_from_the_development_split(self):
         meshes = load_catalog(CATALOG, split='development')
-        self.assertEqual([m['provenance']['split'] for m in meshes], ['development'])
-        self.assertNotIn('10021', [m['provenance']['parent_rock'] for m in meshes])   # the evaluation rock
+        self.assertEqual({m['provenance']['split'] for m in meshes}, {'development'})
+        self.assertEqual(len(meshes), 15)
+        evaluation = {m['provenance']['parent_rock'] for m in load_catalog(CATALOG, split='evaluation')}
+        self.assertIn('10021', evaluation)
+        self.assertFalse(evaluation & {m['provenance']['parent_rock'] for m in meshes})   # no rock in both
         rocks = sample_population(200, 4, RockPrior(nasa_fraction=.5), meshes)
         share = np.mean([r['mesh_index'] is not None for r in rocks])
         self.assertTrue(.35 < share < .65)
         nasa = next(r for r in rocks if r['mesh_index'] is not None)
-        self.assertEqual(nasa['shape'], meshes[0]['provenance']['id'])
+        self.assertGreater(len({r['mesh_index'] for r in rocks if r['mesh_index'] is not None}), 8)   # many bodies drawn
+        self.assertEqual(nasa['shape'], meshes[nasa['mesh_index']]['provenance']['id'])
         self.assertEqual(build_rock(nasa, (5., 5.), meshes)['truth']['source']['id'], nasa['shape'])
         self.assertTrue(all(r['mesh_index'] is None for r in sample_population(50, 4, RockPrior(nasa_fraction=0.), meshes)))
         self.assertTrue(all(r['shape'] == 'procedural' for r in sample_population(50, 4)))

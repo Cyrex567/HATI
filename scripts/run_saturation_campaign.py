@@ -291,6 +291,15 @@ def evidence_summary(output, records):
                             f'{labels.get("ambiguous", 0)} ambiguous) merged from {real["cells"]} sized warning cells; '
                             f'{real["at_or_above_clearance"]} reach the illustrative clearance. Each carries the planted-rock '
                             'calibration for its height from this run.')
+        measurable = sfs.get('measurable') or {}
+        if measurable.get('groups'):
+            frm = measurable.get('measurable_from_m')
+            findings.append(('Measurable from ' + f'{frm:g} m' if frm is not None else 'No planted height is yet established')
+                            + f': at {measurable["confidence"]:.0%} confidence a height group counts once at least '
+                            f'{measurable["detection_target"]:.0%} of its planted rocks are found and {measurable["coverage_target"]:.0%} '
+                            'of their height bounds hold; ' + '; '.join(
+                                f'{g} {v["found"]}/{v["quiet_sites"]} found, {v["bound_holds"]}/{v["bounded"]} bounds hold'
+                                for g, v in measurable['groups'].items()) + '.')
         population = sfs.get('planted_population') or {}
         if population.get('geometry') == 'population' and population.get('planted'):
             bodies = ', '.join(f'{n} {k}' for k, n in (population.get('shapes') or {}).items())
@@ -430,7 +439,7 @@ def main():
                ROOT/'dashboard/static/assets/hati_logo.png']
     inputs = dict(bundle=str(args.bundle.resolve()), bundle_sha256=digest(args.bundle), config_sha256=digest(args.config))
     if args.rock_catalog is None:
-        default_catalog = ROOT/'data/rock_shapes/apollo_proxy_v1/catalog.json'
+        default_catalog = ROOT/'data/rock_shapes/apollo_proxy_v2/catalog.json'
         if default_catalog.is_file():
             args.rock_catalog = default_catalog
     for key in ('dem', 'thermal', 'held_out', 'rock_catalog'):

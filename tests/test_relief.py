@@ -381,6 +381,62 @@ class PlantedSummaryTests(unittest.TestCase):
         self.assertIsNone(_calibration_for(.2, fixed, recovery))
         self.assertIsNone(_calibration_for(None, bins, recovery))
 
+    def test_planting_and_sizing_settings_are_checked(self):
+        from saturation_experiments import validate_config
+        base = json.loads((ROOT/'configs/saturation_campaign.json').read_text())
+        validate_config(dict(base))
+        validate_config(dict(base, sfs_sizing_adaptive=dict(context_guard=True, scale_factors=[1, 2, 4, 8])))
+        for bad in (dict(planted_geometry='random'), dict(planted_height_bins_m=[.3, .6, 1.2]),   # bins miss 0.15 to 0.3 m
+                    dict(planted_height_bins_m=[.6, .3]), dict(planted_rock_prior=dict(burial=[0, 1.5])),
+                    dict(sfs_sizing_adaptive=dict(scale_factors=[1, 3])), dict(sfs_sizing_adaptive=dict(guard=True)),
+                    dict(measurable_detection_target=1.2)):
+            with self.assertRaises((ValueError, TypeError), msg=str(bad)):
+                validate_config(dict(base, **bad))
+
+    def test_conformal_margin_makes_bounds_hold(self):
+        from relief_experiments import _conformal_margin, _corrected_bound
+        rng = np.random.default_rng(0)
+        truth = rng.uniform(.3, 2., 2000)
+        bound = truth+rng.normal(.08, .06, truth.size)                       # biased high by about 8 cm
+        cal, test = slice(0, 1000), slice(1000, None)
+        m = _conformal_margin(bound[cal], truth[cal], .9)
+        held = [_corrected_bound(b, m) <= t for b, t in zip(bound[test], truth[test])]
+        self.assertTrue(.88 <= np.mean(held) <= .93)                         # about 90% out of sample
+        f = _conformal_margin(bound[cal], truth[cal], .9, kind='ratio')
+        self.assertGreater(f, 1.)
+        self.assertGreaterEqual(np.mean([_corrected_bound(b, f, 'ratio') <= t for b, t in zip(bound[test], truth[test])]), .88)
+        # Conservative bounds need no correction, and too few rocks cannot promise 90%.
+        self.assertEqual(_conformal_margin(truth[:50]-.2, truth[:50], .9), 0.)
+        self.assertIsNone(_conformal_margin(bound[:8], truth[:8], .9))       # ceil(9 * 0.9) = 9 > 8
+        self.assertIsNotNone(_conformal_margin(bound[:9], truth[:9], .9))
+        self.assertIsNone(_corrected_bound(None, m))
+
+    def test_exact_intervals(self):
+        from relief_experiments import _exact_interval
+        self.assertAlmostEqual(_exact_interval(5, 5)[0], .025**(1/5), places=6)        # 5 of 5 found: at least 48%
+        self.assertAlmostEqual(_exact_interval(45, 45)[0], .025**(1/45), places=6)      # 45 of 45: at least 92%
+        self.assertAlmostEqual(_exact_interval(0, 10)[1], 1-.025**(1/10), places=6)
+        lo, hi = _exact_interval(7, 10)
+        self.assertTrue(lo < .7 < hi)
+        self.assertIsNone(_exact_interval(0, 0))
+
+    def test_measurable_from_needs_every_taller_group(self):
+        from relief_experiments import _height_groups, _measurable
+        def rock(h, found, bound):
+            return dict(height_m=h, recovered_corrected_measured=found, sized_height_lower_bound_m=bound, sized_height_m=None)
+        injection = ([rock(1.5, True, 1.2)]*45+[rock(.9, True, .8)]*45                          # tall rocks: all found, bounds hold
+                     +[rock(.45, True, .4)]*30+[rock(.45, True, 1.1)]*15                         # 0.3 to 0.6 m: a third overshoot
+                     +[rock(.2, False, None)]*20)                                                # small: never found
+        m = _measurable(_height_groups({}, []), injection)
+        self.assertEqual(m['measurable_from_m'], .6)
+        g = m['groups']
+        self.assertTrue(g['1.2 to 2 m']['established'] and g['0.6 to 1.2 m']['established'])
+        self.assertFalse(g['0.3 to 0.6 m']['established'])
+        self.assertEqual((g['0.3 to 0.6 m']['bound_holds'], g['0.3 to 0.6 m']['bounded']), (30, 45))
+        self.assertEqual((g['0.15 to 0.3 m']['found'], g['0.15 to 0.3 m']['quiet_sites']), (0, 20))
+        # Too few rocks cannot establish anything, however well they do.
+        self.assertIsNone(_measurable(_height_groups({}, []), [rock(1.5, True, 1.2)]*5)['measurable_from_m'])
+
     def test_touching_cells_merge_into_one_candidate(self):
         from relief_experiments import _group_detections, _height_groups
         def cell(r, c, bound, label='rock_like', est=None, score=10.):

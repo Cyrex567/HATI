@@ -35,6 +35,14 @@ class AdaptiveConfig:
     # Receiving-slope offsets (degrees, added to the DEM slope along rows and columns)
     # profiled jointly with height and width. Empty keeps the DEM plane fixed, as before.
     slope_search_deg: tuple = ()
+    # Stop growing the window when it contradicts what a smaller window already saw: the
+    # smaller window observed where the shadow ends and the ground beyond it, yet the larger
+    # one claims a caster taller than that window's whole compatible range. The larger window
+    # has taken in unrelated dark structure; the smaller window's fit stands.
+    context_guard: bool = False
+    # Let a window run past the image edge, the outside counted as missing data like any gap. The fit's own
+    # minimum valid support (RegionalConfig) still decides whether enough of the window is inside.
+    pad_edges: bool = False
 
     def __post_init__(self):
         if not self.scale_factors or self.scale_factors[0] != 1 or any(
@@ -63,6 +71,9 @@ class AdaptiveConfig:
         payload = asdict(self)
         if not payload['slope_search_deg']:
             payload.pop('slope_search_deg')          # unchanged hashes for configurations without the search
+        for key in ('context_guard', 'pad_edges'):
+            if not payload[key]:
+                payload.pop(key)                     # likewise without the guard or edge padding
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -284,18 +295,35 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
     return result
 
 
-def _receiving_surface(window, slopes, pixel_m, centre, support_px, max_missing=.25):
+def _window(array, r, c, radius, fill):
+    """array[..., r-radius:r+radius+1, c-radius:c+radius+1], with pixels outside the image set to fill."""
+    a = np.asarray(array)
+    h, w = a.shape[-2:]
+    dtype = float if isinstance(fill, float) and np.isnan(fill) else a.dtype
+    out = np.full(a.shape[:-2]+(2*radius+1, 2*radius+1), fill, dtype=dtype)
+    r0, r1, c0, c1 = max(r-radius, 0), min(r+radius+1, h), max(c-radius, 0), min(c+radius+1, w)
+    if r0 < r1 and c0 < c1:
+        out[..., r0-(r-radius):r1-(r-radius), c0-(c-radius):c1-(c-radius)] = a[..., r0:r1, c0:c1]
+    return out
+
+
+def _receiving_surface(window, slopes, pixel_m, centre, support_px, max_missing=.25, outside=None):
     """DEM tilt at the cell centre plus metre-scale relief from a surface model.
 
     The surface model's own plane is removed inside the window: shape from
     shading does not observe planes shared by every frame, the DEM does. Holes
     in the model (pixels shadowed in some frame) carry no relief beyond the
     plane; None when more than max_missing of the fitting support is a hole.
+    outside marks window pixels beyond the image: they are holes too, but do
+    not count against max_missing.
     """
     window = np.asarray(window, float)
     yy, xx = (np.indices(window.shape)-centre)*pixel_m
     finite = np.isfinite(window)
-    if finite.sum() < 12 or 1-finite[np.hypot(yy, xx) <= support_px*pixel_m].mean() > max_missing:
+    counted = np.hypot(yy, xx) <= support_px*pixel_m
+    if outside is not None:
+        counted &= ~np.asarray(outside, bool)
+    if finite.sum() < 12 or not counted.any() or 1-finite[counted].mean() > max_missing:
         return None
     design = np.column_stack([np.ones(finite.sum()), yy[finite], xx[finite]])
     plane = np.linalg.lstsq(design, window[finite], rcond=None)[0]
@@ -313,22 +341,27 @@ def refine_cell(stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, cen
     because the departure is modelled rather than assumed away.
     """
     r, c = map(int, centre); h, w = stack.shape[1:]
-    history = []; frozen = None; previous = None; state = 'unresolved_scale_limit'
+    history = []; frozen = None; previous = None; previous_fit = None; state = 'unresolved_scale_limit'
     for scale in cfg.scale_factors:
         current = replace(sc, radius_px=sc.radius_px*scale, root_support_px=sc.root_support_px*scale)
         radius = current.radius_px
         entry = dict(scale=scale, radius_px=radius, support_px=current.root_support_px)
-        if r-radius < 0 or c-radius < 0 or r+radius >= h or c+radius >= w:
+        inside = not (r-radius < 0 or c-radius < 0 or r+radius >= h or c+radius >= w)
+        if not inside and not cfg.pad_edges:
             entry.update(status='image_edge'); history.append(entry); state='unresolved_image_edge'; break
-        sl = np.s_[r-radius:r+radius+1, c-radius:c+radius+1]
         y, x = np.indices((2*radius+1,)*2)
         support = np.hypot(y-radius, x-radius) <= current.root_support_px
-        sr, scol = np.asarray(slope_row)[sl], np.asarray(slope_col)[sl]
+        # With edge padding the window may run past the image; only its pixels inside the image are data.
+        within = np.ones(support.shape, bool) if inside else _window(np.ones((h, w), bool), r, c, radius, False)
+        here = support & within
+        if not inside:
+            entry['outside_support_fraction'] = float(1-here.sum()/support.sum())
+        sr, scol = _window(slope_row, r, c, radius, np.nan), _window(slope_col, r, c, radius, np.nan)
         slopes = (float(slope_row[r, c]), float(slope_col[r, c]))
-        if not np.isfinite(sr[support]).all() or not np.isfinite(scol[support]).all() or not np.isfinite(slopes).all():
+        if not np.isfinite(sr[here]).all() or not np.isfinite(scol[here]).all() or not np.isfinite(slopes).all():
             entry.update(status='missing_terrain'); history.append(entry); state='unresolved_terrain'; break
         # Conservative proxy from gradient variation, not DEM-error validation.
-        departure = float(np.max(np.hypot(sr[support]-slopes[0], scol[support]-slopes[1]))*
+        departure = float(np.max(np.hypot(sr[here]-slopes[0], scol[here]-slopes[1]))*
                           current.root_support_px*sc.pixel_m)
         entry['plane_departure_proxy_m'] = departure
         surface = None
@@ -337,14 +370,16 @@ def refine_cell(stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, cen
                 entry.update(status='terrain_plane_limit'); history.append(entry); state='unresolved_terrain'; break
         else:
             pad = rc.cell_px
-            if r-radius-pad < 0 or c-radius-pad < 0 or r+radius+pad >= h or c+radius+pad >= w:
+            padded_inside = not (r-radius-pad < 0 or c-radius-pad < 0 or r+radius+pad >= h or c+radius+pad >= w)
+            if not padded_inside and not cfg.pad_edges:
                 entry.update(status='image_edge'); history.append(entry); state='unresolved_image_edge'; break
-            surface = _receiving_surface(np.asarray(terrain)[r-radius-pad:r+radius+pad+1, c-radius-pad:c+radius+pad+1],
-                                         slopes, sc.pixel_m, radius+pad, current.root_support_px)
+            outside = None if padded_inside else ~_window(np.ones((h, w), bool), r, c, radius+pad, False)
+            surface = _receiving_surface(_window(terrain, r, c, radius+pad, np.nan), slopes, sc.pixel_m, radius+pad,
+                                         current.root_support_px, outside=outside)
             if surface is None:
                 entry.update(status='missing_terrain'); history.append(entry); state='unresolved_terrain'; break
             entry['receiving_surface'] = 'terrain'
-        fit = fit_patch(stack[(slice(None), *sl)], visibility[(slice(None), *sl)], azimuths, elevations,
+        fit = fit_patch(_window(stack, r, c, radius, np.nan), _window(visibility, r, c, radius, 0), azimuths, elevations,
                         sigma, current, rc, cfg, slopes, selected_frames=frozen, display=observer is not None,
                         terrain=surface)
         sample = fit.pop('_display', None)
@@ -357,14 +392,23 @@ def refine_cell(stack, visibility, azimuths, elevations, sigma, sc, rc, cfg, cen
             frozen = fit['frames']
         if fit['best']['score'] < cfg.warning_score:
             state='low_evidence_unqualified'; break
+        if cfg.context_guard and previous_fit is not None and previous_fit['endpoint_context_supported'] \
+                and not previous_fit['lowest_compatible_censored'] \
+                and fit['best']['height_m'] > previous_fit['height_range_m'][1]+cfg.stability_m:
+            entry['context_conflict'] = True
+            state = 'context_conflict'; break
+        previous_fit = fit
         dimensions = np.array([fit['best']['height_m'], fit['best']['width_m']])
         stable = previous is not None and np.max(abs(dimensions-previous)) <= cfg.stability_m
         narrow = max(np.ptp(fit['height_range_m']), np.ptp(fit['width_range_m'])) <= cfg.max_compatibility_span_m
         if fit['compatible_context_supported'] and not fit['dimension_at_boundary'] and stable and narrow:
             state='context_supported_unvalidated'; break
         previous = dimensions
-    return dict(centre=[r, c], status=state, history=history,
-                final=history[-1] if history[-1]['status'] == 'assessed' else None)
+    # After a context conflict the last fit the guard trusted is the final one.
+    trusted = [e for e in history if e['status'] == 'assessed' and not e.get('context_conflict')]
+    final = (trusted[-1] if trusted else None) if state == 'context_conflict' else \
+        (history[-1] if history[-1]['status'] == 'assessed' else None)
+    return dict(centre=[r, c], status=state, history=history, final=final)
 
 
 _WORKER_INPUTS = None

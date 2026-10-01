@@ -164,6 +164,14 @@ def validate_config(cfg):
     window = cfg.get('sfs_injection_window', 'auto')
     if window != 'auto' and (type(window) is not int or window < 16):
         raise ValueError('sfs_injection_window must be auto or an integer of at least 16')
+    if cfg.get('bound_calibration', 'offset') not in ('offset', 'ratio', 'none'):
+        raise ValueError('bound_calibration must be offset, ratio or none')
+    for key in ('measurable_detection_target', 'measurable_coverage_target'):
+        if not 0 < cfg.get(key, .9) < 1:
+            raise ValueError(f'{key} must lie between 0 and 1')
+    # T14's sizing may override the shared adaptive settings (a guard, larger windows); both must make a valid config.
+    from src.hati_core.adaptive_shadow import AdaptiveConfig
+    AdaptiveConfig(**{**cfg.get('adaptive', {}), **cfg.get('sfs_sizing_adaptive', {})})
     # Planted rocks: a population drawn from lunar shape statistics (2.6) or the fixed 2.5 bodies.
     geometry = cfg.get('planted_geometry', 'population')
     if geometry not in ('population', 'fixed'):

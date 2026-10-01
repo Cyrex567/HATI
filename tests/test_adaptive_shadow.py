@@ -159,11 +159,103 @@ class SlopeSearchTests(unittest.TestCase):
         import json
         from dataclasses import asdict
         cfg = AdaptiveConfig()
-        payload = {k: v for k, v in asdict(cfg).items() if k != 'slope_search_deg'}
+        # The hash of the fields that existed before the opt-in options (slope search, context guard, edge
+        # padding): each is left out when off, so older configurations keep their hashes and cached results.
+        payload = {k: v for k, v in asdict(cfg).items() if k not in ('slope_search_deg', 'context_guard', 'pad_edges')}
+        self.assertEqual(cfg.hash(), 'bbc58da3a19b2025')
         self.assertEqual(cfg.hash(), hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16])
         self.assertNotEqual(cfg.hash(), replace(cfg, slope_search_deg=(-1., 0., 1.)).hash())
         with self.assertRaises(ValueError):
             AdaptiveConfig(slope_search_deg=(-1., 1.))        # the DEM slope itself must stay a candidate
+
+
+class EdgePaddingTests(unittest.TestCase):
+    """Windows may run past the image edge as missing data instead of stopping the cell."""
+
+    def test_window_fills_outside_pixels(self):
+        from src.hati_core.adaptive_shadow import _window
+        a = np.arange(25.).reshape(5, 5)
+        w = _window(a, 0, 4, 1, np.nan)
+        np.testing.assert_array_equal(w[1:, :2], a[:2, 3:])
+        self.assertTrue(np.isnan(w[0]).all() and np.isnan(w[:, 2]).all())
+        stack = np.stack([a, a+1])
+        np.testing.assert_array_equal(_window(stack, 2, 2, 2, np.nan), stack)
+        self.assertEqual(_window(np.ones((5, 5), bool), 0, 0, 1, False).sum(), 4)
+
+    @staticmethod
+    def scene(root, shape=(49, 49), height=.4):
+        t = shadow_template(shape, np.asarray(root, float), AZ, EL, height, .6, SC)[0]
+        return 1-.7*t+np.random.default_rng(5).normal(0, .005, t.shape)
+
+    def summary(self, record):
+        return [(h['scale'], h['status'], h.get('best', {}).get('height_m'), h.get('height_range_m')) for h in record['history']]
+
+    def test_padding_changes_nothing_inside(self):
+        image = self.scene((24, 24)); vis = np.ones_like(image); zero = np.zeros(image.shape[1:])
+        cfg = replace(AC, scale_factors=(1, 2))
+        plain = refine_cell(image, vis, AZ, EL, .005, SC, RC, cfg, (24, 24), zero, zero)
+        padded = refine_cell(image, vis, AZ, EL, .005, SC, RC, replace(cfg, pad_edges=True), (24, 24), zero, zero)
+        self.assertEqual(self.summary(plain), self.summary(padded))
+        self.assertEqual(plain['status'], padded['status'])
+
+    def test_padding_reaches_past_the_edge(self):
+        # A rock 8 px from the top: the scale-2 window (radius 12) runs past the edge, its support (radius 6) does not.
+        image = self.scene((8, 24)); vis = np.ones_like(image); zero = np.zeros(image.shape[1:])
+        cfg = replace(AC, scale_factors=(1, 2))
+        plain = refine_cell(image, vis, AZ, EL, .005, SC, RC, cfg, (8, 24), zero, zero)
+        self.assertEqual(plain['history'][1]['status'], 'image_edge')
+        padded = refine_cell(image, vis, AZ, EL, .005, SC, RC, replace(cfg, pad_edges=True), (8, 24), zero, zero)
+        self.assertEqual(padded['history'][1]['status'], 'assessed')
+        self.assertEqual(padded['history'][1]['outside_support_fraction'], 0.)
+        self.assertNotEqual(padded['status'], 'unresolved_image_edge')
+        # A centre so close to the edge that most of the support is outside still fails, through the fit's own minimum.
+        edge = refine_cell(image, vis, AZ, EL, .005, SC, RC, replace(cfg, pad_edges=True), (1, 24), zero, zero)
+        self.assertTrue(all(h['status'] != 'assessed' or h['scale'] == 1 for h in edge['history']))
+
+
+class ContextGuardTests(unittest.TestCase):
+    """A larger window that contradicts where a smaller one saw the shadow end is not believed."""
+
+    @staticmethod
+    def scripted(by_scale):
+        def fake(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg, slopes=(0., 0.), *, selected_frames=None,
+                 display=False, terrain=None):
+            scale = sc.radius_px//SC.radius_px
+            h, lo, hi, seen = by_scale[scale]
+            best = dict(height_m=h, width_m=.6, root_offset=[0., 0.], score=12., improvement=144., contrast=.5)
+            return dict(status='assessed', best=best, frames=[0, 1, 2, 3, 4], height_range_m=[lo, hi], width_range_m=[.6, .6],
+                        endpoint_context_supported=seen, lowest_compatible_censored=not seen, endpoint_censored=not seen,
+                        compatible_context_supported=False, dimension_at_boundary=False, support_px=sc.root_support_px,
+                        lowest_compatible=dict(height_m=lo, width_m=.6, root_offset=[0., 0.]))
+        return fake
+
+    def run_cell(self, cfg, by_scale):
+        stack = np.ones((5, 80, 80)); vis = np.ones_like(stack); zero = np.zeros((80, 80))
+        with patch('src.hati_core.adaptive_shadow.fit_patch', side_effect=self.scripted(by_scale)):
+            return refine_cell(stack, vis, AZ, EL, .01, SC, RC, cfg, (40, 40), zero, zero)
+
+    def test_guard_keeps_the_window_that_saw_the_shadow_end(self):
+        # Scale 1 sees a 0.35 m rock's shadow end; scale 2 claims 1.1 m from unrelated dark ground further on.
+        jump = {1: (.35, .3, .4, True), 2: (1.1, 1.0, 1.2, False), 4: (1.3, 1.1, 1.5, False)}
+        free = self.run_cell(AC, jump)
+        self.assertEqual(free['status'], 'unresolved_scale_limit')
+        self.assertEqual(free['final']['best']['height_m'], 1.3)
+        guarded = self.run_cell(replace(AC, context_guard=True), jump)
+        self.assertEqual(guarded['status'], 'context_conflict')
+        self.assertTrue(guarded['history'][-1]['context_conflict'])
+        self.assertEqual(guarded['final']['best']['height_m'], .35)
+        self.assertEqual(len(guarded['history']), 2)
+
+    def test_guard_lets_a_cut_shadow_grow(self):
+        # Scale 1's shadow ran past its window (censored): a taller fit in a larger window is expected, not a conflict.
+        growth = {1: (.3, .3, .4, False), 2: (.9, .8, 1.0, True), 4: (.95, .85, 1.05, True)}
+        guarded = self.run_cell(replace(AC, context_guard=True), growth)
+        self.assertNotEqual(guarded['status'], 'context_conflict')
+        self.assertEqual(guarded['final']['best']['height_m'], .95)
+
+    def test_guard_leaves_config_hashes_alone(self):
+        self.assertEqual(AC.hash(), replace(AC, context_guard=False).hash())
+        self.assertNotEqual(AC.hash(), replace(AC, context_guard=True).hash())
 
 
 if __name__ == '__main__':

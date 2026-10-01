@@ -607,11 +607,20 @@ const HatiStages = (() => {
     const found = total(Object.fromEntries(heights.map(h => [h, rec[h].corrected_measured])), 'recovered', 'quiet_sites');
     const bounded = total(sizing, 'lower_bound_holds', 'with_warning_evidence');
     const nearest = real?.nearest_at_or_above_clearance;
+    const m = r.measurable, cal = r.bound_calibration;
     const kpis = [
+      ...(m ? [{label: 'Measurable from', value: ok(m.measurable_from_m) ? `${fmt(m.measurable_from_m, 2)} m` : 'not yet established',
+                sub: `${pct(m.detection_target, 0)} of planted rocks found and ${pct(m.coverage_target, 0)} of their height bounds holding, at ${pct(m.confidence, 0)} confidence`,
+                state: ok(m.measurable_from_m) ? 'good' : 'warn', stateText: ok(m.measurable_from_m) ? 'established' : 'more planted rocks or less noise needed'}] : []),
       ...(real ? [{label: 'Real candidate rocks', value: int(real.objects),
                    sub: `${int(real.by_label?.rock_like)} rock-like · ${int(real.by_label?.ambiguous)} ambiguous · from ${int(real.cells)} sized cells`},
-                  {label: `Real candidates at least ${fmt(sub.clearance_m, 1)} m`, value: int(real.at_or_above_clearance),
-                   sub: nearest ? `nearest ${fmt(nearest.distance_to_touchdown_m, 0)} m from the touchdown` : 'none sized that tall'}] : []),
+                  {label: `Real candidates at least ${fmt(sub.clearance_m, 1)} m`, value: int(real.at_or_above_clearance_calibrated ?? real.at_or_above_clearance),
+                   sub: ok(real.at_or_above_clearance_calibrated)
+                     ? `by calibrated bounds; ${int(real.at_or_above_clearance)} by fitted bounds${nearest ? ` · nearest ${fmt(nearest.distance_to_touchdown_m, 0)} m from the touchdown` : ''}`
+                     : (nearest ? `nearest ${fmt(nearest.distance_to_touchdown_m, 0)} m from the touchdown` : 'none sized that tall')}] : []),
+      ...(cal && cal.kind !== 'none' ? [{label: 'Height bound margin', value: ok(cal.margin) ? (cal.kind === 'ratio' ? `÷ ${fmt(cal.margin, 2)}` : `${fmt(cal.margin, 2)} m`) : 'too few planted rocks',
+                   sub: `split conformal from ${int(cal.planted_bounds)} planted bounds, so ${pct(cal.coverage, 0)} of rocks like them hold`,
+                   state: ok(cal.margin) ? 'good' : 'warn', stateText: ok(cal.margin) ? 'calibrated' : 'not calibrated'}] : []),
       {label: 'Planted calibration rocks', value: int(pop.planted ?? r.injected_sites),
        sub: population ? `${Object.entries(pop.shapes || {}).map(([k, n]) => `${int(n)} ${body(k)}`).join(' · ')} · height/diameter median ${fmt(pop.height_over_diameter_median, 2)}`
                        : (pop.body || 'fixed heights')},
@@ -676,7 +685,9 @@ const HatiStages = (() => {
     if (real && rocks.length) {
       const px = real.pixel_m || 1, td = real.touchdown_px, size = real.image_shape;
       const height = o => o.height_m ?? o.height_lower_bound_m;
-      const describe = o => ok(o.height_m) ? `${fmt(o.height_m, 2)} m (context-supported)` : ok(o.height_lower_bound_m) ? `at least ${fmt(o.height_lower_bound_m, 2)} m` : 'not sized';
+      const describe = o => ok(o.height_m) ? `${fmt(o.height_m, 2)} m (context-supported)`
+        : ok(o.height_lower_bound_calibrated_m) ? `at least ${fmt(o.height_lower_bound_calibrated_m, 2)} m (calibrated; fitted ${fmt(o.height_lower_bound_m, 2)} m)`
+        : ok(o.height_lower_bound_m) ? `at least ${fmt(o.height_lower_bound_m, 2)} m` : 'not sized';
       const calib = o => o.calibration ? `${of(o.calibration.found, o.calibration.of)} of planted ${o.calibration.group} rocks found` : 'below the planted range';
       const points = rocks.map(o => ({x: o.col_px*px, y: o.row_px*px, key: o.label, r: 2.2+3.3*Math.min(1, (height(o) || 0)/1.5),
         tip: `Candidate ${o.object}: ${human(o.label)}, ${int(o.cells)} cell${o.cells === 1 ? '' : 's'}\nHeight ${describe(o)}\n${fmt(o.distance_to_touchdown_m, 0)} m from the touchdown\nCalibration: ${calib(o)}`}));
@@ -715,6 +726,21 @@ const HatiStages = (() => {
           .map(([label, v]) => ({label, value: v, text: int(v), tip: `${label}: ${int(v)} cells`})), format: v => int(v), labelW: 200,
         note: `Height lower bounds: 10th percentile ${fmt(hb.p10, 2)} m, median ${fmt(hb.median, 2)} m, 90th ${fmt(hb.p90, 2)} m. Cells are 3.6 m warning cells, not rock counts.`,
         table: {head: ['Step', 'Cells'], rows: [['Candidates', int(sub.candidate_cells)], ['Checked', int(sub.examined_cells)], ['Sized', int(sub.sized_cells)], ['With warning evidence', int(sub.with_warning_evidence)], ['Bound at or above clearance', int(sub.exceeding_clearance)], ['Height estimated', int(sub.context_supported)]]}});
+    }
+    if (m) {
+      const interval = v => v ? `${pct(v[0], 0)} to ${pct(v[1], 0)}` : 'no rocks';
+      const rows = Object.entries(m.groups || {}).flatMap(([g, v]) => [
+        {label: `${g}: found`, lo: v.found_interval?.[0], hi: v.found_interval?.[1], value: share(v.found, v.quiet_sites),
+         tip: `${g}: ${of(v.found, v.quiet_sites)} planted rocks found on quiet sites\n${pct(m.confidence, 0)} interval ${interval(v.found_interval)}`},
+        {label: `${g}: bounds hold`, lo: v.holds_interval?.[0], hi: v.holds_interval?.[1], value: share(v.bound_holds, v.bounded),
+         tip: `${g}: height lower bound holds for ${of(v.bound_holds, v.bounded)}\n${pct(m.confidence, 0)} interval ${interval(v.holds_interval)}${v.established ? '\nEstablished' : ''}`}]);
+      const targets = [...new Set([m.detection_target, m.coverage_target])];
+      charts.unshift({type: 'ranges', wide: true, title: 'What this run can vouch for',
+        subtitle: `Share of planted rocks found and share of height bounds that hold (${m.bounds_judged || 'as fitted'}), with ${pct(m.confidence, 0)} intervals. A height is established when both intervals clear the dashed target.`,
+        rows, refs: targets.map(t => ({value: t, label: `target ${pct(t, 0)}`})), labelW: 220, width: 1000, note: m.note,
+        table: {head: ['Height', 'Found', `${pct(m.confidence, 0)} interval`, 'Bounds hold', `${pct(m.confidence, 0)} interval`, 'Estimates', 'Median error', 'Established'],
+                rows: Object.entries(m.groups || {}).map(([g, v]) => [g, of(v.found, v.quiet_sites), interval(v.found_interval), of(v.bound_holds, v.bounded),
+                  interval(v.holds_interval), int(v.estimates), ok(v.median_error_m) ? `${fmt(v.median_error_m, 2)} m` : '--', v.established ? 'yes' : 'no'])}});
     }
     return {kpis, charts};
   }
