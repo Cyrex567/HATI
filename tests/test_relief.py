@@ -103,6 +103,86 @@ class GeneratorTests(unittest.TestCase):
         np.testing.assert_allclose(factor[0, :10], 1)
         self.assertLess(factor[0, 32, 20:32].min(), .8)
 
+    def test_flat_planting_is_unchanged(self):
+        from src.hati_core.rock_scenes import make_rock
+        old = np.ones((2, 64, 64))
+        rock = make_rock(2, (32.3-16, 32.2-16), .6, .6, aspect=1.35)
+        old[:, 16:48, 16:48] = render_relief((32, 32), [90., 30.], [3.5, 4.], pixel_m=.9, seed=2, noise=0., rocks=[rock],
+                                             supersample=4, texture=0., stain=0., frame_plane=0.)['stack']
+        new = rock_factor((64, 64), [(32.3, 32.2, .6)], [90., 30.], [3.5, 4.], .9, seed=2, window_px=32)
+        np.testing.assert_array_equal(new, old)
+        level = rock_factor((64, 64), [(32.3, 32.2, .6)], [90., 30.], [3.5, 4.], .9, seed=2, window_px=32, slopes=[(0., 0.)])
+        np.testing.assert_allclose(level, old, atol=1e-9)
+
+    @staticmethod
+    def _shadow_px(factor, row=32, root=32):
+        """Distance from the rock to the far end of its shadow along its row (Sun from the east), in pixels.
+
+        The run of darkened pixels is the one that reaches within four pixels of the
+        rock; the rock's own soft edge may leave the pixel next to it undarkened.
+        """
+        dark = factor[0, row, :root] < .9
+        near = np.flatnonzero(dark[root-4:])
+        if not len(near):
+            return 0
+        start = root-4+int(near[-1])
+        while start > 0 and dark[start-1]:
+            start -= 1
+        return root-start
+
+    def test_tilted_planting_follows_the_ground_under_the_shadow(self):
+        site = [(64.3, 64.2, .6)]
+        args = ((128, 128), site, [90.], [3.5], .9)
+        flat = rock_factor(*args, seed=2, window_px='auto')
+        # Sun from the east, shadow to the west: ground rising westward is a negative slope along columns.
+        rising = rock_factor(*args, seed=2, window_px='auto', slopes=[(0., -.02)])
+        falling = rock_factor(*args, seed=2, window_px='auto', slopes=[(0., .02)])
+        lengths = [self._shadow_px(f, 64, 64) for f in (rising, flat, falling)]
+        self.assertLess(lengths[0], lengths[1]); self.assertLess(lengths[1], lengths[2])
+        # On the tilted plane only the rock changes the image: far from it the factor is one.
+        np.testing.assert_allclose(rising[0, :20], 1, atol=1e-6)
+        np.testing.assert_allclose(rising[0, 64, 100:], 1, atol=1e-6)
+
+    def test_auto_window_keeps_the_whole_shadow(self):
+        # A 1.2 m rock at 3.5 degrees casts about 22 px of shadow; a 32 px window cuts it at 16.
+        args = ((128, 128), [(64.3, 64.2, 1.2)], [90.], [3.5], .9)
+        cut = rock_factor(*args, seed=2, window_px=32)
+        full = rock_factor(*args, seed=2, window_px='auto')
+        self.assertLessEqual(self._shadow_px(cut, 64, 64), 16)
+        self.assertGreater(self._shadow_px(full, 64, 64), 18)
+        # Windows are clipped at the image edge instead of refusing the site.
+        edge = rock_factor((64, 64), [(10.3, 10.2, 1.2)], [90.], [3.5], .9, seed=2, window_px='auto')
+        self.assertEqual(edge.shape, (1, 64, 64))
+
+    def test_auto_window_follows_ground_falling_along_the_shadow(self):
+        # 1.2 m at 3.5 degrees on ground falling 0.02 along the shadow: about 32 px of shadow, past the
+        # 28 px half-window that the level-ground length would give.
+        args = ((160, 160), [(80.3, 80.2, 1.2)], [90.], [3.5], .9)
+        info = []
+        falling = rock_factor(*args, seed=2, window_px='auto', slopes=[(0., .02)], info=info)
+        expected = 1.2/(np.tan(np.radians(3.5))-.02)/.9
+        self.assertGreater(self._shadow_px(falling, 80, 80), expected-3)
+        self.assertFalse(info[0]['shadow_clipped'])
+        self.assertGreater(info[0]['window_px']//2, expected)
+
+    def test_shadow_reach_follows_the_generator_geometry(self):
+        from src.hati_core.sfs import shadow_reach_px
+        # Sun from the east: shadows run west, along -columns; the lower solar limb sets the reach.
+        tan_e = np.tan(np.radians(3.5-.266))
+        self.assertAlmostEqual(shadow_reach_px(.6, (0., 0.), [90.], [3.5], .9), .6/tan_e/.9, places=6)
+        self.assertAlmostEqual(shadow_reach_px(.6, (0., .01), [90.], [3.5], .9), .6/(tan_e-.01)/.9, places=6)
+        self.assertAlmostEqual(shadow_reach_px(.6, (0., -.01), [90.], [3.5], .9), .6/(tan_e+.01)/.9, places=6)
+        # A plane facing away from the Sun casts no shadow in that frame; the longest of the others counts.
+        self.assertEqual(shadow_reach_px(.6, (0., .5), [90.], [3.5], .9), 0.)
+        self.assertAlmostEqual(shadow_reach_px(.6, (0., 0.), [90., 0.], [3.5, 2.], .9),
+                               .6/np.tan(np.radians(2.-.266))/.9, places=6)
+
+    def test_capped_reach_is_reported_as_clipped(self):
+        info = []
+        rock_factor((96, 96), [(48.3, 48.2, 1.2)], [90.], [1.], .9, seed=2, window_px='auto', max_reach_px=20, info=info)
+        self.assertTrue(info[0]['shadow_clipped'])
+        self.assertEqual(info[0]['window_px'], 52)
+
 
 class TerrainTemplateTests(unittest.TestCase):
     sc = ShadowConfig(radius_px=12, root_support_px=6, supersample=4)
@@ -277,7 +357,8 @@ class ReliefCampaignTests(unittest.TestCase):
     def test_t12_to_t16_on_a_relief_bundle_without_external_calls(self):
         from saturation_experiments import Experiment, t1, t12, t13, t14, t16
         with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp); bundle = out/'input.zip'; relief_bundle(bundle)
+            # 112 px leaves room for both injection rounds at the spacing a 1.2 m rock's full shadow needs.
+            out = Path(tmp); bundle = out/'input.zip'; relief_bundle(bundle, size=112)
             cfg = json.loads((ROOT/'configs/saturation_campaign.json').read_text())
             # Two workers on Linux exercise T16's forked pool in the software checks.
             cfg.update(synthetic_seeds=1, synthetic_locations=[[.5, .5]],

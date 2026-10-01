@@ -506,7 +506,7 @@ def t14(ex):
     """Shape-from-shading as a structural null (report section 13)."""
     from rasterio.crs import CRS as RasterCRS
     from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale
-    from src.hati_core.sfs import rock_factor, solve_sfs, solve_sfs_nonlinear
+    from src.hati_core.sfs import rock_factor, shadow_reach_px, solve_sfs, solve_sfs_nonlinear
     cfg, d = ex.cfg, ex.data
     valid = (np.nan_to_num(np.asarray(d['visibility'], float), nan=0.) >= .99) & np.isfinite(d['stack'])
     options = dict(grid_px=cfg.get('sfs_grid_px', 2), smoothness=cfg.get('sfs_smoothness', 3.),
@@ -569,6 +569,12 @@ def t14(ex):
     if type(rounds) is not int or rounds < 1:
         raise ValueError('sfs_injection_rounds must be a positive integer')
     requested, spacing = cfg.get('sfs_injection_sites', 24), cfg.get('sfs_injection_spacing_px', 40)
+    if cfg.get('sfs_injection_window', 'auto') == 'auto':
+        # Drawn in full, the tallest rock's shadow at the lowest Sun must not reach the next site's scoring window.
+        # Level ground sets the spacing; sites where the ground falls along the shadow are checked one by one below.
+        # Both use the Sun's centre (the umbra): the fainter penumbra beyond it stays inside the 12 px margin.
+        reach_px = shadow_reach_px(max(heights), (0., 0.), d['azimuths'], d['elevations'], ex.sc.pixel_m, solar_radius_deg=0.)
+        spacing = max(spacing, int(np.ceil(reach_px))+ex.sc.radius_px+12)
     injection, round_log = [], []
     table = cell_table(d['stack'].shape[1:], ex.sc, ex.rc)
     half = ex.sc.radius_px+12
@@ -579,13 +585,33 @@ def t14(ex):
         sites = _injection_sites(solved['common'], requested, spacing, max(ex.sc.radius_px+20, 36), touchdown,
                                  cfg['seed']+700000+1000*k, offset=offset)
         placed = [(r+.3, c+.2, heights[i % len(heights)]) for i, (r, c) in enumerate(sites)]
-        round_log.append(dict(round=k, grid_offset_px=offset, requested=requested, placed=len(placed)))
+        round_log.append(dict(round=k, grid_offset_px=offset, spacing_px=spacing, requested=requested, placed=len(placed)))
         if not placed:
             continue
         tag = f' (round {k+1} of {rounds})' if rounds > 1 else ''
         ex.live.update(force=True, kind='stage', message=f'T14: rendering {len(placed)} planted rocks into the real images{tag}')
+        # Each rock stands on the DEM plane the sizing assumes at its site, and its shadow is drawn in full;
+        # 'flat' and a fixed window reproduce the 2.5 planting, whose rocks read too tall on rising ground.
+        plane, window_setting = cfg.get('sfs_injection_receiving_plane', 'dem'), cfg.get('sfs_injection_window', 'auto')
+        slopes = [tuple(float(np.nan_to_num(f[int(r), int(c)])) for f in (d['slope_row'], d['slope_col'])) for r, c, _ in placed] \
+            if plane == 'dem' else None
+        round_log[-1].update(receiving_plane=plane, window_px=window_setting)
+        if slopes is not None and window_setting == 'auto':
+            # Ground falling along a shadow lengthens it past the level-ground reach the spacing allows for;
+            # such a rock could darken its neighbour's scoring window, so its site is left empty.
+            allowance = spacing-ex.sc.radius_px-12
+            keep = [j for j, (_, _, h) in enumerate(placed)
+                    if shadow_reach_px(h, slopes[j], d['azimuths'], d['elevations'], ex.sc.pixel_m, solar_radius_deg=0.) <= allowance]
+            round_log[-1].update(dropped_long_shadow=len(placed)-len(keep), placed=len(keep))
+            placed, slopes = [placed[j] for j in keep], [slopes[j] for j in keep]
+            if not placed:
+                continue
+        windows = []
         factor = rock_factor(d['stack'].shape[1:], placed, d['azimuths'], d['elevations'], ex.sc.pixel_m,
-                             seed=cfg['seed']+710000+1000*k, supersample=cfg.get('relief_supersample', 4))
+                             seed=cfg['seed']+710000+1000*k, supersample=cfg.get('relief_supersample', 4),
+                             window_px=window_setting, slopes=slopes, info=windows)
+        round_log[-1].update(max_shadow_reach_px=max(w['reach_px'] for w in windows),
+                             shadows_clipped=sum(w['shadow_clipped'] for w in windows))
         injected = d['stack']*factor
         ex.live.update(force=True, kind='stage', message=f'T14: solving shape from shading with the planted rocks{tag}')
         solved_injected = solver(injected, valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,

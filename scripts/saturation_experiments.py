@@ -157,6 +157,13 @@ def validate_config(cfg):
         values = [targets.get(k) for k in ('none', 'sun', 'compactness')]+list((targets.get('pair') or {}).values())
         if any(v is None or not 0 < v < 1 for v in values) or set(targets.get('pair') or {}) - {'boulder', 'hummock', 'crater', 'extended'}:
             raise ValueError('classifier_targets need none, sun, compactness and pair fractions in (0, 1)')
+    # Planted features stand on the DEM plane by default (2.6); 'flat' reproduces the 2.5 planting.
+    for key in ('sfs_injection_receiving_plane', 'classifier_planted_receiving_plane'):
+        if cfg.get(key, 'dem') not in ('dem', 'flat'):
+            raise ValueError(f'{key} must be dem or flat')
+    window = cfg.get('sfs_injection_window', 'auto')
+    if window != 'auto' and (type(window) is not int or window < 16):
+        raise ValueError('sfs_injection_window must be auto or an integer of at least 16')
 
 
 class Experiment:

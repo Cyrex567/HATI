@@ -55,8 +55,13 @@ def _map(fn, jobs, workers):
         return list(pool.map(fn, jobs, chunksize=2))
 
 
-def _feature_factor(shape, site, kind, spec, azimuths, elevations, pixel_m, seed, window_px):
-    """Multiplicative brightness of one feature rendered on level, uniform ground; 1 outside its window."""
+def _feature_factor(shape, site, kind, spec, azimuths, elevations, pixel_m, seed, window_px, slopes=None):
+    """Multiplicative brightness of one feature; 1 outside its window.
+
+    slopes (rise per metre along rows, along columns) puts the feature on the tilted
+    plane the classifier assumes at the site, and the factor is the scene with the
+    feature over the same plane without it. None renders on level ground, as before.
+    """
     r, c = site
     half = window_px//2
     r0, c0 = int(r)-half, int(c)-half
@@ -68,10 +73,14 @@ def _feature_factor(shape, site, kind, spec, azimuths, elevations, pixel_m, seed
         rocks = [make_rock(seed, local, spec['height_m'], .6, aspect=1.35)]
     else:
         features = [relief_feature(kind, spec['size_m'], spec['max_slope_deg'], centre_px=local, seed=seed)]
-    out = render_relief((window_px, window_px), azimuths, elevations, pixel_m=pixel_m, seed=seed, noise=0.,
-                        rocks=rocks, features=features, supersample=4, texture=0., stain=0., frame_plane=0.)
+    scene = dict(pixel_m=pixel_m, seed=seed, noise=0., supersample=4, texture=0., stain=0., frame_plane=0.,
+                 plane_slope_rc=(0., 0.) if slopes is None else tuple(float(v) for v in slopes))
+    out = render_relief((window_px, window_px), azimuths, elevations, rocks=rocks, features=features, **scene)['stack']
+    if slopes is not None:
+        ground = render_relief((window_px, window_px), azimuths, elevations, **scene)['stack']
+        out = np.where(ground > .05, out/np.where(ground > .05, ground, 1.), 1.)
     factor = np.ones((len(azimuths), *shape))
-    factor[:, r0:r0+window_px, c0:c0+window_px] = out['stack']
+    factor[:, r0:r0+window_px, c0:c0+window_px] = out
     return factor
 
 
@@ -210,8 +219,11 @@ def t18(ex):
         truth, spec = kinds[i % len(kinds)]
         if not (np.isfinite(d['slope_row'][r, c]) and np.isfinite(d['slope_col'][r, c])):
             continue
+        # On the DEM plane the classifier assumes at the site; 'flat' reproduces the level-ground planting.
+        tilt = (float(d['slope_row'][r, c]), float(d['slope_col'][r, c])) \
+            if cfg.get('classifier_planted_receiving_plane', 'dem') == 'dem' else None
         factor = _feature_factor(stack.shape[1:], (r+.3, c+.2), truth, spec, d['azimuths'], d['elevations'], ex.sc.pixel_m,
-                                 cfg['seed']+920000+i, window+8)
+                                 cfg['seed']+920000+i, window+8, slopes=tilt)
         before, v, slopes = _patch(ex, stack, valid, r, c, radius, bin_)
         after = _patch(ex, stack*factor, valid, r, c, radius, bin_)[0]
         meta = dict(site=i, row_px=int(r), col_px=int(c), truth=truth, kind=f'{truth} ' + ' '.join(f'{k}={v:g}' for k, v in spec.items()))

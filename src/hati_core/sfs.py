@@ -324,23 +324,66 @@ def solve_sfs_nonlinear(stack, valid, azimuths, elevations, pixel_m, *, grid_px=
                                    max_correction=max_correction, pixel_m=pixel_m))
 
 
-def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersample=4, window_px=32):
-    """Multiplicative brightness of injected rocks (shadow plus lit faces) on flat ground.
+def shadow_reach_px(height_m, slope_rc, azimuths, elevations, pixel_m, *, solar_radius_deg=.266):
+    """Longest shadow, in pixels, that a caster this tall throws on its receiving plane over the stack.
+
+    Same geometry as the generator: the top's shadow lies height / denom from the root, with
+    denom = tan(elevation) plus the plane's rise along the down-Sun direction (cos a, -sin a),
+    taken at the lower solar limb. Ground falling away along the shadow lengthens it; a frame
+    whose plane faces away from the Sun casts none and is skipped.
+    """
+    longest = 0.
+    for az, el in zip(azimuths, elevations):
+        a = np.radians(az)
+        denom = np.tan(np.radians(max(el-solar_radius_deg, .05)))+slope_rc[0]*np.cos(a)-slope_rc[1]*np.sin(a)
+        if denom > 0:
+            longest = max(longest, height_m/denom/pixel_m)
+    return longest
+
+
+def rock_factor(shape, sites, azimuths, elevations, pixel_m, *, seed, supersample=4, window_px=32, slopes=None,
+                max_reach_px=256, info=None):
+    """Multiplicative brightness of injected rocks (shadow plus lit faces).
 
     sites: [(row, col, height_m)]. Rendered with the independent relief generator
-    without noise, texture or planes, then applied as stack * factor so the real
+    without noise, texture or albedo, then applied as stack * factor so the real
     albedo and relief stay underneath.
+
+    slopes, one (rise per metre along rows, along columns) per site, puts each rock
+    on that tilted plane, the receiving surface the sizing assumes there; the factor
+    is then the scene with the rock over the scene without it, so only the rock's own
+    shadow and faces are added. None renders on flat ground, as before: a rock drawn
+    flat but sized on rising ground reads too tall by (tan e + slope) / tan e.
+    window_px='auto' sizes each window from the rock's longest shadow on its own plane
+    (shadow_reach_px; ground falling along the shadow needs a larger one) and clips it
+    to the image; a fixed window cuts longer shadows at its edge. Reaches beyond
+    max_reach_px are capped, and info, if a list, receives each site's reach, window
+    and whether the cap cut its shadow.
     """
     from .relief_scenes import render_relief
     from .rock_scenes import make_rock
     factor = np.ones((len(azimuths), *shape))
-    half = window_px//2
     for i, (r, c, height) in enumerate(sites):
-        r0, c0 = int(r)-half, int(c)-half
-        if r0 < 0 or c0 < 0 or r0+window_px > shape[0] or c0+window_px > shape[1]:
-            raise ValueError('injection window must lie inside the image')
+        plane = (0., 0.) if slopes is None else tuple(float(v) for v in slopes[i])
+        reach = shadow_reach_px(height, plane, azimuths, elevations, pixel_m)
+        if window_px == 'auto':
+            size = max(32, 2*int(np.ceil(min(reach, max_reach_px)+6)))
+        else:
+            size = window_px
+            if int(r)-size//2 < 0 or int(c)-size//2 < 0 or int(r)-size//2+size > shape[0] or int(c)-size//2+size > shape[1]:
+                raise ValueError('injection window must lie inside the image')
+        r0, c0 = int(r)-size//2, int(c)-size//2
+        if info is not None:
+            info.append(dict(site=i, reach_px=round(float(reach), 1), window_px=int(size),
+                             shadow_clipped=bool(reach+6 > size//2)))
         rock = make_rock(seed+i, (r-r0, c-c0), height, .6, aspect=1.35)
-        local = render_relief((window_px, window_px), azimuths, elevations, pixel_m=pixel_m, seed=seed+i, noise=0.,
-                              rocks=[rock], supersample=supersample, texture=0., stain=0., frame_plane=0.)
-        factor[:, r0:r0+window_px, c0:c0+window_px] *= local['stack']
+        scene = dict(pixel_m=pixel_m, seed=seed+i, noise=0., supersample=supersample, texture=0., stain=0., frame_plane=0.,
+                     plane_slope_rc=plane)
+        local = render_relief((size, size), azimuths, elevations, rocks=[rock], **scene)['stack']
+        if slopes is not None:
+            ground = render_relief((size, size), azimuths, elevations, **scene)['stack']
+            local = np.where(ground > .05, local/np.where(ground > .05, ground, 1.), 1.)
+        top, left = max(r0, 0), max(c0, 0)
+        bottom, right = min(r0+size, shape[0]), min(c0+size, shape[1])
+        factor[:, top:bottom, left:right] *= local[:, top-r0:bottom-r0, left-c0:right-c0]
     return factor
