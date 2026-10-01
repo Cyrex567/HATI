@@ -19,7 +19,21 @@ At Athena's lowest Sun the supports of the three passes hold shadows of rocks up
 
 The guard answers a failure seen on planted rocks: a 0.53 m rock whose shadow the second window saw end was bounded at 1.13 m by the fourth window, which had taken in unrelated dark ground and explained it with one tall caster. A legitimate growth, where the smaller window's shortest compatible shadow was itself cut by its edge, is not a conflict and is left alone.
 
-All four are opt-in in `AdaptiveConfig`, leave the hashes of existing configurations unchanged at their defaults, and can be set for T14's sizing alone through `sfs_sizing_adaptive`, which overrides the shared `adaptive` block without touching T9. `sfs_sizing_images: original` sizes on the original images instead of the relief-corrected ones; the surface from shape from shading stays the receiving ground.
+All four are opt-in in `AdaptiveConfig`, leave the hashes of existing configurations unchanged at their defaults, and can be set for T14's sizing alone through `sfs_sizing_adaptive`, which overrides the shared `adaptive` block without touching T9. `sfs_sizing_images: original` sizes on the original images instead of the relief-corrected ones; the surface from shape from shading stays the receiving ground. `sfs_sizing_subgrid` reads heights between grid steps (`subgrid_height`): the estimate is the vertex of the parabola through the best height of the profile over width and its two neighbours, and an uncensored bound the lower of that vertex and the compatible range's end interpolated where the profile crosses the threshold. At high signal the compatible range shrinks to one grid height, so the vertex carries the information.
+
+`configs/saturation_campaign_v26_workstation.json` sets the guard, edge padding, the fourth window, widths up to 4.8 m and sub-grid reading for T14, with 20 planting rounds.
+
+## What the laptop bench showed
+
+Planted rocks drawn as T14 draws them (same seeds, NASA and procedural bodies, DEM tilt, whole shadows), multiplied into the 8-frame Athena stack, relief-corrected and sized at the noise measured after correction (0.096). A development run, not a study.
+
+- The fourth window with edge padding and the guard (`guard8pad`) against the defaults, on the same 49 rocks: twice the context-supported estimates (14 against 7), no cell stopped at the image edge (10 had), and the same share of fitted bounds holding (28 of 32). The guard alone changed no rock.
+- Over eight rounds with `guard8pad` (168 rocks): found 0 of 30 below 0.3 m, 19 of 55 from 0.3 to 0.6 m, 47 of 47 from 0.6 to 1.2 m and 30 of 31 from 1.2 to 2 m. Bounds calibrated at 0.97, cross-fitted by whole rounds on quiet sites, held for 98 of 99 rocks out of sample, at a cost of 0.21 m; the fitted bounds held for 82. Estimates read 6% short at the median, and 49 of 52 calibrated 90% intervals held. The 0.6 to 1.2 m bin is established (both shares at least 92% at 95% confidence); 1.2 to 2 m is not yet, one miss among 31, so no run of this size can state a height it is measurable from.
+- The miss is a 1.3 m NASA body only 1.3 m wide. Its shadow is about 1.5 px across, the first window sees 6 px of it, and near the root the eight frames' shadows overlap and go to the static field. Narrow tall rocks lose most of their signal in the first window; T14 counts only that window as found, while the campaign's adaptive queue would also take the cell for its cut shadow.
+- `caster_profile: dome` reads planted rocks alone on flat ground within 1% of their height at the median, where the plate reads 8% short, but scatters more: 90% of its readings span a factor of 1.24, the plate's 1.16. On the real images it gave fewer estimates (11 against 14), about 70% more scatter, and fitted bounds that held for 19 of 32 against 28. Calibration absorbs a bias and not a scatter, so `plate` stays.
+- `sfs_sizing_images: original` gave fewer estimates and looser bounds on its one round.
+- Reading heights between grid steps (`sfs_sizing_subgrid`) brought the 0.97 bound margin from 0.30 to 0.23 m and narrowed the widest estimate intervals; the typical estimate error did not change.
+- Widths up to 4.8 m change no fitted height; they only lift wide tall rocks off the edge of the bank, which otherwise refuses their estimate.
 
 ## Not yet done
 

@@ -302,6 +302,35 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
     return result
 
 
+def subgrid_height(fit, cfg):
+    """Height read between grid steps from an assessed pass: (estimate, [low, high]) in metres.
+
+    The profile over width keeps the best improvement at each evaluated height. The estimate is
+    the vertex of the parabola through the best height and its two neighbours, moved at most half
+    a step. The compatible range runs from where the profile, interpolated linearly, crosses the
+    best improvement minus delta_chi2 below the lowest compatible grid height, to where it crosses
+    above the highest. Grid values stand wherever a neighbour is missing or more than one fine step
+    away, so the range never narrows and its low end never rises above the grid's.
+    """
+    best = {}
+    for h, _, score in fit['surface']:
+        best[h] = max(best.get(h, -np.inf), score*score)
+    hs = np.array(sorted(best)); imp = np.array([best[h] for h in hs])
+    i = int(np.argmax(imp)); estimate = float(hs[i]); floor = imp[i]-cfg.delta_chi2
+    near = lambda a, b: 0 < b-a <= cfg.fine_step_m+1e-9
+    if 0 < i < len(hs)-1 and near(hs[i-1], hs[i]) and near(hs[i], hs[i+1]) and np.isclose(hs[i]-hs[i-1], hs[i+1]-hs[i]):
+        curvature = imp[i-1]-2*imp[i]+imp[i+1]
+        if curvature < 0:
+            estimate = float(hs[i]+np.clip(.5*(imp[i-1]-imp[i+1])/curvature, -.5, .5)*(hs[i+1]-hs[i]))
+    low, high = (float(v) for v in fit['height_range_m'])
+    j = int(np.argmin(abs(hs-low))); k = int(np.argmin(abs(hs-high)))
+    if j > 0 and near(hs[j-1], hs[j]) and imp[j] > imp[j-1]:
+        low = float(hs[j-1]+(floor-imp[j-1])/(imp[j]-imp[j-1])*(hs[j]-hs[j-1]))
+    if k < len(hs)-1 and near(hs[k], hs[k+1]) and imp[k] > imp[k+1]:
+        high = float(hs[k+1]-(floor-imp[k+1])/(imp[k]-imp[k+1])*(hs[k+1]-hs[k]))
+    return estimate, [low, high]
+
+
 def _window(array, r, c, radius, fill):
     """array[..., r-radius:r+radius+1, c-radius:c+radius+1], with pixels outside the image set to fill."""
     a = np.asarray(array)

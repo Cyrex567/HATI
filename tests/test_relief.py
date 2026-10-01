@@ -392,7 +392,7 @@ class PlantedSummaryTests(unittest.TestCase):
                     dict(sfs_sizing_adaptive=dict(scale_factors=[1, 3])), dict(sfs_sizing_adaptive=dict(guard=True)),
                     dict(measurable_detection_target=1.2), dict(sfs_sizing_images='sideways'), dict(bound_calibration='median'),
                     dict(estimate_calibration='mean'), dict(sfs_sizing_adaptive=dict(caster_profile='cone')),
-                    dict(bound_calibration_coverage=1.), dict(estimate_calibration_coverage=0.)):
+                    dict(bound_calibration_coverage=1.), dict(estimate_calibration_coverage=0.), dict(sfs_sizing_subgrid='yes')):
             with self.assertRaises((ValueError, TypeError), msg=str(bad)):
                 validate_config(dict(base, **bad))
 
@@ -430,6 +430,25 @@ class PlantedSummaryTests(unittest.TestCase):
         self.assertIsNone(_estimate_interval(None, (low, high)))
         self.assertIsNone(_estimate_interval(1., None))
 
+    def test_caster_rows_read_heights_between_grid_steps(self):
+        from types import SimpleNamespace
+        from relief_experiments import _caster_row
+        # One assessed pass whose profile peaks at 0.6 m but leans towards 0.7 m; the shadow end is inside the window.
+        surface = [[.5, .6, 8.], [.6, .6, 10.], [.7, .6, 9.8], [.6, 1.2, 9.]]
+        fit = dict(status='assessed', scale=2, support_px=12., frames=[0, 1, 2], best=dict(height_m=.6, width_m=.6, score=10.,
+                   root_offset=[0., 0.]), height_range_m=[.6, .7], lowest_compatible=dict(root_offset=[0., 0.]),
+                   lowest_compatible_censored=False, surface=surface)
+        record = dict(centre=[40, 40], status='context_supported_unvalidated', history=[fit], final=fit)
+        def row(subgrid):
+            ex = SimpleNamespace(sc=SimpleNamespace(pixel_m=.9), data=dict(elevations=[3.3, 3.5, 4.]),
+                                 cfg=dict(sfs_sizing_subgrid=subgrid))
+            return _caster_row(ex, AdaptiveConfig(), record, .3)
+        grid, sub = row(False), row(True)
+        self.assertEqual((grid['height_m'], grid['height_lower_bound_m']), (.6, .6))
+        self.assertTrue(.6 < sub['height_m'] < .65)                  # the vertex leans towards 0.7 m
+        self.assertTrue(.5 < sub['height_lower_bound_m'] <= .6)      # never above the grid's bound
+        self.assertEqual(sub['compatible_range_m'], [.6, .7])        # the grid range is still reported
+
     def test_exact_intervals(self):
         from relief_experiments import _exact_interval
         self.assertAlmostEqual(_exact_interval(5, 5)[0], .025**(1/5), places=6)        # 5 of 5 found: at least 48%
@@ -455,6 +474,16 @@ class PlantedSummaryTests(unittest.TestCase):
         self.assertEqual((g['0.15 to 0.3 m']['found'], g['0.15 to 0.3 m']['quiet_sites']), (0, 20))
         # Too few rocks cannot establish anything, however well they do.
         self.assertIsNone(_measurable(_height_groups({}, []), [rock(1.5, True, 1.2)]*5)['measurable_from_m'])
+
+    def test_busy_sites_do_not_count_against_sizing(self):
+        from relief_experiments import _height_groups, _measurable
+        # Where the background already warned, the sizing measures that feature too: counted apart, not judged.
+        quiet = [dict(height_m=1.5, recovered_corrected_measured=True, sized_height_lower_bound_m=1.4, sized_height_m=None)]*45
+        busy = [dict(height_m=1.5, recovered_corrected_measured=None, sized_height_lower_bound_m=2.4, sized_height_m=None)]*5
+        g = _measurable(_height_groups({}, []), quiet+busy)['groups']['1.2 to 2 m']
+        self.assertEqual((g['planted'], g['quiet_sites'], g['busy_sites']), (50, 45, 5))
+        self.assertEqual((g['bound_holds'], g['bounded'], g['busy_fitted_bound_holds']), (45, 45, [0, 5]))
+        self.assertTrue(g['established'])
 
     def test_touching_cells_merge_into_one_candidate(self):
         from relief_experiments import _group_detections, _height_groups

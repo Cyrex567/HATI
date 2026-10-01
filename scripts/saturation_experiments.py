@@ -170,6 +170,8 @@ def validate_config(cfg):
         raise ValueError('bound_calibration must be offset, ratio or none')
     if cfg.get('estimate_calibration', 'conformal') not in ('conformal', 'none'):
         raise ValueError('estimate_calibration must be conformal or none')
+    if type(cfg.get('sfs_sizing_subgrid', False)) is not bool:
+        raise ValueError('sfs_sizing_subgrid must be true or false')
     for key in ('measurable_detection_target', 'measurable_coverage_target', 'bound_calibration_coverage',
                 'estimate_calibration_coverage'):
         if not 0 < cfg.get(key, .9) < 1:

@@ -16,7 +16,7 @@ import time
 import numpy as np
 
 from landing_maps import clean_json, write_tif
-from src.hati_core.adaptive_shadow import cell_table
+from src.hati_core.adaptive_shadow import cell_table, subgrid_height
 from src.hati_core.regional_shadow import assess_regions
 from src.hati_core.relief_hypothesis import (CLASSES, SIGNS, calibrate_margins, classify, compare_models, confusion,
                                              relief_sign, sign_confusion)
@@ -416,8 +416,12 @@ def _caster_row(ex, cfg, record, clearance):
     """T14's record for one sized cell: warning scales, height lower bound and, where supported, a height.
 
     A window the context guard rejected (context_conflict) does not count: its larger
-    context contradicted where a smaller window saw the shadow end.
+    context contradicted where a smaller window saw the shadow end. With sfs_sizing_subgrid,
+    heights are read between grid steps (subgrid_height): the estimate is the vertex of the
+    height profile, and an uncensored bound the lower of the sub-grid range end and that vertex,
+    since at high signal the compatible range shrinks to one grid height.
     """
+    subgrid = bool(getattr(ex, 'cfg', {}).get('sfs_sizing_subgrid', False))
     warned = [h for h in record['history'] if h.get('status') == 'assessed' and h['best']['score'] >= cfg.warning_score
               and not h.get('context_conflict')]
     row = dict(row_px=int(record['centre'][0]), col_px=int(record['centre'][1]), state=record['status'],
@@ -429,13 +433,20 @@ def _caster_row(ex, cfg, record, clearance):
         offset = (lowest or last['best'])['root_offset']
         reach_m = (last['support_px']-float(np.hypot(*offset)))*ex.sc.pixel_m
         geometric = reach_m*float(np.tan(np.radians(np.min(np.asarray(ex.data['elevations'])[last['frames']]))))
-        bound = geometric if censored else float(last['height_range_m'][0])
+        if censored:
+            bound = geometric
+        elif subgrid:
+            vertex, (low, _) = subgrid_height(last, cfg)
+            bound = min(low, vertex)
+        else:
+            bound = float(last['height_range_m'][0])
         row.update(score=float(last['best']['score']), width_m=float(last['best']['width_m']), censored=censored,
                    height_lower_bound_m=bound, compatible_range_m=[float(v) for v in last['height_range_m']],
                    exceeds_clearance=bool(bound >= clearance))
         final = record.get('final')
         if record['status'] == 'context_supported_unvalidated' and final:
-            row.update(height_m=float(final['best']['height_m']), height_range_m=[float(v) for v in final['height_range_m']])
+            height = subgrid_height(final, cfg)[0] if subgrid else float(final['best']['height_m'])
+            row.update(height_m=height, height_range_m=[float(v) for v in final['height_range_m']])
     return row
 
 
@@ -559,13 +570,17 @@ def _measurable(groups, injection, detection_target=.9, coverage_target=.9, conf
     lowest group from which every taller group is established; None when even the tallest is not.
     Where T14 calibrated the bounds, the calibrated (cross-fitted) ones are judged; the fitted
     ones are counted alongside, as are the calibrated estimate intervals that hold the true height.
+    Sizing is judged on quiet sites too; rocks planted where the background already warned are
+    counted apart (busy_sites, busy_fitted_bound_holds).
     """
     calibrated = any(r.get('sized_height_lower_bound_calibrated_m') is not None for r in injection)
     key = 'sized_height_lower_bound_calibrated_m' if calibrated else 'sized_height_lower_bound_m'
     out, ordered = {}, []
     for label, lo, hi in groups:
-        rows = [r for r in injection if _group_of(r['height_m'], groups) == label]
-        found = [r['recovered_corrected_measured'] for r in rows if r.get('recovered_corrected_measured') is not None]
+        group = [r for r in injection if _group_of(r['height_m'], groups) == label]
+        rows = [r for r in group if r.get('recovered_corrected_measured') is not None]
+        busy = [r for r in group if r.get('recovered_corrected_measured') is None and r.get('sized_height_lower_bound_m') is not None]
+        found = [r['recovered_corrected_measured'] for r in rows]
         bounded = [r for r in rows if r.get(key) is not None]
         holds = sum(r[key] <= r['height_m']+.05 for r in bounded)
         fitted = [r for r in rows if r.get('sized_height_lower_bound_m') is not None]
@@ -576,7 +591,9 @@ def _measurable(groups, injection, detection_target=.9, coverage_target=.9, conf
         found_interval, holds_interval = _exact_interval(sum(found), len(found), confidence), _exact_interval(holds, len(bounded), confidence)
         established = bool(found_interval and holds_interval and found_interval[0] >= detection_target
                            and holds_interval[0] >= coverage_target)
-        out[label] = dict(height_range_m=[lo, hi], planted=len(rows), found=int(sum(found)), quiet_sites=len(found),
+        out[label] = dict(height_range_m=[lo, hi], planted=len(group), found=int(sum(found)), quiet_sites=len(found),
+                          busy_sites=len(group)-len(rows),
+                          busy_fitted_bound_holds=[int(sum(r['sized_height_lower_bound_m'] <= r['height_m']+.05 for r in busy)), len(busy)],
                           found_interval=found_interval, bounded=len(bounded), bound_holds=int(holds), holds_interval=holds_interval,
                           fitted_bounded=len(fitted), fitted_bound_holds=int(fitted_holds),
                           estimates=len(errors), median_error_m=float(np.median(errors)) if errors else None,
@@ -891,7 +908,10 @@ def t14(ex):
     # the margin of all planted rocks. The share sits above the measurable target on purpose: certifying 90% at 95%
     # confidence takes about 97% holding with 90 rocks to a height bin, and every one with 45.
     kind, bound_coverage = cfg.get('bound_calibration', 'offset'), cfg.get('bound_calibration_coverage', .97)
-    bounded_planted = [r for r in injection if r.get('sized_height_lower_bound_m') is not None]
+    # Quiet sites only, as for the detection statistics: where the background already warned before the rock
+    # was planted, the sizing measures that feature as much as the rock, and the planted height is not the truth.
+    quiet = [r for r in injection if r.get('recovered_corrected_measured') is not None]
+    bounded_planted = [r for r in quiet if r.get('sized_height_lower_bound_m') is not None]
     def margin_of(rows):
         return _conformal_margin([r['sized_height_lower_bound_m'] for r in rows], [r['height_m'] for r in rows], bound_coverage, kind)
     bound_margin, cross = None, []
@@ -910,7 +930,7 @@ def t14(ex):
     # Calibrated height estimates, the same way: the planted rocks' true height over their estimate sets factors
     # that bracket a new rock's height, cross-fitted for the planted rocks themselves.
     estimate_kind, estimate_coverage = cfg.get('estimate_calibration', 'conformal'), cfg.get('estimate_calibration_coverage', .9)
-    estimated_planted = [r for r in injection if r.get('sized_height_m') is not None]
+    estimated_planted = [r for r in quiet if r.get('sized_height_m') is not None]
     def factors_of(rows):
         return _estimate_factors([r['sized_height_m'] for r in rows], [r['height_m'] for r in rows], estimate_coverage)
     estimate_factors, estimate_cross = None, []

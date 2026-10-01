@@ -260,6 +260,27 @@ class ContextGuardTests(unittest.TestCase):
         self.assertNotEqual(AC.hash(), replace(AC, context_guard=True).hash())
 
 
+class SubgridHeightTests(unittest.TestCase):
+    """Heights read between grid steps from a pass's fit surface."""
+
+    def test_vertex_lands_between_grid_heights(self):
+        from src.hati_core.adaptive_shadow import subgrid_height
+        sc = replace(SC, radius_px=12, root_support_px=10)
+        for truth in (.37, .45, .52):
+            t = shadow_template((25, 25), (12., 12.), AZ, EL, truth, .6, SC)[0]
+            scene = 1-.7*t+np.random.default_rng(0).normal(0, .02, t.shape)
+            fit = fit_patch(scene, np.ones_like(scene), AZ, EL, .02, sc, RC, AC, (0., 0.))
+            estimate, (low, high) = subgrid_height(fit, AC)
+            self.assertLess(abs(estimate-truth), abs(fit['best']['height_m']-truth), truth)   # closer than the grid
+            self.assertLessEqual(low, fit['height_range_m'][0])
+            self.assertGreaterEqual(high, fit['height_range_m'][1])
+
+    def test_grid_values_stand_without_close_neighbours(self):
+        from src.hati_core.adaptive_shadow import subgrid_height
+        fit = dict(surface=[[.3, .6, 5.], [.6, .6, 9.], [1.2, .6, 4.]], height_range_m=[.6, .6])
+        self.assertEqual(subgrid_height(fit, AC), (.6, [.6, .6]))      # neighbours a coarse step away
+
+
 class CasterProfileTests(unittest.TestCase):
     """A dome caster's shadow tapers to the tip a plate caster's reaches; each template reads its own caster."""
 
