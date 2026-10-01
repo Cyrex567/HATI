@@ -149,6 +149,35 @@ class LiveWatchTests(unittest.TestCase):
             after={p.relative_to(run):p.read_bytes() for p in run.rglob('*') if p.is_file()}
             self.assertEqual(before,after)
 
+    def test_stage_report_serves_saved_results_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); run=root/'run'
+            atomic_json(run/'stages/T14/result.json',dict(status='PARTIAL',reason='relief removed',sfs=dict(explained_fraction=.8),
+                                                        configuration=dict(seed=1),provenance=dict(stack_sha256='x')))
+            atomic_json(run/'stages/T14/injection.json',[dict(site=0,height_m=.6,sized_height_lower_bound_m=.9)])
+            (root/'secret.json').write_text('{"not": "served"}')
+            before={p.relative_to(run):p.read_bytes() for p in run.rglob('*') if p.is_file()}
+            store=WatchStore(run);report=store.result('T14')
+            # The report drops the configuration echo, carries the stage's extras and one version per result.
+            self.assertEqual(report['result']['sfs']['explained_fraction'],.8)
+            self.assertNotIn('configuration',report['result']);self.assertNotIn('provenance',report['result'])
+            self.assertEqual(report['extras']['injection'][0]['sized_height_lower_bound_m'],.9)
+            self.assertEqual(report['version'],store.state()['results']['T14'])
+            for stage in ('../secret','T14/../../secret','T1',''):
+                with self.assertRaises(FileNotFoundError):store.result(stage)
+            server=ThreadingHTTPServer(('127.0.0.1',0),make_handler(store))
+            worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+            base=f'http://127.0.0.1:{server.server_address[1]}'
+            try:
+                with urlopen(base+'/api/result?stage=T14') as r:self.assertEqual(json.load(r)['result']['reason'],'relief removed')
+                with urlopen(base+'/stages.js') as r:self.assertIn(b'HatiStages',r.read())
+                for route in ('/api/result?stage=..%2Fsecret','/api/result?stage=T9','/api/result'):
+                    with self.assertRaises(HTTPError) as cm:urlopen(base+route)
+                    self.assertEqual(cm.exception.code,404)
+            finally:
+                server.shutdown();server.server_close();worker.join()
+            self.assertEqual(before,{p.relative_to(run):p.read_bytes() for p in run.rglob('*') if p.is_file()})
+
     def test_stale_heartbeat_and_partial_json_remain_explicit(self):
         with tempfile.TemporaryDirectory() as tmp:
             run=Path(tmp);atomic_json(run/'campaign.json',dict(stages=[dict(id='T1',status='RUNNING')]))

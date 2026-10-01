@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
 from pathlib import Path
+import re
 import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -64,6 +65,11 @@ QUIET_SECONDS = 900
 def natural(stage_id):
     digits = ''.join(ch for ch in stage_id if ch.isdigit())
     return (0 if stage_id == 'maps' else 1, int(digits) if digits else 0, stage_id)
+
+
+# Supplementary per-stage files the stage reports draw on, beside result.json.
+EXTRAS = {'T14': {'injection': 'injection.json'}}
+STAGE_ID = re.compile(r'[A-Za-z0-9_-]{1,40}')
 
 
 def tail(path, limit=18000):
@@ -187,13 +193,36 @@ class WatchStore:
             if p.resolve().is_relative_to(self.root):
                 artifacts.append(dict(path=p.relative_to(self.root).as_posix(), version=p.stat().st_mtime_ns,
                                       title=p.stem.replace('_', ' ')))
-        return dict(run_name=self.root.name, stages=stages, selected_stage=stage,
+        # One version per finished stage, so the page fetches a report only when it changes.
+        results = {}
+        for p in (self.root/'stages').glob('*/result.json'):
+            try:
+                results[p.parent.name] = str(p.stat().st_mtime_ns)
+            except OSError:
+                pass
+        return dict(run_name=self.root.name, stages=stages, selected_stage=stage, results=results,
                     active_stage=active['id'] if active else None, health=health, heartbeat_age_seconds=age,
                     heartbeat_source='inferred' if inferred else 'runner',
                     snapshot=read_json(snapshot) if snapshot else None,
                     terrain=(read_json(self.root/'live/maps.json', {}) or {}).get('terrain'),
                     log=tail(log) if log else '', inputs=self.inputs(), input_error=self.input_error,
                     artifacts=artifacts, verdict=campaign.get('verdict'), server_time=now.isoformat())
+
+    def result(self, stage):
+        """One stage's saved result for its report, without the configuration echo, plus its extras."""
+        if not STAGE_ID.fullmatch(stage or ''):
+            raise FileNotFoundError(stage)
+        folder = self.root/'stages'/stage
+        data = read_json(safe_file(self.root, f'stages/{stage}/result.json'))
+        if not isinstance(data, dict):
+            raise FileNotFoundError(stage)
+        data = {k: v for k, v in data.items() if k not in ('configuration', 'provenance')}
+        extras = {}
+        for key, name in EXTRAS.get(stage, {}).items():
+            if (folder/name).is_file():
+                extras[key] = read_json(safe_file(self.root, f'stages/{stage}/{name}'))
+        return dict(stage=stage, result=data, extras=extras,
+                    version=str((folder/'result.json').stat().st_mtime_ns))
 
 
 def make_handler(store):
@@ -222,6 +251,9 @@ def make_handler(store):
                 if path == '/api/state':
                     selected = parse_qs(parsed.query).get('stage', [None])[0]
                     self.respond(200, json.dumps(store.state(selected), allow_nan=False).encode('utf-8'))
+                elif path == '/api/result':
+                    stage = parse_qs(parsed.query).get('stage', [''])[0]
+                    self.respond(200, json.dumps(store.result(stage), allow_nan=False).encode('utf-8'))
                 elif path.startswith('/input/'):
                     name = path.removeprefix('/input/')
                     metadata = store.inputs()
@@ -240,7 +272,8 @@ def make_handler(store):
                 elif path == '/logo.png':
                     self.respond(200, (ROOT/'dashboard/static/assets/hati_logo.png').read_bytes(), 'image/png')
                 else:
-                    name = {'/': 'index.html', '/watch.js': 'watch.js', '/watch.css': 'watch.css'}.get(path)
+                    name = {'/': 'index.html', '/watch.js': 'watch.js', '/stages.js': 'stages.js',
+                            '/watch.css': 'watch.css'}.get(path)
                     if name is None:
                         raise FileNotFoundError(path)
                     p = safe_file(STATIC, name)
