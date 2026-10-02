@@ -214,6 +214,7 @@ class FrameNoiseTests(unittest.TestCase):
     """Each frame weighted by its own noise, the registration covariance included."""
 
     def test_registration_projector_matches_the_full_weighted_fit(self):
+        from scipy.linalg import null_space
         from src.hati_core.shadow_likelihood import RegistrationProjector
         rng = np.random.default_rng(0)
         side, n, shift = 7, 4, .5
@@ -234,10 +235,12 @@ class FrameNoiseTests(unittest.TestCase):
             planes = np.zeros((n*p, n*proj.q.shape[1]))
             for k in range(n):
                 planes[k*p:(k+1)*p, k*proj.q.shape[1]:(k+1)*proj.q.shape[1]] = proj.q
-            N = W@np.hstack([np.vstack([np.eye(p)]*n), planes])
-            perp = np.eye(n*p)-N@np.linalg.pinv(N)
+            # The static albedo is written off the planes, so the design has full rank and no cutoff
+            # decides it. With the shared plane directions in, pinv kept one of them on the box's LAPACK.
+            design = np.hstack([np.vstack([null_space(proj.q.T)]*n), planes])
+            basis = np.linalg.qr(W@design)[0]
             y, t = rng.normal(0, 1, (n, side, side)), rng.normal(0, 1, (n, side, side))
-            full_y, full_t = perp@W@y.ravel(), perp@W@t.ravel()
+            full_y, full_t = (v-basis@(basis.T@v) for v in (W@y.ravel(), W@t.ravel()))
             mine_y, mine_t = proj.apply(y).ravel(), proj.apply(t).ravel()
             self.assertAlmostEqual(mine_t@mine_y/(full_t@full_y), 1., places=7)
             self.assertAlmostEqual(mine_t@mine_t/(full_t@full_t), 1., places=7)
