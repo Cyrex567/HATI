@@ -309,5 +309,7 @@
   "measurable_coverage_target": 0.9,
   "bound_calibration_coverage": 0.97,
   "estimate_calibration_coverage": 0.9,
-  "sfs_sizing_subgrid": true
+  "sfs_sizing_subgrid": true,
+  "sfs_dem_prior": true,
+  "noise_per_frame": true
 }

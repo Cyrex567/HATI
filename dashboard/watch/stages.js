@@ -858,6 +858,16 @@ const HatiStages = (() => {
       view = liveView(snapshot);
       els.eyebrow.textContent = '00 / STAGE REPORT · LIVE';
       view.note = 'The full report with every chart appears when the stage finishes.';
+      if (report?.result?.interim) {
+        // A run that saves its summary as it goes (the sizing bench, after every round) shows it under the live view.
+        try {
+          const saved = (VIEWS[stageId] || viewGeneric)(report.result, report.extras || {});
+          view = {kpis: [...view.kpis, ...saved.kpis], charts: [...view.charts, ...saved.charts],
+                  note: ['Live, with the summary saved so far.', report.result.reason].filter(Boolean).join(' ')};
+        } catch (error) {
+          view.note += ` The summary saved so far could not be drawn: ${error.message}`;
+        }
+      }
     } else {
       view = {kpis: [], charts: [], note: status === 'PENDING' ? 'Not started yet.' : 'No saved result for this stage.'};
       els.eyebrow.textContent = '00 / STAGE REPORT';

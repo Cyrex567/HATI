@@ -30,12 +30,32 @@ On the f03 stack (8 frames, 0.9 m pixels), each correction was scored by the res
 
 ## What was built from it
 
-`sfs_dem_prior` (T14) and `dem_prior` in the landing maps' relief settings: each frame's Lunar-Lambert shading on the DEM, relative to its mean over frames (`sfs.dem_shading_ratio`), is subtracted from the stack before shape from shading (`sfs.subtract_shading`), for the original solve and every planted-rock solve alike. T14 then casts sizing shadows on the DEM surface, the integral of the bundle's slopes (`sfs.integrate_slopes`), plus the solved relief; the landing maps' merged surface already takes the DEM below its posting. The repository functions reproduce the experiment's corrected stack exactly. On a flat DEM the option changes nothing.
+`sfs_dem_prior` (T14) and `dem_prior` in the landing maps' relief settings: each frame's Lunar-Lambert shading on the DEM, relative to its mean over frames (`sfs.dem_shading_ratio`), is subtracted from the stack before shape from shading (`sfs.subtract_shading`), for the original solve and every planted-rock solve alike. Sizing still casts shadows on the solved relief, each window's plane set to the DEM tilt as before (why, below). The landing maps' merged surface already takes the DEM below its posting. The repository functions reproduce the experiment's corrected stack exactly. On a flat DEM the option changes nothing.
 
 T14 reports `residual_by_slope`, the residual before and after the correction in the three slope classes above (`noise_scale.residual_by_slope`), and HATI Watch draws it, so every run shows what the correction does on slopes.
 
 The noise also varies between frames, from 0.056 to 0.137 after the correction, while the detector weighted all frames alike; weighting each by its own noise is worth about a third more information on every fit. `RegistrationProjector` now takes unequal frame noise. Its displacement covariance acts on two image modes that are orthogonal to the brightness planes, so the whitened frame k scales mode i by 1/sqrt(1 + (s g_i / sigma_k)^2) and leaves the rest of the patch at 1/sigma_k, and the static albedo is projected out separately along each; this equals the full weighted least-squares projection (a test compares it with a dense Cholesky solution). Equal noise keeps the original arithmetic, so existing results do not move. `fit_patch` and `assess_regions` take one noise scale or one per frame, and with `noise_per_frame` T14 runs the detector, scores the planted rocks and sizes at each frame's measured residual scale (floored at half the pooled value).
 
-Both options are off by default. Planted rocks on the laptop bench decide whether the box run uses them.
+Both options are off by default in the code.
 
-The scripts are development tools outside the repository (`dem_sfs_experiment.py`, `fine_sfs_check.py`, `additive_check.py`).
+## What planted rocks say about them
+
+The laptop sizing bench planted the same 168 rocks (eight rounds of the T14 population on the 8-frame Athena stack) three times: as HATI was, with the DEM prior, and with the DEM prior and per-frame noise; sizing ran with the context guard, edge padding and the fourth window. A development run, not a study.
+
+| | As before | DEM prior | DEM prior and per-frame noise |
+|---|---|---|---|
+| Found, 0.3 to 0.6 m | 19 of 55 | 17 of 53 | 21 of 54 |
+| Found, 0.6 to 1.2 m and 1.2 to 2 m | 47 of 47, 30 of 31 | 46 of 46, 30 of 31 | 46 of 46, 29 of 30 |
+| Context-supported estimates | 52 | 62 | 61 |
+| Median error of the estimates, log of estimate over truth | 0.085 | 0.069 | 0.070 |
+| Calibrated 90% estimate interval, high over low factor | 1.81 | 1.50 | 1.47 |
+| Bound margin at 0.97 | 0.21 m | 0.25 m | 0.19 m |
+| Fitted bounds holding, on the 102 rocks all three bounded | 82 | 84 | 86 |
+
+The prior's gain is in sizing: more estimates, a fifth less error, a calibrated interval a sixth narrower. Per-frame noise adds detection: median scores of planted rocks rose 10 to 14% and four more 0.3 to 0.6 m rocks were found, while the empty ground at the planting sites warned at 8 of 168 sites against 7, so false warnings barely moved; its sizing matched the prior alone (51 of 57 shared estimates identical). The 0.97 bound margin is set by the few worst overshoots at this size, so its differences say little until a run has a hundred or more bounded rocks.
+
+Under the prior, shadows were cast on the solved relief alone, as without it. Adding the DEM surface under them (the integral of the bundle's slopes, `sfs.integrate_slopes`) made five more of the first 31 fitted bounds overshoot: planted shadows are drawn on the DEM plane at their site, so the DEM's own curvature is not something they have.
+
+`configs/saturation_campaign_v26_workstation.json` turns both on.
+
+The scripts are development tools outside the repository (`dem_sfs_experiment.py`, `fine_sfs_check.py`, `additive_check.py`, and the sizing bench with its `--dem-prior`, `--frame-noise` and `--watch` options).

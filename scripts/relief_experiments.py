@@ -727,21 +727,19 @@ def t14(ex):
     """Shape-from-shading as a structural null (report section 13)."""
     from rasterio.crs import CRS as RasterCRS
     from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale, residual_by_slope
-    from src.hati_core.sfs import (dem_shading_ratio, integrate_slopes, rock_factor, shadow_reach_px, solve_sfs,
-                                   solve_sfs_nonlinear, subtract_shading)
+    from src.hati_core.sfs import (dem_shading_ratio, rock_factor, shadow_reach_px, solve_sfs, solve_sfs_nonlinear,
+                                   subtract_shading)
     cfg, d = ex.cfg, ex.data
     valid = (np.nan_to_num(np.asarray(d['visibility'], float), nan=0.) >= .99) & np.isfinite(d['stack'])
     # sfs_dem_prior: the DEM's own shading (Lunar-Lambert on the bundle's DEM slopes) is subtracted before every
-    # solve, so shape from shading adds only the relief finer than the DEM; the receiving ground for sizing is then
-    # the DEM surface (the slopes' integral) plus that relief.
+    # solve, so shape from shading adds only the relief finer than the DEM. Sizing still casts shadows on the solved
+    # relief with each window's plane set to the DEM tilt: planted rocks stand on that plane, and adding the DEM's
+    # own curvature under them made five more of 31 fitted bounds overshoot on the laptop bench.
     dem_prior = bool(cfg.get('sfs_dem_prior', False))
     if dem_prior:
         dem_shading = dem_shading_ratio(d['slope_row'], d['slope_col'], d['azimuths'], d['elevations'])
-        dem_surface = integrate_slopes(d['slope_row'], d['slope_col'], ex.sc.pixel_m)
     def relief_input(stack):
         return subtract_shading(stack, valid, *dem_shading) if dem_prior else stack
-    def receiving(solution):
-        return solution['height_m']+dem_surface if dem_prior else solution['height_m']
     options = dict(grid_px=cfg.get('sfs_grid_px', 2), smoothness=cfg.get('sfs_smoothness', 3.),
                    dark_ratio=cfg.get('sfs_dark_ratio', .5), shadow_sigma=cfg.get('sfs_shadow_sigma', 3.))
     if cfg.get('sfs_model', 'linear') == 'nonlinear':
@@ -930,7 +928,7 @@ def t14(ex):
         by_cell = {(s['row_px'], s['col_px']): s for s in
                    _size_casters(ex, solved_injected['corrected'] if sizing_images == 'corrected' else injected,
                                  [row for row in site_cells if row is not None], sigma_sizing,
-                                 terrain=receiving(solved_injected), phase=f'planted rocks{tag}', touchdown=touchdown)}
+                                 terrain=solved_injected['height_m'], phase=f'planted rocks{tag}', touchdown=touchdown)}
         for row, cell in zip(injection[first:], site_cells):
             size = by_cell.get((int(cell[4]), int(cell[5]))) if cell is not None else None
             row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
@@ -1039,7 +1037,7 @@ def t14(ex):
     # Relief-like cells go to the terrain module; 'none' means no model predicts the withheld frames.
     keep = [row for row in examined if not rule or labels.get((int(row[4]), int(row[5]))) in ('rock_like', 'ambiguous')]
     casters = _size_casters(ex, solved['corrected'] if sizing_images == 'corrected' else d['stack'], keep, sigma_sizing,
-                            terrain=receiving(solved), phase='detections',
+                            terrain=solved['height_m'], phase='detections',
                             relief=labels, touchdown=touchdown) if keep else []
     for row in casters:
         row['relief_check'] = labels.get((row['row_px'], row['col_px']))
