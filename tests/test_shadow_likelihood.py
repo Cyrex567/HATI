@@ -209,5 +209,62 @@ class ShadowLikelihoodTests(unittest.TestCase):
                 self.assertTrue((support.read(1)==1).all())
 
 
+
+class FrameNoiseTests(unittest.TestCase):
+    """Each frame weighted by its own noise, the registration covariance included."""
+
+    def test_registration_projector_matches_the_full_weighted_fit(self):
+        from src.hati_core.shadow_likelihood import RegistrationProjector
+        rng = np.random.default_rng(0)
+        side, n, shift = 7, 4, .5
+        common = np.ones((side, side), bool); p = common.sum()
+        static = ndi.gaussian_filter(rng.normal(0, 1, (side, side)), 1.)*3+10
+        for sigma in ([.01, .02, .015, .03], [.02]*4):
+            sigma = np.array(sigma)
+            proj = RegistrationProjector(common, sigma, static, shift, spatial_degree=2)
+            # The same model written out in full: per-frame noise plus the displacement covariance,
+            # whitened by Cholesky, with the static albedo and each frame's planes projected out.
+            gr, gc = np.gradient(ndi.gaussian_filter(static, .6))
+            g = np.stack([gr[common], gc[common]], axis=1)*shift
+            g -= proj.q@(proj.q.T@g)
+            cov = np.zeros((n*p, n*p))
+            for k in range(n):
+                cov[k*p:(k+1)*p, k*p:(k+1)*p] = sigma[k]**2*np.eye(p)+g@g.T
+            W = np.linalg.inv(np.linalg.cholesky(cov))
+            planes = np.zeros((n*p, n*proj.q.shape[1]))
+            for k in range(n):
+                planes[k*p:(k+1)*p, k*proj.q.shape[1]:(k+1)*proj.q.shape[1]] = proj.q
+            N = W@np.hstack([np.vstack([np.eye(p)]*n), planes])
+            perp = np.eye(n*p)-N@np.linalg.pinv(N)
+            y, t = rng.normal(0, 1, (n, side, side)), rng.normal(0, 1, (n, side, side))
+            full_y, full_t = perp@W@y.ravel(), perp@W@t.ravel()
+            mine_y, mine_t = proj.apply(y).ravel(), proj.apply(t).ravel()
+            self.assertAlmostEqual(mine_t@mine_y/(full_t@full_y), 1., places=7)
+            self.assertAlmostEqual(mine_t@mine_t/(full_t@full_t), 1., places=7)
+            both = proj.apply(np.stack([y, t]))                              # batches, as the detector uses
+            np.testing.assert_allclose(both[0].ravel(), mine_y)
+
+    def test_one_noisy_frame_is_weighted_down(self):
+        from src.hati_core.adaptive_shadow import AdaptiveConfig, fit_patch
+        from src.hati_core.regional_shadow import RegionalConfig
+        sc = ShadowConfig(radius_px=12, root_support_px=10, supersample=2, solar_radius_deg=0., registration_sigma_px=.25)
+        rc = RegionalConfig(cell_px=1, heights_m=(.2, .6), widths_m=(.4, .8))
+        cfg = AdaptiveConfig(heights_m=(.2, .4, .6), widths_m=(.3, .6, .9), fine_step_m=.1)
+        az, el = np.array([0., 60., 125., 195., 265.]), np.array([4., 5., 6., 5., 4.])
+        t = shadow_template((25, 25), (12., 12.), az, el, .4, .6, sc)[0]
+        rng = np.random.default_rng(3)
+        scene = 1-.7*t+rng.normal(0, .005, t.shape)
+        scene[0] += rng.normal(0, .3, t.shape[1:])                        # one frame far noisier than the rest
+        ones = np.ones_like(scene)
+        equal = fit_patch(scene, ones, az, el, .005, sc, rc, cfg)
+        same = fit_patch(scene, ones, az, el, np.full(5, .005), sc, rc, cfg)
+        self.assertEqual(equal['best'], same['best'])                       # equal values per frame change nothing
+        weighted = fit_patch(scene, ones, az, el, np.array([.3, .005, .005, .005, .005]), sc, rc, cfg)
+        self.assertEqual(weighted['best']['height_m'], .4)
+        self.assertLess(weighted['best']['score'], equal['best']['score'])  # the noisy frame no longer inflates it
+        with self.assertRaises(ValueError):
+            fit_patch(scene, ones, az, el, np.full(4, .005), sc, rc, cfg)
+
+
 if __name__ == '__main__':
     unittest.main()

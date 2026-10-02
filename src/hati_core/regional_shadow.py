@@ -45,7 +45,10 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
     azimuths,elevations = np.asarray(azimuths,float),np.asarray(elevations,float)
     if stack.ndim!=3 or len(stack)<3 or azimuths.shape!=(len(stack),) or elevations.shape!=(len(stack),):
         raise ValueError('need an aligned stack and one illumination per frame')
-    if not np.isfinite(sigma) or sigma<=0 or not np.isfinite(azimuths).all() or not np.isfinite(elevations).all():
+    # sigma: one noise scale, or one per frame of the stack (each frame weighted by its own).
+    noise=np.asarray(sigma,float)
+    if noise.ndim>1 or (noise.ndim==1 and len(noise)!=len(stack)) or not np.isfinite(noise).all() or np.any(noise<=0)\
+            or not np.isfinite(azimuths).all() or not np.isfinite(elevations).all():
         raise ValueError('invalid noise or geometry')
     n,h,w = stack.shape
     # Diagnostic ablations retain the parent stack's eligibility/common mask.
@@ -160,12 +163,13 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
                         continue
                     patch=stack[patch_sl][selected]
                     reference=np.median(np.where(np.isfinite(patch),patch,0.),axis=0)
-                    projector=RegistrationProjector(common,np.full(len(selected),sigma),reference,
+                    frame_sigma=np.full(len(selected),float(noise)) if noise.ndim==0 else noise[selected]
+                    projector=RegistrationProjector(common,frame_sigma,reference,
                                                     shadow_cfg.registration_sigma_px)
                     residual=projector.apply(patch)
                     rt=projector.apply(templates)
                     energy=np.sum(rt*rt,axis=(1,2))
-                    raw=np.sum((templates[...,common]/sigma)**2,axis=(1,2))
+                    raw=np.sum((templates[...,common]/frame_sigma[:,None])**2,axis=(1,2))
                     ident=energy/np.maximum(raw,1e-30)
                     eligible=(energy>1e-12)&(ident>=shadow_cfg.min_identifiability)
                     if not eligible.any():
@@ -250,7 +254,8 @@ def assess_regions(stack,azimuths,elevations,sigma,shadow_cfg,regional_cfg=None,
         if all(np.hypot(root['row_px']-r['row_px'],root['col_px']-r['col_px'])>=sep for r in neighbours):
             distinct.append(root)
             buckets.setdefault(key,[]).append(root)
-    payload=dict(regional=asdict(cfg),shadow=asdict(shadow_cfg),noise_sigma=float(sigma))
+    payload=dict(regional=asdict(cfg),shadow=asdict(shadow_cfg),
+                 noise_sigma=float(noise) if noise.ndim==0 else [float(v) for v in noise])
     if frame_indices is not None:
         payload['diagnostic_retained_frames']=retained.tolist()
         payload['diagnostic_support']='eligibility and common pixels frozen to full parent stack'

@@ -149,6 +149,39 @@ def measure_residual_scale(stack, visibility, slope_row, slope_col, cfg=NoiseSca
     return result
 
 
+SLOPE_CLASSES = ((0., .05), (.05, .10), (.10, .25))
+
+
+def residual_by_slope(stack, visibility, slope_row, slope_col, classes=SLOPE_CLASSES, patch_px=24, degree=2,
+                      min_visibility=.99):
+    """The null model's pooled residual scale in classes of DEM slope (rise per metre, patch mean).
+
+    The same estimator as measure_residual_scale, on every non-overlapping patch that is finite and
+    lit in all frames, grouped by the patch's mean DEM slope instead of kept to flat ground only.
+    Flat patches set the detector's noise; steeper ones show what it meets on slopes. Returns, per
+    class 'low-high', the pooled scale (None without patches) and the patch count.
+    """
+    stack = np.asarray(stack, float)
+    n, h, w = stack.shape
+    lit = (np.nan_to_num(np.asarray(visibility, float), nan=0.) >= min_visibility).all(axis=0)
+    slope = np.hypot(np.asarray(slope_row, float), np.asarray(slope_col, float))
+    energy = {c: np.zeros(n) for c in classes}; count = dict.fromkeys(classes, 0)
+    for r in range(0, h-patch_px+1, patch_px):
+        for c in range(0, w-patch_px+1, patch_px):
+            window = np.s_[r:r+patch_px, c:c+patch_px]
+            block, s = stack[(slice(None), *window)], slope[window]
+            if not (np.isfinite(block).all() and lit[window].all() and np.isfinite(s).all()):
+                continue
+            mean = float(s.mean())
+            for lo, hi in classes:
+                if lo <= mean < hi:
+                    res = patch_residual(block, degree)
+                    energy[lo, hi] += np.sum(res.reshape(n, -1)**2, axis=1); count[lo, hi] += 1
+    dof = patch_px*patch_px-spatial_terms(degree)
+    return {f'{lo:g}-{hi:g}': dict(pooled_sigma=per_frame_sigma(energy[lo, hi]/(dof*count[lo, hi]))[1] if count[lo, hi] else None,
+                                   patches=count[lo, hi]) for lo, hi in classes}
+
+
 def sun_loadings(azimuths, elevations):
     """Shading loadings of a slope field: cot(e_k) times the horizontal direction toward the Sun.
 

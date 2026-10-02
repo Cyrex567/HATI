@@ -159,12 +159,15 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
 
     terrain, if given, is the relative receiving surface in metres on the patch
     grid widened by rc.cell_px on every side; shadows are cast onto it instead of
-    onto the plane given by slopes.
+    onto the plane given by slopes. sigma is one noise scale, or one per frame of
+    the patch; each frame is then weighted by its own.
     """
     patch = np.asarray(patch, float); azimuths = np.asarray(azimuths); elevations = np.asarray(elevations)
     if patch.ndim != 3 or patch.shape[1:] != (2*sc.radius_px+1,)*2 or np.shape(visibility) != patch.shape:
         raise ValueError('patch and visibility must match the declared extraction radius')
-    if not np.isfinite(sigma) or sigma <= 0 or len(azimuths) != len(patch) or len(elevations) != len(patch):
+    noise = np.asarray(sigma, float)
+    if noise.ndim > 1 or (noise.ndim == 1 and len(noise) != len(patch)) or not np.isfinite(noise).all() or np.any(noise <= 0) \
+            or len(azimuths) != len(patch) or len(elevations) != len(patch):
         raise ValueError('invalid noise or illumination dimensions')
     y, x = np.indices(patch.shape[1:]); radius = sc.radius_px
     support = np.hypot(y-radius, x-radius) <= sc.root_support_px
@@ -183,7 +186,8 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
         return dict(status='missing_terrain', frames=selected.tolist())
     data = patch[selected]
     reference = np.median(np.where(np.isfinite(data), data, 0.), axis=0)
-    p = RegistrationProjector(common, np.full(len(selected), sigma), reference,
+    frame_sigma = np.full(len(selected), float(noise)) if noise.ndim == 0 else noise[selected]
+    p = RegistrationProjector(common, frame_sigma, reference,
                               sc.registration_sigma_px, spatial_degree=cfg.spatial_degree)
     residual = p.apply(data)
     offsets = np.arange(rc.cell_px)-(rc.cell_px-1)/2
@@ -219,7 +223,7 @@ def fit_patch(patch, visibility, azimuths, elevations, sigma, sc, rc, cfg,
                             r0, c0 = int(pad+base-dy), int(pad+base-dx)
                             t = canvas[:, r0:r0+shape[0], c0:c0+shape[1]]
                             rt = p.apply(t); energy = float(np.sum(rt*rt))
-                            raw = float(np.sum((t[:, common]/sigma)**2))
+                            raw = float(np.sum((t[:, common]/frame_sigma[:, None])**2))
                             ident = energy/max(raw, 1e-30)
                             if energy <= 1e-12 or ident < sc.min_identifiability:
                                 continue
@@ -560,6 +564,8 @@ def held_out_prediction(patch, visibility, azimuths, elevations, sigma, sc, rc, 
     Predictive errors are descriptive, not independent chi-square statistics.
     """
     n = len(patch)
+    if np.ndim(sigma) != 0:
+        raise ValueError('held-out prediction takes one noise scale')
     if n < 4:
         return dict(status='insufficient_frames')
     held_frame %= n

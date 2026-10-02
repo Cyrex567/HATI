@@ -726,10 +726,22 @@ def _plot_t14(ex, solved, before, after, injection, sigma_after, touchdown, grou
 def t14(ex):
     """Shape-from-shading as a structural null (report section 13)."""
     from rasterio.crs import CRS as RasterCRS
-    from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale
-    from src.hati_core.sfs import rock_factor, shadow_reach_px, solve_sfs, solve_sfs_nonlinear
+    from src.hati_core.noise_scale import NoiseScaleConfig, measure_residual_scale, residual_by_slope
+    from src.hati_core.sfs import (dem_shading_ratio, integrate_slopes, rock_factor, shadow_reach_px, solve_sfs,
+                                   solve_sfs_nonlinear, subtract_shading)
     cfg, d = ex.cfg, ex.data
     valid = (np.nan_to_num(np.asarray(d['visibility'], float), nan=0.) >= .99) & np.isfinite(d['stack'])
+    # sfs_dem_prior: the DEM's own shading (Lunar-Lambert on the bundle's DEM slopes) is subtracted before every
+    # solve, so shape from shading adds only the relief finer than the DEM; the receiving ground for sizing is then
+    # the DEM surface (the slopes' integral) plus that relief.
+    dem_prior = bool(cfg.get('sfs_dem_prior', False))
+    if dem_prior:
+        dem_shading = dem_shading_ratio(d['slope_row'], d['slope_col'], d['azimuths'], d['elevations'])
+        dem_surface = integrate_slopes(d['slope_row'], d['slope_col'], ex.sc.pixel_m)
+    def relief_input(stack):
+        return subtract_shading(stack, valid, *dem_shading) if dem_prior else stack
+    def receiving(solution):
+        return solution['height_m']+dem_surface if dem_prior else solution['height_m']
     options = dict(grid_px=cfg.get('sfs_grid_px', 2), smoothness=cfg.get('sfs_smoothness', 3.),
                    dark_ratio=cfg.get('sfs_dark_ratio', .5), shadow_sigma=cfg.get('sfs_shadow_sigma', 3.))
     if cfg.get('sfs_model', 'linear') == 'nonlinear':
@@ -742,13 +754,14 @@ def t14(ex):
     def watch(what):
         return dict(progress=_solver_progress(ex, what)) if solver is solve_sfs else {}
     started = time.monotonic()
-    solved = solver(d['stack'], valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,
+    solved = solver(relief_input(d['stack']), valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,
                     **watch('solving shape from shading'))
     print(f'T14 shape from shading: explained {solved["explained_fraction"]:.3f} of the frame-to-frame ratio variance '
           f'in {time.monotonic()-started:.0f}s ({solved["lsqr_iterations"]} iterations)', flush=True)
     crs = RasterCRS.from_wkt(ex.crs.to_wkt())
     write_tif(ex.out/'sfs_height_m.tif', solved['height_m'], ex.transform, crs,
-              'Relative height from linearised multi-image shape from shading; mean and shared planes unobserved')
+              'Relative height from linearised multi-image shape from shading; mean and shared planes unobserved'
+              + ('; relief beyond the DEM, whose shading was subtracted first' if dem_prior else ''))
     write_tif(ex.out/'sfs_slope_deg.tif', solved['slope_deg'], ex.transform, crs,
               'Slope from shape from shading; a lower bound where slopes exceed the Sun elevation')
     np.savez_compressed(ex.out/'sfs.npz', height_m=solved['height_m'].astype('float32'),
@@ -767,10 +780,17 @@ def t14(ex):
     noise_cfg = NoiseScaleConfig(**cfg.get('noise_scale', {}))
     after_scale = measure_residual_scale(solved['corrected'], d['visibility'], d['slope_row'], d['slope_col'], noise_cfg)
     sigma_after = after_scale['pooled_sigma'] or float(ex.noise)
+    # The same residual by DEM slope: flat ground sets the detector's noise, steeper ground is what it also meets.
+    by_slope = dict(before=residual_by_slope(d['stack'], d['visibility'], d['slope_row'], d['slope_col']),
+                    after=residual_by_slope(solved['corrected'], d['visibility'], d['slope_row'], d['slope_col']))
     # Sizing may run on the original images instead of the corrected ones (the 2.6 review found the correction
     # itself lengthens planted shadows); the surface from shading stays the receiving ground either way.
+    # noise_per_frame: every frame weighted by its own residual scale after the correction (floored at half the
+    # pooled value, as the estimator clips negative variances to zero) in detection, planted scoring and sizing.
+    frame_sigma = np.maximum(np.asarray(after_scale['per_frame_sigma'], float), .5*sigma_after) \
+        if cfg.get('noise_per_frame', False) and after_scale.get('per_frame_sigma') else None
     sizing_images = cfg.get('sfs_sizing_images', 'corrected')
-    sigma_sizing = sigma_after if sizing_images == 'corrected' else \
+    sigma_sizing = (sigma_after if frame_sigma is None else frame_sigma) if sizing_images == 'corrected' else \
         (measure_residual_scale(d['stack'], d['visibility'], d['slope_row'], d['slope_col'], noise_cfg)['pooled_sigma'] or float(ex.noise))
     ex.live.update(force=True, kind='stage', message='T14: detector on the relief-corrected stack')
     corrected = ex.regional('relief_corrected', data=dict(d, stack=solved['corrected']),
@@ -778,11 +798,19 @@ def t14(ex):
     before = ex.baseline() if (ex.baseline_dir/'regional.npz').exists() else None
     ok = corrected['status'] == 1; s = corrected['score'][ok]
     rescaled = s*float(ex.noise)/sigma_after
+    framed = None
+    if frame_sigma is not None:
+        ex.live.update(force=True, kind='stage', message='T14: detector at the noise of each frame')
+        framed = ex.regional('relief_corrected_frames', data=dict(d, stack=solved['corrected']), noise=frame_sigma,
+                             input_proof=dict(source=ex.proof, relief_correction=dict(stage='T14', **solved['configuration'])))
     touchdown = (int(ex.run['counterfactual']['row_px']), int(ex.run['counterfactual']['col_px']))
     exceedance = dict(after_assumed_sigma=float(np.mean(s >= ex.rc.score_scale)) if s.size else None,
                       after_measured_sigma=float(np.mean(rescaled >= ex.rc.score_scale)) if s.size else None,
                       median_score_after=float(np.median(s)) if s.size else None,
                       touchdown_score_after=float(corrected['score'][touchdown]) if ok[touchdown] else None)
+    if framed is not None:
+        f_ok = framed['status'] == 1
+        exceedance.update(after_frame_noise=float(np.mean(framed['score'][f_ok] >= ex.rc.score_scale)) if f_ok.any() else None)
     if before is not None:
         b_ok = before['status'] == 1
         exceedance.update(before_assumed_sigma=float(np.mean(before['score'][b_ok] >= ex.rc.score_scale)),
@@ -852,7 +880,7 @@ def t14(ex):
                              shadows_clipped=sum(w['shadow_clipped'] for w in windows))
         injected = d['stack']*factor
         ex.live.update(force=True, kind='stage', message=f'T14: solving shape from shading with the planted rocks{tag}')
-        solved_injected = solver(injected, valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,
+        solved_injected = solver(relief_input(injected), valid, d['azimuths'], d['elevations'], ex.sc.pixel_m, **options,
                                  **watch(f'solving shape from shading with the planted rocks{tag}'))
         # The rock alone: images with it minus images without it, before and after the correction.
         # Background removal cancels in both, so their ratio is the rock signal the correction keeps.
@@ -861,14 +889,18 @@ def t14(ex):
         for i, (r, c, height) in enumerate(placed):
             window = np.s_[int(r)-half:int(r)+half+1, int(c)-half:int(c)+half+1]
             root = (r-(int(r)-half), c-(int(c)-half))
-            def score(stack):
-                fit = assess_regions(stack[(slice(None), *window)], d['azimuths'], d['elevations'], ex.noise, ex.sc, ex.rc,
+            def score(stack, noise=None):
+                fit = assess_regions(stack[(slice(None), *window)], d['azimuths'], d['elevations'],
+                                     ex.noise if noise is None else noise, ex.sc, ex.rc,
                                      visible=np.asarray(d['visibility'])[(slice(None), *window)],
                                      slope_row=d['slope_row'][window], slope_col=d['slope_col'][window])
                 return _root_score(fit, root)
             scores = dict(original=score(d['stack']), injected=score(injected),
                           corrected=score(solved['corrected']), corrected_injected=score(solved_injected['corrected']),
                           rock_only_before=score(rock_before), rock_only_after=score(rock_after))
+            if frame_sigma is not None:
+                scores.update(corrected_frames=score(solved['corrected'], frame_sigma),
+                              corrected_injected_frames=score(solved_injected['corrected'], frame_sigma))
             def recovered(base, test, factor=1.):
                 # Scores scale exactly as 1/sigma, so another noise level is a rescaling.
                 if base is None or test is None or base*factor >= ex.rc.score_scale:
@@ -888,7 +920,8 @@ def t14(ex):
                                   recovered_original_assumed=recovered(scores['original'], scores['injected']),
                                   recovered_corrected_assumed=recovered(scores['corrected'], scores['corrected_injected']),
                                   recovered_corrected_measured=recovered(scores['corrected'], scores['corrected_injected'],
-                                                                         float(ex.noise)/sigma_after),
+                                                                         float(ex.noise)/sigma_after) if frame_sigma is None else
+                                  recovered(scores['corrected_frames'], scores['corrected_injected_frames']),
                                   surface_change_near_rock_m=float(np.nanmax(change[half-4:half+5, half-4:half+5]))))
             _progress(ex, f'T14 injected sites{tag}', i+1, len(placed), started, last)
         # The same sizing on rocks of known height, in the relief-corrected injected images.
@@ -897,7 +930,7 @@ def t14(ex):
         by_cell = {(s['row_px'], s['col_px']): s for s in
                    _size_casters(ex, solved_injected['corrected'] if sizing_images == 'corrected' else injected,
                                  [row for row in site_cells if row is not None], sigma_sizing,
-                                 terrain=solved_injected['height_m'], phase=f'planted rocks{tag}', touchdown=touchdown)}
+                                 terrain=receiving(solved_injected), phase=f'planted rocks{tag}', touchdown=touchdown)}
         for row, cell in zip(injection[first:], site_cells):
             size = by_cell.get((int(cell[4]), int(cell[5]))) if cell is not None else None
             row.update(sized_state=size and size['state'], sized_height_m=size and size['height_m'],
@@ -981,9 +1014,10 @@ def t14(ex):
     # Sub-pixel casters: warning cells that survive the relief correction at the residual scale
     # measured after it, checked against relief with T13's rule where available, then sized.
     ex.live.update(force=True, kind='stage', message='T14: sizing sub-pixel casters')
-    scale = float(ex.noise)/sigma_after
-    candidates = [row for row in corrected['cell_table'] if corrected['status'][row[4], row[5]] == 1
-                  and corrected['score'][row[4], row[5]]*scale >= ex.rc.score_scale]
+    # Warning cells at the measured noise: the assumed-noise scores rescaled, or the detector run at each frame's own.
+    scale, source = (float(ex.noise)/sigma_after, corrected) if framed is None else (1., framed)
+    candidates = [row for row in source['cell_table'] if source['status'][row[4], row[5]] == 1
+                  and source['score'][row[4], row[5]]*scale >= ex.rc.score_scale]
     examined = candidates
     cap = cfg.get('sfs_sizing_cells', 1500)
     if cap and len(candidates) > cap:
@@ -1005,7 +1039,7 @@ def t14(ex):
     # Relief-like cells go to the terrain module; 'none' means no model predicts the withheld frames.
     keep = [row for row in examined if not rule or labels.get((int(row[4]), int(row[5]))) in ('rock_like', 'ambiguous')]
     casters = _size_casters(ex, solved['corrected'] if sizing_images == 'corrected' else d['stack'], keep, sigma_sizing,
-                            terrain=solved['height_m'], phase='detections',
+                            terrain=receiving(solved), phase='detections',
                             relief=labels, touchdown=touchdown) if keep else []
     for row in casters:
         row['relief_check'] = labels.get((row['row_px'], row['col_px']))
@@ -1065,7 +1099,10 @@ def t14(ex):
     limit = _slope_limit(ex)
     return ex.result('PARTIAL', 'Linearised shape-from-shading surface used as a structural null; the unchanged detector reruns on the '
                      'relief-corrected stack and injected rocks measure what the correction removes. Not a validated DEM.',
-                     sfs=dict(explained_fraction=solved['explained_fraction'], ratio_rms_before=solved['ratio_rms_before'],
+                     residual_by_slope=by_slope,
+                     noise_per_frame=dict(enabled=frame_sigma is not None,
+                                          per_frame_sigma=None if frame_sigma is None else [float(v) for v in frame_sigma]),
+                     sfs=dict(dem_prior=dem_prior, explained_fraction=solved['explained_fraction'], ratio_rms_before=solved['ratio_rms_before'],
                               ratio_rms_after=solved['ratio_rms_after'], used_fraction_per_frame=solved['used_fraction_per_frame'],
                               lsqr_iterations=solved['lsqr_iterations'], lsqr_stop=solved['lsqr_stop'], configuration=solved['configuration']),
                      slope_deg=dict(median=float(np.median(slopes)), p90=float(np.percentile(slopes, 90)),

@@ -170,8 +170,9 @@ def validate_config(cfg):
         raise ValueError('bound_calibration must be offset, ratio or none')
     if cfg.get('estimate_calibration', 'conformal') not in ('conformal', 'none'):
         raise ValueError('estimate_calibration must be conformal or none')
-    if type(cfg.get('sfs_sizing_subgrid', False)) is not bool:
-        raise ValueError('sfs_sizing_subgrid must be true or false')
+    for key in ('sfs_sizing_subgrid', 'sfs_dem_prior', 'noise_per_frame'):
+        if type(cfg.get(key, False)) is not bool:
+            raise ValueError(f'{key} must be true or false')
     for key in ('measurable_detection_target', 'measurable_coverage_target', 'bound_calibration_coverage',
                 'estimate_calibration_coverage'):
         if not 0 < cfg.get(key, .9) < 1:
@@ -217,8 +218,11 @@ class Experiment:
         print(f'{self.args.stage}: {status}: {reason}', flush=True)
         return result
 
-    def regional(self, name, *, indices=None, order=None, rc=None, sc=None, data=None, profiles=False, input_proof=None):
+    def regional(self, name, *, indices=None, order=None, rc=None, sc=None, data=None, profiles=False, input_proof=None,
+                 noise=None):
+        # noise: the campaign's assumed scale unless given; one per frame weights each frame by its own.
         d = data or self.data; rc = rc or self.rc; sc = sc or self.sc
+        noise = self.noise if noise is None else noise
         # Held-out scenes use a different grid and must never be overlaid on the development image.
         watch = self.live if data is None else None
         if watch:
@@ -230,7 +234,7 @@ class Experiment:
             watch.update(force=True, model_azimuths=d['azimuths'][geometry].tolist(),
                          model_elevations=d['elevations'][geometry].tolist(), geometry_order=geometry.tolist())
         setup = dict(shadow=asdict(sc), regional=asdict(rc), frame_indices=indices,
-                     geometry_order=geometry.tolist(), noise_sigma=self.noise,
+                     geometry_order=geometry.tolist(), noise_sigma=noise if np.ndim(noise) == 0 else [float(v) for v in noise],
                      input_provenance=input_proof or self.proof, profiles=profiles)
         # Subruns can be long; only reuse complete, hash-verified results.
         stamp = folder/'complete.json'
@@ -255,8 +259,10 @@ class Experiment:
             if time.monotonic()-last[0] > 20:
                 print(f'{name}: {info["cells_assessed"]}/{info["cells_visited"]} assessed/visited', flush=True)
                 last[0] = time.monotonic()
+        # Noise belongs to each frame's data, which keeps its order; only the illumination geometry is permuted.
+        frame_noise = noise if np.ndim(noise) == 0 else np.asarray(noise, float)
         result = assess_regions(d['stack'], d['azimuths'][geometry], d['elevations'][geometry],
-                                self.noise, sc, rc, visible=d['visibility'],
+                                frame_noise, sc, rc, visible=d['visibility'],
                                 slope_row=d['slope_row'], slope_col=d['slope_col'],
                                 frame_indices=indices, progress=progress,
                                 audit_callback=audit if profiles else None,

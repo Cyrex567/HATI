@@ -28,10 +28,14 @@ On the f03 stack (8 frames, 0.9 m pixels), each correction was scored by the res
 - Dividing by a predicted shading instead of subtracting it scales noise up wherever the model darkens a frame, and made every DEM variant look worse than it is.
 - The Gauss-Newton solver gains on steep ground from a DEM start but loses a little elsewhere; the linearised solver on the DEM-subtracted images does as well on steep ground without that loss.
 
-## What it suggests
+## What was built from it
 
-A `sfs_dem_prior` option: the DEM's Lunar-Lambert shading, relative to the mean over frames, subtracted from every frame before the linearised solve, from the bundle's DEM slopes, for the original and every planted-rock solve alike, with T14 reporting the residual per slope class. Planted rocks would show whether the subtraction costs any rock signal.
+`sfs_dem_prior` (T14) and `dem_prior` in the landing maps' relief settings: each frame's Lunar-Lambert shading on the DEM, relative to its mean over frames (`sfs.dem_shading_ratio`), is subtracted from the stack before shape from shading (`sfs.subtract_shading`), for the original solve and every planted-rock solve alike. T14 then casts sizing shadows on the DEM surface, the integral of the bundle's slopes (`sfs.integrate_slopes`), plus the solved relief; the landing maps' merged surface already takes the DEM below its posting. The repository functions reproduce the experiment's corrected stack exactly. On a flat DEM the option changes nothing.
 
-The noise also varies between frames, from 0.056 to 0.137 after the correction, while the detector weights all frames alike; weighting them by their own noise is worth about a third more information on every fit. `RegistrationProjector` requires equal frame noise today, because its registration whitening must commute with the removal of the static albedo, so that is the larger change.
+T14 reports `residual_by_slope`, the residual before and after the correction in the three slope classes above (`noise_scale.residual_by_slope`), and HATI Watch draws it, so every run shows what the correction does on slopes.
+
+The noise also varies between frames, from 0.056 to 0.137 after the correction, while the detector weighted all frames alike; weighting each by its own noise is worth about a third more information on every fit. `RegistrationProjector` now takes unequal frame noise. Its displacement covariance acts on two image modes that are orthogonal to the brightness planes, so the whitened frame k scales mode i by 1/sqrt(1 + (s g_i / sigma_k)^2) and leaves the rest of the patch at 1/sigma_k, and the static albedo is projected out separately along each; this equals the full weighted least-squares projection (a test compares it with a dense Cholesky solution). Equal noise keeps the original arithmetic, so existing results do not move. `fit_patch` and `assess_regions` take one noise scale or one per frame, and with `noise_per_frame` T14 runs the detector, scores the planted rocks and sizes at each frame's measured residual scale (floored at half the pooled value).
+
+Both options are off by default. Planted rocks on the laptop bench decide whether the box run uses them.
 
 The scripts are development tools outside the repository (`dem_sfs_experiment.py`, `fine_sfs_check.py`, `additive_check.py`).

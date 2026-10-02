@@ -194,6 +194,56 @@ def lunar_lambert(p, q, sun, L=.5):
             np.where(lit, dR_dmu0*dmu0_dq+dR_dmu*dmu_dq, 0.))
 
 
+def integrate_slopes(slope_row, slope_col, pixel_m, *, iterations=4000):
+    """The surface (metres, mean zero) whose central-difference gradient best matches the slopes.
+
+    Campaign bundles carry the DEM's slopes on the image grid, not its heights; their
+    least-squares integral is that surface up to a constant, which shading never sees.
+    Unknown slopes are left out of the fit.
+    """
+    gr, gc = np.asarray(slope_row, float), np.asarray(slope_col, float)
+    H, W = gr.shape
+    dr = sparse.kron(_derivative(H, pixel_m), sparse.identity(W)).tocsr()
+    dc = sparse.kron(sparse.identity(H), _derivative(W, pixel_m)).tocsr()
+    known = (np.isfinite(gr) & np.isfinite(gc)).ravel()
+    system = sparse.vstack([dr[known], dc[known], 1e-6*sparse.identity(H*W)]).tocsr()
+    rhs = np.concatenate([gr.ravel()[known], gc.ravel()[known], np.zeros(H*W)])
+    h = lsqr(system, rhs, atol=1e-10, btol=1e-10, iter_lim=iterations)[0].reshape(H, W)
+    return h-h.mean()
+
+
+def dem_shading_ratio(slope_row, slope_col, azimuths, elevations, *, lunar_lambert_l=.5, dark_model=.35):
+    """Each frame's Lunar-Lambert shading on the DEM relative to its mean over frames, minus one, and where it is lit.
+
+    The prior for shape from shading (sfs_dem_prior): subtracted from the stack before the
+    solve (subtract_shading), it leaves the solver only the relief finer than the DEM.
+    Pixels the model puts near self-shadow (R below dark_model), or whose slope is unknown,
+    are not lit and stay uncorrected.
+    """
+    gr, gc = np.asarray(slope_row, float), np.asarray(slope_col, float)
+    known = np.isfinite(gr) & np.isfinite(gc)
+    gr, gc = np.where(known, gr, 0.), np.where(known, gc, 0.)
+    rho, lit = [], []
+    for a, e in zip(azimuths, elevations):
+        R = lunar_lambert(gr, gc, _sun_vector(a, e), lunar_lambert_l)[0]
+        rho.append(np.log(np.maximum(R, dark_model)))
+        lit.append(known & (R > dark_model))
+    rho = np.asarray(rho)
+    return np.exp(rho-rho.mean(axis=0))-1, np.asarray(lit)
+
+
+def subtract_shading(stack, valid, ratio, lit):
+    """stack minus its mean over frames times ratio, on lit pixels valid in every frame; elsewhere unchanged.
+
+    Subtracting, as the linearised solver corrects, leaves the noise as it was. Dividing by a
+    predicted shading below the frame mean would scale that frame's noise up.
+    """
+    stack = np.asarray(stack, float)
+    common = (np.asarray(valid, bool) & np.isfinite(stack)).all(axis=0)
+    mean = np.where(common, np.nan_to_num(stack).mean(axis=0), 0.)
+    return np.where(common[None] & np.asarray(lit, bool), stack-mean[None]*np.asarray(ratio, float), stack)
+
+
 def solve_sfs_nonlinear(stack, valid, azimuths, elevations, pixel_m, *, grid_px=1, smoothness=1.,
                         dark_ratio=.5, iterations=800, tolerance=1e-8, gauss_newton=6, shadow_sigma=3.,
                         dark_model=.35, lunar_lambert_l=.5, max_correction=2.):

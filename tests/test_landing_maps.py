@@ -383,6 +383,21 @@ class ReliefMapTests(unittest.TestCase):
                 self.assertGreater(float(np.nanmean(src.read(1))),0.)
             self.assertTrue((out/'relief_corrected_stack.npz').exists())
 
+    def test_dem_prior_is_recorded_and_changes_nothing_on_a_flat_dem(self):
+        from landing_maps import run
+        sweep,context,cfg=self.relief_inputs()
+        reports,stacks=[],[]
+        with tempfile.TemporaryDirectory() as tmp:
+            for prior in (False,True):
+                out=Path(tmp)/str(prior)
+                reports.append(run(sweep,context,out,cfg,ShadowConfig(registration_sigma_px=.25),
+                                   RegionalConfig(heights_m=(.3,),widths_m=(.6,)),.01,
+                                   relief=dict(model='linear',solver=dict(iterations=300),horizon_m=20.,dem_prior=prior)))
+                with np.load(out/'relief_corrected_stack.npz') as saved:
+                    stacks.append(saved['stack'])
+        self.assertEqual([r['relief']['dem_prior'] for r in reports],[False,True])
+        np.testing.assert_array_equal(stacks[0],stacks[1])        # a flat DEM has no shading to subtract
+
     def test_nonlinear_solver_reports_the_pixels_it_corrected(self):
         from src.hati_core.relief_terrain import solve_relief
         sweep,_,_=self.relief_inputs()

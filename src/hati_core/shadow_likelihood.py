@@ -105,16 +105,22 @@ class RegistrationProjector(NuisanceProjector):
     A small shift delta changes albedo by G*delta. With isotropic registration
     sigma s, spatial covariance in normalized noise units is I+s^2*G*G'/sigma^2.
     Two singular modes implement its inverse square root without a dense matrix.
-    Identical noise scales are required so whitening commutes with removal of
-    static albedo. This marginalizes a Gaussian displacement approximation;
-    it cannot repair wrong registration peaks or large nonlinear displacements.
+    This marginalizes a Gaussian displacement approximation; it cannot repair
+    wrong registration peaks or large nonlinear displacements.
+
+    Frames may carry different noise. The displacement covariance acts on the
+    two modes only, and the modes are orthogonal to the brightness planes, so
+    the whitened frame k scales mode i by 1/sqrt(1+(s*g_i/sigma_k)^2) and leaves
+    the rest of the patch at 1/sigma_k. The static albedo, seen through that
+    whitening, lies along the scale over sigma_k across frames in each mode and
+    along 1/sigma_k off the modes; projecting each separately is the exact
+    weighted projection. Equal noise keeps the original arithmetic.
     """
     def __init__(self,common,sigma,static_image,registration_sigma_px,*,albedo_gain=False,spatial_degree=1):
         super().__init__(common,sigma,spatial_degree=spatial_degree)
         if not np.isfinite(registration_sigma_px) or registration_sigma_px<0:
             raise ValueError('registration sigma must be finite and nonnegative')
-        if not np.allclose(self.sigma,self.sigma[0]):
-            raise ValueError('registration covariance currently requires equal frame noise')
+        self.equal = bool(np.allclose(self.sigma,self.sigma[0]))
         static = np.asarray(static_image,float)
         if static.shape != common.shape or not np.isfinite(static).all():
             raise ValueError('static covariance reference must be finite and match the patch')
@@ -128,14 +134,33 @@ class RegistrationProjector(NuisanceProjector):
             if norm>1e-10:
                 self.q=np.column_stack([self.q,texture/norm])
         gr,gc = np.gradient(ndi.gaussian_filter(static,.6))
-        g = np.stack([gr[common],gc[common]],axis=1)*registration_sigma_px/self.sigma[0]
-        g -= self.q@(self.q.T@g)
-        self.modes,singular,_ = np.linalg.svd(g,full_matrices=False)
-        self.attenuation = 1-1/np.sqrt(1+singular**2)
+        if self.equal:
+            g = np.stack([gr[common],gc[common]],axis=1)*registration_sigma_px/self.sigma[0]
+            g -= self.q@(self.q.T@g)
+            self.modes,singular,_ = np.linalg.svd(g,full_matrices=False)
+            self.attenuation = 1-1/np.sqrt(1+singular**2)
+        else:
+            g = np.stack([gr[common],gc[common]],axis=1)*registration_sigma_px
+            g -= self.q@(self.q.T@g)
+            self.modes,singular,_ = np.linalg.svd(g,full_matrices=False)
+            self.scale = 1/np.sqrt(1+(singular[None,:]/self.sigma[:,None])**2)        # frames x modes
+            v = self.scale/self.sigma[:,None]
+            self.static_modes = v/np.linalg.norm(v,axis=0)
 
     def apply(self,stack):
-        a = super().apply(stack)
-        return a-((a@self.modes)*self.attenuation)@self.modes.T
+        if self.equal:
+            a = super().apply(stack)
+            return a-((a@self.modes)*self.attenuation)@self.modes.T
+        a = np.asarray(stack,float)[...,self.common]/self.sigma[:,None]
+        if not np.isfinite(a).all():
+            raise ValueError("nonfinite sample on declared common support")
+        a = a-(a@self.q)@self.q.T                                    # brightness planes, per frame
+        m = a@self.modes                                             # the two displacement modes
+        rest = a-m@self.modes.T
+        rest = rest-self.u[:,None]*(self.u@rest)[...,None,:]         # static albedo off the modes
+        m = m*self.scale
+        m = m-self.static_modes*np.einsum('...km,km->...m',m,self.static_modes)[...,None,:]
+        return rest+m@self.modes.T
 
 
 def _terrain_length(terrain, root, direction, tan_e, height_m, pixel_m):

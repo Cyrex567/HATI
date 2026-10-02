@@ -609,6 +609,7 @@ const HatiStages = (() => {
     const nearest = real?.nearest_at_or_above_clearance;
     const m = r.measurable, cal = r.bound_calibration, ecal = r.estimate_calibration;
     const span = v => Array.isArray(v) ? `${fmt(v[0], 2)} to ${fmt(v[1], 2)} m` : '--';
+    const frames = r.noise_per_frame?.enabled ? r.noise_per_frame.per_frame_sigma : null;
     const kpis = [
       ...(m ? [{label: 'Measurable from', value: ok(m.measurable_from_m) ? `${fmt(m.measurable_from_m, 2)} m` : 'not yet established',
                 sub: `${pct(m.detection_target, 0)} of planted rocks found and ${pct(m.coverage_target, 0)} of their height bounds holding, at ${pct(m.confidence, 0)} confidence`,
@@ -630,8 +631,8 @@ const HatiStages = (() => {
                        : (pop.body || 'fixed heights')},
       {label: 'Shading explained', value: pct(sfs.explained_fraction), sub: `frame-to-frame ratio RMS ${fmt(sfs.ratio_rms_before, 3)} → ${fmt(sfs.ratio_rms_after, 3)}`},
       {label: 'Metre-scale slopes', value: `${fmt(sl.median, 1)}° median`, sub: `90th percentile ${fmt(sl.p90, 1)}° · ${pct(sl.fraction_above_limit)} above the ${fmt(sl.limit, 0)}° limit`},
-      {label: 'Noise after correction', value: fmt(rs.pooled_sigma, 4), sub: `${int(rs.patches)} patches · lag-1 ${fmt(rs.structure?.lag1_correlation, 2)}`},
-      {label: 'Warnings', value: `${pct(ex.before_assumed_sigma, 0)} → ${pct(ex.after_measured_sigma, 0)}`, sub: `before correction → after it, at the measured noise (${pct(ex.after_assumed_sigma, 0)} at the assumed)`},
+      {label: 'Noise after correction', value: fmt(rs.pooled_sigma, 4), sub: `${int(rs.patches)} patches · lag-1 ${fmt(rs.structure?.lag1_correlation, 2)}${frames ? ` · frames weighted by their own, ${fmt(Math.min(...frames), 3)} to ${fmt(Math.max(...frames), 3)}` : ''}`},
+      {label: 'Warnings', value: `${pct(ex.before_assumed_sigma, 0)} → ${pct(frames ? ex.after_frame_noise : ex.after_measured_sigma, 0)}`, sub: frames ? `before correction → after it, each frame at its own noise (${pct(ex.after_measured_sigma, 0)} at the pooled, ${pct(ex.after_assumed_sigma, 0)} at the assumed)` : `before correction → after it, at the measured noise (${pct(ex.after_assumed_sigma, 0)} at the assumed)`},
       ...(population
         ? [{label: 'Planted rocks found', value: of(found[0], found[1]), sub: 'all heights, after correction, at the measured noise, on quiet sites'},
            ...(bounded[1] ? [{label: 'Height bound holds', value: of(bounded[0], bounded[1]), sub: 'every planted rock against its own true height',
@@ -717,6 +718,20 @@ const HatiStages = (() => {
         rows: groupRows, format: v => int(v), labelW: 170,
         table: {head: ['Height', 'Real candidates', 'Planted rocks found at that height'],
                 rows: Object.entries(real.by_height_group || {}).map(([g, n]) => [g, int(n), of(rec[g]?.corrected_measured?.recovered, rec[g]?.corrected_measured?.quiet_sites)])}});
+    }
+    const bySlope = r.residual_by_slope;
+    if (bySlope?.after) {
+      const classes = Object.keys(bySlope.after);
+      const deg = x => Math.round(Math.atan(Number(x))*180/Math.PI);
+      const label = k => { const [lo, hi] = k.split('-'); return `${deg(lo)} to ${deg(hi)}°`; };
+      const prior = sfs.dem_prior ? 'DEM shading subtracted first, then shape from shading' : 'shape from shading';
+      charts.push({type: 'columns', title: 'Noise left by ground slope', subtitle: `Residual of the detector's null in 24 px patches, by DEM slope; after the correction (${prior})`,
+        groups: classes.map(k => ({label: label(k), sub: `${int(bySlope.after[k]?.patches)} patches`, values: [['before', 'Before'], ['after', 'After']].map(([w, name]) => ({
+          value: bySlope[w]?.[k]?.pooled_sigma, text: fmt(bySlope[w]?.[k]?.pooled_sigma, 3),
+          tip: `${label(k)}, ${name.toLowerCase()} the correction: ${fmt(bySlope[w]?.[k]?.pooled_sigma, 4)} over ${int(bySlope[w]?.[k]?.patches)} patches`}))})),
+        series: [{name: 'Before', color: C.other}, {name: 'After', color: C.s1}], legend: [{name: 'Before the correction', color: C.other}, {name: 'After it', color: C.s1}],
+        format: v => fmt(v, 2),
+        table: {head: ['DEM slope', 'Patches', 'Before', 'After'], rows: classes.map(k => [label(k), int(bySlope.after[k]?.patches), fmt(bySlope.before?.[k]?.pooled_sigma, 4), fmt(bySlope.after[k]?.pooled_sigma, 4)])}});
     }
     const pf = rs.per_frame_sigma || [];
     if (pf.length) charts.push({type: 'hbars', title: 'Noise in each frame after the correction', subtitle: 'The dashed line is the pooled value the detector uses',

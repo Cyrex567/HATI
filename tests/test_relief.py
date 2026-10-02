@@ -252,6 +252,48 @@ class CompetitionTests(unittest.TestCase):
         self.assertLessEqual(signs['bowl']['protrusion'], 10)
 
 
+class DemPriorTests(unittest.TestCase):
+    """The DEM's own shading, subtracted before shape from shading (sfs_dem_prior)."""
+
+    def test_flat_ground_has_no_shading_and_slopes_integrate_back(self):
+        from src.hati_core.sfs import dem_shading_ratio, integrate_slopes
+        flat = np.zeros((20, 30))
+        ratio, lit = dem_shading_ratio(flat, flat, AZ, EL)
+        np.testing.assert_allclose(ratio, 0., atol=1e-12)
+        self.assertTrue(lit.all())
+        rr, cc = np.indices((20, 30))*.9
+        h = .02*rr-.01*cc+.001*rr*cc
+        back = integrate_slopes(*np.gradient(h, .9), .9)
+        np.testing.assert_allclose(back, h-h.mean(), atol=1e-3)
+        unknown = np.gradient(h, .9)[0].copy(); unknown[3, 4] = np.nan     # unknown slopes are left out, not zeroed
+        self.assertTrue(np.isfinite(integrate_slopes(unknown, np.gradient(h, .9)[1], .9)).all())
+
+    def test_subtraction_removes_the_dem_shading_and_keeps_the_noise(self):
+        from src.hati_core.sfs import _sun_vector, dem_shading_ratio, lunar_lambert, subtract_shading
+        tilt, zero = np.full((16, 16), .02), np.zeros((16, 16))          # rising 1.1 degrees along rows
+        R = np.asarray([lunar_lambert(tilt, zero, _sun_vector(a, e))[0] for a, e in zip(AZ, EL)])
+        albedo = 1+.1*np.random.default_rng(0).random((16, 16))
+        stack = albedo*R/R.mean(axis=0)
+        valid = np.ones(stack.shape, bool)
+        ratio, lit = dem_shading_ratio(tilt, zero, AZ, EL)
+        flat = subtract_shading(stack, valid, ratio, lit)
+        self.assertLess(flat.std(axis=0).max(), .1*stack.std(axis=0).max())   # the frame-to-frame shading is gone
+        noise = np.random.default_rng(1).normal(0, .03, stack.shape)
+        kept = subtract_shading(stack+noise, valid, ratio, lit)-flat
+        self.assertAlmostEqual(kept.std(), noise.std(), delta=.1*noise.std())  # subtraction leaves the noise as it was
+        self.assertTrue(np.array_equal(subtract_shading(stack, valid, ratio, np.zeros_like(lit)), stack))
+
+    def test_residual_by_slope_groups_patches_by_dem_slope(self):
+        from src.hati_core.noise_scale import residual_by_slope
+        rng = np.random.default_rng(2)
+        stack = 1+rng.normal(0, .05, (8, 48, 96))
+        slope_row = np.zeros((48, 96)); slope_row[:, 48:] = .07                 # the right half is moderate ground
+        out = residual_by_slope(stack, np.ones(stack.shape), slope_row, np.zeros((48, 96)))
+        self.assertEqual({k: v['patches'] for k, v in out.items()}, {'0-0.05': 4, '0.05-0.1': 4, '0.1-0.25': 0})
+        self.assertAlmostEqual(out['0-0.05']['pooled_sigma'], .05, delta=.005)
+        self.assertIsNone(out['0.1-0.25']['pooled_sigma'])
+
+
 class ShapeFromShadingTests(unittest.TestCase):
     def test_solver_progress_is_display_only(self):
         stack = render_relief((40, 40), AZ, EL, pixel_m=.9, seed=4, noise=.01,
@@ -582,7 +624,7 @@ class ReliefCampaignTests(unittest.TestCase):
 
 
 class OriginalImageSizingTests(unittest.TestCase):
-    def test_t14_sizes_on_the_original_images(self):
+    def test_t14_sizes_on_the_original_images_with_the_dem_prior(self):
         from saturation_experiments import Experiment, t1, t14
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp); bundle = out/'input.zip'; relief_bundle(bundle, size=112)
@@ -591,7 +633,8 @@ class OriginalImageSizingTests(unittest.TestCase):
                                                       max_cells=2, workers=1)),
                        noise_scale=dict(patch_px=24, max_slope=.05), relief_supersample=2, sfs_injection_sites=2,
                        sfs_injection_spacing_px=20, planted_rock_prior=dict(height_m=[.2, 1.2]), planted_height_bins_m=[.2, .6, 1.2],
-                       sfs_sizing_images='original', sfs_sizing_adaptive=dict(context_guard=True, pad_edges=True))
+                       sfs_sizing_images='original', sfs_sizing_adaptive=dict(context_guard=True, pad_edges=True),
+                       sfs_dem_prior=True)
             config = out/'config.json'; config.write_text(json.dumps(cfg))
             def run(stage, fn):
                 args = Namespace(stage=stage, bundle=bundle, config=config, output=out/'stages'/stage,
@@ -606,6 +649,40 @@ class OriginalImageSizingTests(unittest.TestCase):
             self.assertEqual(sfs['bound_calibration']['kind'], 'offset')
             self.assertEqual(sfs['estimate_calibration']['kind'], 'conformal')
             self.assertIn('estimate_interval_holds', next(iter(sfs['measurable']['groups'].values())))
+            # The DEM prior ran, and the residual is reported by slope before and after the correction.
+            self.assertTrue(sfs['sfs']['dem_prior'])
+            self.assertEqual(set(sfs['residual_by_slope']), {'before', 'after'})
+            self.assertEqual(set(sfs['residual_by_slope']['after']), {'0-0.05', '0.05-0.1', '0.1-0.25'})
+
+
+class FrameNoiseCampaignTests(unittest.TestCase):
+    def test_t14_weights_frames_by_their_own_noise(self):
+        from saturation_experiments import Experiment, t1, t14
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp); bundle = out/'input.zip'; relief_bundle(bundle, size=112)
+            cfg = json.loads((ROOT/'configs/saturation_campaign.json').read_text())
+            cfg.update(adaptive=asdict(AdaptiveConfig(scale_factors=(1, 2), heights_m=(.2, .4, .6), widths_m=(.3, .6, .9),
+                                                      max_cells=2, workers=1)),
+                       noise_scale=dict(patch_px=24, max_slope=.05), relief_supersample=2, sfs_injection_sites=2,
+                       sfs_injection_spacing_px=20, planted_rock_prior=dict(height_m=[.2, 1.2]), planted_height_bins_m=[.2, .6, 1.2],
+                       noise_per_frame=True, sfs_sizing_subgrid=True)
+            config = out/'config.json'; config.write_text(json.dumps(cfg))
+            def run(stage, fn):
+                args = Namespace(stage=stage, bundle=bundle, config=config, output=out/'stages'/stage,
+                                 campaign=out, dem=None, thermal=None, held_out=None, rock_catalog=None)
+                with patch('subprocess.run', side_effect=AssertionError('external ingestion forbidden')):
+                    return fn(Experiment(args))
+            run('T1', t1)
+            sfs = run('T14', t14)
+            self.assertEqual(sfs['status'], 'PARTIAL')
+            frames = sfs['noise_per_frame']
+            self.assertTrue(frames['enabled'])
+            self.assertEqual(len(frames['per_frame_sigma']), 8)
+            self.assertTrue(all(v > 0 for v in frames['per_frame_sigma']))
+            self.assertIn('after_frame_noise', sfs['exceedance'])
+            self.assertTrue((out/'stages/T14/relief_corrected_frames/regional.npz').exists())
+            injected = json.loads((out/'stages/T14/injection.json').read_text())
+            self.assertTrue(all('score_corrected_injected_frames' in r for r in injected))
 
 
 if __name__ == '__main__':
